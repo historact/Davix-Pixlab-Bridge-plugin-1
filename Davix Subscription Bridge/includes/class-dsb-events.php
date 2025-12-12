@@ -54,6 +54,13 @@ class DSB_Events {
         }
         $subscription_id = $this->find_subscription_id_for_order( $order );
         if ( ! $subscription_id ) {
+            $this->db->log_event(
+                [
+                    'event'         => 'subscription_missing',
+                    'order_id'      => $order->get_id(),
+                    'error_excerpt' => __( 'Subscription ID missing; event skipped.', 'davix-sub-bridge' ),
+                ]
+            );
             return;
         }
         $event = $this->map_status_to_event( $new_status );
@@ -89,7 +96,7 @@ class DSB_Events {
     }
 
     protected function plan_exists( string $plan_slug, array $plans ): bool {
-        return in_array( $plan_slug, $plans, true ) || isset( $plans[ $plan_slug ] );
+        return in_array( $plan_slug, array_values( $plans ), true );
     }
 
     protected function map_status_to_event( string $status ): ?string {
@@ -146,7 +153,18 @@ class DSB_Events {
         $plan_slug = '';
         $customer_email = '';
         $order_id = '';
-        $product_id = '';
+        $product_id = 0;
+
+        if ( '' === $subscription_id ) {
+            $this->db->log_event(
+                [
+                    'event'         => 'subscription_missing',
+                    'order_id'      => $order ? $order->get_id() : '',
+                    'error_excerpt' => __( 'Subscription ID missing; event skipped.', 'davix-sub-bridge' ),
+                ]
+            );
+            return null;
+        }
 
         if ( $order ) {
             $customer_email = $order->get_billing_email();
@@ -168,28 +186,39 @@ class DSB_Events {
         }
 
         $plans = $this->client->get_product_plans();
-        if ( $product_id ) {
-            if ( isset( $plans[ $product_id ] ) ) {
-                $plan_slug = $plans[ $product_id ];
-            } else {
-                $this->db->log_event(
-                    [
-                        'event'           => 'plan_missing',
-                        'order_id'        => $order_id,
-                        'subscription_id' => $subscription_id,
-                        'customer_email'  => $customer_email,
-                        'error_excerpt'   => __( 'No plan mapping found for product.', 'davix-sub-bridge' ),
-                    ]
-                );
-                return null;
-            }
+        if ( $product_id && isset( $plans[ $product_id ] ) ) {
+            $plan_slug = $plans[ $product_id ];
         }
 
         if ( ! $plan_slug && $subscription_id ) {
-            $plan_slug = get_post_meta( $subscription_id, 'wps_sfw_plan_slug', true );
+            $plan_slug = get_post_meta( $subscription_id, '_dsb_plan_slug', true );
+            if ( ! $plan_slug ) {
+                $plan_slug = get_post_meta( $subscription_id, 'wps_sfw_plan_slug', true );
+            }
         }
 
-        if ( ! $customer_email || ! $plan_slug ) {
+        if ( ! $plan_slug && $product_id ) {
+            $this->db->log_event(
+                [
+                    'event'           => 'plan_missing',
+                    'order_id'        => $order_id,
+                    'subscription_id' => $subscription_id,
+                    'customer_email'  => $customer_email,
+                    'error_excerpt'   => __( 'No plan mapping found for product.', 'davix-sub-bridge' ),
+                ]
+            );
+            return null;
+        }
+
+        if ( ! $customer_email ) {
+            $this->db->log_event(
+                [
+                    'event'           => 'customer_missing',
+                    'order_id'        => $order_id,
+                    'subscription_id' => $subscription_id,
+                    'error_excerpt'   => __( 'Customer email missing; event skipped.', 'davix-sub-bridge' ),
+                ]
+            );
             return null;
         }
 
