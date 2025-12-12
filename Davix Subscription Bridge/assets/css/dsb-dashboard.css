@@ -1,0 +1,255 @@
+.dsb-dashboard {
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 12px 24px rgba(0,0,0,0.4);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.dsb-dashboard__message {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 16px;
+    border-radius: 8px;
+}
+
+.dsb-dashboard__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 24px;
+}
+
+.dsb-dashboard__eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+    font-size: 12px;
+    margin: 0 0 4px;
+}
+
+.dsb-dashboard__plan-name {
+    margin: 0;
+    color: #f8fafc;
+    font-size: 24px;
+}
+
+.dsb-dashboard__plan-meta,
+.dsb-dashboard__billing {
+    margin: 4px 0;
+    color: #cbd5e1;
+}
+
+.dsb-dashboard__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.dsb-card {
+    background: #0b1220;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.dsb-card__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.dsb-card__row label {
+    display: block;
+    color: #94a3b8;
+    margin-bottom: 6px;
+    font-size: 13px;
+}
+
+.dsb-card__input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.dsb-card__input {
+    flex: 1;
+    background: #0f172a;
+    border: 1px solid #1f2a3d;
+    color: #e2e8f0;
+    padding: 10px 12px;
+    border-radius: 8px;
+}
+
+.dsb-card__hint {
+    color: #94a3b8;
+    font-size: 12px;
+    margin-top: 6px;
+}
+
+.dsb-card__actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+.dsb-button {
+    background: #0ea5e9;
+    border: none;
+    color: #0b1220;
+    padding: 10px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.dsb-button--ghost {
+    background: #0f172a;
+    color: #e2e8f0;
+    border: 1px solid #1f2a3d;
+}
+
+.dsb-button--outline {
+    background: transparent;
+    color: #e2e8f0;
+    border: 1px solid #334155;
+}
+
+.dsb-button.is-active {
+    border-color: #0ea5e9;
+    color: #0ea5e9;
+}
+
+.dsb-status {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    background: #1f2937;
+    color: #e2e8f0;
+}
+
+.dsb-progress {
+    margin-top: 4px;
+}
+
+.dsb-progress__labels {
+    display: flex;
+    justify-content: space-between;
+    color: #cbd5e1;
+    margin-bottom: 6px;
+}
+
+.dsb-progress__track {
+    background: #111827;
+    border-radius: 8px;
+    height: 10px;
+    overflow: hidden;
+}
+
+.dsb-progress__bar {
+    background: linear-gradient(90deg, #0ea5e9, #22c55e);
+    height: 100%;
+    width: 0;
+    transition: width 0.3s ease;
+}
+
+.dsb-card__window {
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+.dsb-card--chart {
+    margin-bottom: 16px;
+}
+
+.dsb-filter {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.dsb-chart {
+    margin-top: 8px;
+}
+
+.dsb-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+    color: #cbd5e1;
+    font-size: 13px;
+}
+
+.dsb-legend__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dsb-legend__swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    display: inline-block;
+}
+
+.dsb-endpoints {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.dsb-card__eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #94a3b8;
+    font-size: 12px;
+    margin: 0 0 4px;
+}
+
+.dsb-card--endpoint h4 {
+    margin: 0;
+    font-size: 20px;
+    color: #e2e8f0;
+}
+
+.dsb-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+.dsb-modal__content {
+    background: #0b1220;
+    border: 1px solid #1e293b;
+    padding: 24px;
+    border-radius: 12px;
+    width: min(480px, 90%);
+    color: #e2e8f0;
+}
+
+.dsb-modal__message {
+    color: #cbd5e1;
+}
+
+@media (max-width: 640px) {
+    .dsb-dashboard__header {
+        flex-direction: column;
+        gap: 8px;
+    }
+    .dsb-dashboard {
+        padding: 16px;
+    }
+}

@@ -10,6 +10,8 @@ class DSB_Plugin {
     protected $admin;
     protected $events;
     protected $shortcode;
+    protected $shortcode_dashboard;
+    protected $dashboard_ajax;
 
     public static function instance(): self {
         if ( ! self::$instance ) {
@@ -54,6 +56,8 @@ class DSB_Plugin {
         $this->events    = new DSB_Events( $this->client, $this->db );
         $this->admin     = new DSB_Admin( $this->client, $this->db, $this->events );
         $this->shortcode = new DSB_Shortcode( $this->client );
+        $this->shortcode_dashboard = new DSB_Shortcode_Dashboard( $this->client );
+        $this->dashboard_ajax      = new DSB_Dashboard_Ajax( $this->client );
 
         add_action( 'init', [ $this, 'init' ] );
     }
@@ -63,6 +67,8 @@ class DSB_Plugin {
         $this->admin->init();
         $this->events->init();
         $this->shortcode->init();
+        $this->shortcode_dashboard->init();
+        $this->dashboard_ajax->init();
     }
 
     public function dependency_notice(): void {
