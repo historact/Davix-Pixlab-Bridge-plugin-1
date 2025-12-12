@@ -246,6 +246,54 @@ class DSB_Client {
         return $this->request( 'internal/admin/key/rotate', 'POST', $payload );
     }
 
+    public function user_summary( array $identity ): array {
+        $response = $this->request( 'internal/user/summary', 'POST', $identity );
+        return $this->prepare_response( $response );
+    }
+
+    public function user_usage( array $identity, string $range, array $opts = [] ): array {
+        $payload  = array_merge( $identity, [ 'range' => $range ], $opts );
+        $response = $this->request( 'internal/user/usage', 'POST', $payload );
+        return $this->prepare_response( $response );
+    }
+
+    public function user_rotate( array $identity ): array {
+        $response = $this->request( 'internal/user/key/rotate', 'POST', $identity );
+        return $this->prepare_response( $response );
+    }
+
+    public function user_toggle( array $identity, string $action ): array {
+        $payload  = array_merge( $identity, [ 'action' => $action ] );
+        $response = $this->request( 'internal/user/key/toggle', 'POST', $payload );
+        return $this->prepare_response( $response );
+    }
+
+    public function fetch_user_summary( array $payload ): array {
+        $response = $this->request( 'internal/user/summary', 'POST', $payload );
+        $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
+        $decoded  = $body ? json_decode( $body, true ) : null;
+        $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+
+        return [
+            'response' => $response,
+            'decoded'  => $decoded,
+            'code'     => $code,
+        ];
+    }
+
+    public function rotate_user_key( array $payload ): array {
+        $response = $this->request( 'internal/user/key/rotate', 'POST', $payload );
+        $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
+        $decoded  = $body ? json_decode( $body, true ) : null;
+        $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+
+        return [
+            'response' => $response,
+            'decoded'  => $decoded,
+            'code'     => $code,
+        ];
+    }
+
     public function fetch_plans() {
         return $this->request( 'internal/admin/plans', 'GET' );
     }
@@ -256,5 +304,17 @@ class DSB_Client {
 
     public function save_plan_sync_status( array $status ): void {
         update_option( self::OPTION_PLAN_SYNC, $status );
+    }
+
+    protected function prepare_response( $response ): array {
+        $body    = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
+        $decoded = $body ? json_decode( $body, true ) : null;
+        $code    = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+
+        return [
+            'response' => $response,
+            'decoded'  => $decoded,
+            'code'     => $code,
+        ];
     }
 }
