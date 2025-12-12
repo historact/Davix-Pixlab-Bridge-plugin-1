@@ -32,3 +32,4 @@ The plugin stores the last 200 events in the `wp_davix_bridge_logs` table when l
 * New admin UI tabs for settings, plan mapping, keys, and logs.
 * Safer option handling, PHP 8.2 compatibility, and clearer plan mapping validation.
 * Added checkout + renewal/cancel/expire hooks required by WPSwings and WooCommerce fallbacks.
+* Added plan sync button to push subscription products to Node and a searchable manual key provision UI (customers, subscriptions, orders, plans).

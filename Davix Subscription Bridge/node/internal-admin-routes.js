@@ -53,4 +53,11 @@ router.get('/internal/admin/plans', async (req, res) => {
   res.json({ status: 'ok', items: plans });
 });
 
+router.post('/internal/wp-sync/plan', async (req, res) => {
+  const pool = res.app.get('db');
+  const payload = req.body || {};
+  const result = await pool.plans.upsertFromWp ? pool.plans.upsertFromWp(payload) : pool.plans.upsert(payload);
+  res.json({ status: 'ok', action: result && result.action ? result.action : 'upserted', plan_slug: payload.plan_slug });
+});
+
 module.exports = router;

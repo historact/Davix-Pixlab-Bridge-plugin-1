@@ -6,6 +6,8 @@ defined( 'ABSPATH' ) || exit;
 class DSB_Client {
     const OPTION_SETTINGS      = 'dsb_settings';
     const OPTION_PRODUCT_PLANS = 'dsb_product_plans';
+    const OPTION_PLAN_PRODUCTS = 'dsb_plan_products';
+    const OPTION_PLAN_SYNC     = 'dsb_plan_sync';
 
     protected $db;
 
@@ -29,6 +31,22 @@ class DSB_Client {
         return isset( $plans ) && is_array( $plans ) ? array_map( 'sanitize_text_field', $plans ) : [];
     }
 
+    public function get_plan_products(): array {
+        $products = get_option( self::OPTION_PLAN_PRODUCTS, [] );
+        if ( ! is_array( $products ) ) {
+            return [];
+        }
+        return array_values( array_filter( array_map( 'absint', $products ) ) );
+    }
+
+    public function get_plan_sync_status(): array {
+        $status = get_option( self::OPTION_PLAN_SYNC, [] );
+        if ( ! is_array( $status ) ) {
+            return [];
+        }
+        return $status;
+    }
+
     public function save_settings( array $data ): void {
         $clean = [
             'node_base_url' => esc_url_raw( $data['node_base_url'] ?? '' ),
@@ -49,8 +67,12 @@ class DSB_Client {
             }
         ) : $existing_plans;
 
+        $plan_products = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : [];
+        $plan_products = array_filter( array_map( 'absint', $plan_products ) );
+
         update_option( self::OPTION_SETTINGS, $clean );
         update_option( self::OPTION_PRODUCT_PLANS, $plans );
+        update_option( self::OPTION_PLAN_PRODUCTS, $plan_products );
         update_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL, $clean['delete_data'] );
     }
 
@@ -190,5 +212,13 @@ class DSB_Client {
 
     public function fetch_plans() {
         return $this->request( 'internal/admin/plans', 'GET' );
+    }
+
+    public function sync_plan( array $payload ) {
+        return $this->request( 'internal/wp-sync/plan', 'POST', $payload );
+    }
+
+    public function save_plan_sync_status( array $status ): void {
+        update_option( self::OPTION_PLAN_SYNC, $status );
     }
 }
