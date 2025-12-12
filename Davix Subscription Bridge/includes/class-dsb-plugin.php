@@ -9,8 +9,7 @@ class DSB_Plugin {
     protected $client;
     protected $admin;
     protected $events;
-    protected $shortcode;
-    protected $shortcode_dashboard;
+    protected $dashboard;
     protected $dashboard_ajax;
 
     public static function instance(): self {
@@ -54,10 +53,9 @@ class DSB_Plugin {
         $this->db        = new DSB_DB( $GLOBALS['wpdb'] );
         $this->client    = new DSB_Client( $this->db );
         $this->events    = new DSB_Events( $this->client, $this->db );
-        $this->admin     = new DSB_Admin( $this->client, $this->db, $this->events );
-        $this->shortcode = new DSB_Shortcode( $this->client );
-        $this->shortcode_dashboard = new DSB_Shortcode_Dashboard( $this->client );
-        $this->dashboard_ajax      = new DSB_Dashboard_Ajax( $this->client );
+        $this->admin           = new DSB_Admin( $this->client, $this->db, $this->events );
+        $this->dashboard       = new DSB_Dashboard( $this->client );
+        $this->dashboard_ajax  = new DSB_Dashboard_Ajax( $this->client );
 
         add_action( 'init', [ $this, 'init' ] );
     }
@@ -66,8 +64,7 @@ class DSB_Plugin {
         load_plugin_textdomain( 'davix-sub-bridge', false, dirname( plugin_basename( DSB_PLUGIN_FILE ) ) . '/languages' );
         $this->admin->init();
         $this->events->init();
-        $this->shortcode->init();
-        $this->shortcode_dashboard->init();
+        $this->dashboard->init();
         $this->dashboard_ajax->init();
     }
 

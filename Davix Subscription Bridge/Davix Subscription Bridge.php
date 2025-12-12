@@ -24,8 +24,7 @@ require_once __DIR__ . '/includes/class-dsb-client.php';
 require_once __DIR__ . '/includes/class-dsb-admin.php';
 require_once __DIR__ . '/includes/class-dsb-events.php';
 require_once __DIR__ . '/includes/class-dsb-keys-table.php';
-require_once __DIR__ . '/includes/class-dsb-shortcode.php';
-require_once __DIR__ . '/includes/class-dsb-shortcode-dashboard.php';
+require_once __DIR__ . '/includes/class-dsb-dashboard.php';
 require_once __DIR__ . '/includes/class-dsb-dashboard-ajax.php';
 require_once __DIR__ . '/includes/class-dsb-plugin.php';
 
