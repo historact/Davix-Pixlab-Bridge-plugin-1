@@ -298,6 +298,7 @@ class DSB_Admin {
                 'bridge_token'  => $settings['bridge_token'],
                 'enable_logging'=> $settings['enable_logging'],
                 'delete_data'   => $settings['delete_data'],
+                'allow_provision_without_refs' => $settings['allow_provision_without_refs'],
                 'plan_products' => $this->client->get_plan_products(),
             ] );
             $this->add_notice( __( 'Plan mappings saved.', 'davix-sub-bridge' ) );
@@ -333,18 +334,37 @@ class DSB_Admin {
             $subscriptionId = isset( $_POST['subscription_id'] ) ? sanitize_text_field( wp_unslash( $_POST['subscription_id'] ) ) : '';
             $order_id       = isset( $_POST['order_id'] ) ? sanitize_text_field( wp_unslash( $_POST['order_id'] ) ) : '';
 
-            if ( ! $email || ! $plan_slug || ( '' === $subscriptionId && '' === $order_id ) ) {
-                $this->add_notice( __( 'Customer, plan, and subscription or order are required.', 'davix-sub-bridge' ), 'error' );
+            $settings = $this->client->get_settings();
+
+            if ( ! $email || ! $plan_slug ) {
+                $this->add_notice( __( 'Customer and plan are required.', 'davix-sub-bridge' ), 'error' );
                 return;
             }
-            $response       = $this->client->provision_key(
-                [
-                    'customer_email'  => $email,
-                    'plan_slug'       => $plan_slug,
-                    'subscription_id' => $subscriptionId,
-                    'order_id'        => $order_id,
-                ]
-            );
+
+            $allow_without_refs = ! empty( $settings['allow_provision_without_refs'] );
+            // Manual provisioning scenarios:
+            // 1) customer + plan + order (subscription empty)
+            // 2) customer + plan + subscription (order empty)
+            // 3) customer + plan only (allowed when setting is enabled)
+            if ( ! $allow_without_refs && '' === $subscriptionId && '' === $order_id ) {
+                $this->add_notice( __( 'Please provide a subscription or order, or enable provisioning without references in settings.', 'davix-sub-bridge' ), 'error' );
+                return;
+            }
+
+            $payload = [
+                'customer_email' => $email,
+                'plan_slug'      => $plan_slug,
+            ];
+
+            if ( '' !== $subscriptionId ) {
+                $payload['subscription_id'] = $subscriptionId;
+            }
+
+            if ( '' !== $order_id ) {
+                $payload['order_id'] = $order_id;
+            }
+
+            $response = $this->client->provision_key( $payload );
             $this->handle_key_response( $response, __( 'Provisioned', 'davix-sub-bridge' ) );
         }
 
@@ -460,6 +480,10 @@ class DSB_Admin {
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Delete data on uninstall', 'davix-sub-bridge' ); ?></th>
                     <td><label><input type="checkbox" name="delete_data" value="1" <?php checked( $settings['delete_data'], 1 ); ?> /> <?php esc_html_e( 'Drop plugin tables/options on uninstall', 'davix-sub-bridge' ); ?></label></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Allow manual provisioning without Subscription/Order', 'davix-sub-bridge' ); ?></th>
+                    <td><label><input type="checkbox" name="allow_provision_without_refs" value="1" <?php checked( $settings['allow_provision_without_refs'], 1 ); ?> /> <?php esc_html_e( 'Permit manual keys without linking to a subscription or order.', 'davix-sub-bridge' ); ?></label></td>
                 </tr>
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Plan products', 'davix-sub-bridge' ); ?></th>
@@ -953,7 +977,7 @@ class DSB_Admin {
                 </tr>
                 <tr>
                     <th><?php esc_html_e( 'Subscription', 'davix-sub-bridge' ); ?></th>
-                    <td><select id="dsb-subscription" name="subscription_id" class="dsb-select-ajax" data-action="dsb_search_subscriptions" data-placeholder="<?php esc_attr_e( 'Search subscriptions', 'davix-sub-bridge' ); ?>" style="width:300px" required></select></td>
+                    <td><select id="dsb-subscription" name="subscription_id" class="dsb-select-ajax" data-action="dsb_search_subscriptions" data-placeholder="<?php esc_attr_e( 'Search subscriptions', 'davix-sub-bridge' ); ?>" style="width:300px"></select></td>
                 </tr>
                 <tr>
                     <th><?php esc_html_e( 'Order', 'davix-sub-bridge' ); ?></th>
