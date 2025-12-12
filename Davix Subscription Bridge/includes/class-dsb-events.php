@@ -111,7 +111,7 @@ class DSB_Events {
         }
     }
 
-    public function build_payload( string $subscription_id, string $event, \WC_Order $order = null ): ?array {
+    public function build_payload( string $subscription_id, string $event, ?\WC_Order $order = null ): ?array {
         $settings = $this->client->get_settings();
         $plan_slug = '';
         $customer_email = '';
