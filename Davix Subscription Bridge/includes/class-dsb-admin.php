@@ -218,17 +218,13 @@ class DSB_Admin {
         }
     }
 
-    protected function add_notice( string $message, string $type = 'success' ): void {
-        $this->notices[] = [
-            'message' => $message,
-            'type'    => $type,
-        ];
-    }
-
-    public function handle_actions(): void {
+    public function render_page(): void {
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
+
+        // Ensure any posted actions are processed before rendering the page.
+        $this->handle_actions();
 
         $tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'settings';
 
