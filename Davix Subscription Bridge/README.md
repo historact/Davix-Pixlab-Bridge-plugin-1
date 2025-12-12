@@ -11,18 +11,20 @@ A production-focused bridge between WooCommerce + WPSwings **Subscriptions for W
 ## Installation
 1. Upload the plugin folder to `wp-content/plugins/davix-subscription-bridge/`.
 2. Activate in **Plugins**. If dependencies are missing the plugin will show an admin notice and deactivate.
-3. In **Davix Bridge → Settings** configure the Node base URL and bridge token. Optional: choose plan mapping mode and resync existing subscriptions.
+3. In **Davix Bridge → Settings** configure the Node base URL and bridge token. Enable logging if desired.
+4. Under **Plan Mapping**, map WooCommerce product IDs (or variations) to Pixlab `plan_slug` values.
+5. Click **Test Connection**, then place a subscription order to verify the flow.
 
 ## Database tables
 Created on activation:
-- `wp_davix_bridge_logs` – last 200 bridge events.
+- `wp_davix_bridge_logs` – last 200 bridge events (when logging is enabled).
 - `wp_davix_bridge_keys` – mirrored key metadata (prefix/last4 only).
 
 ## How it works
-- Listens to WPSwings subscription status hooks (`wps_sfw_subscription_status_updated`, `wps_sfw_subscription_status_changed`) and the `transition_post_status` fallback for the `wps_subscriptions` post type. Also watches WooCommerce order status changes containing the `wps_sfw_subscription_id` meta for renewals.
-- Maps subscription status to Davix events (`activated`, `renewed`, `cancelled`, `expired`, `payment_failed`, `paused`, `disabled`).
-- Resolves customer email and plan slug from the subscription/order context, then calls the Node endpoint `/internal/subscription/event` with the configured token. Responses update the mirrored key table without storing plaintext keys.
-- Admin UI provides settings, key management (activate, deactivate, regenerate, manual create), log viewing, CSV export, test connection, and a full resync utility.
+- Hooks WPSwings subscription lifecycle events: `wps_sfw_after_renewal_payment`, `wps_sfw_expire_subscription_scheduler`, and `wps_sfw_subscription_cancel`, plus WooCommerce fallbacks (`woocommerce_checkout_order_processed`, `woocommerce_order_status_changed`).
+- Derives `plan_slug` from the configured product → plan mapping. If no mapping exists for a subscription line item, the event is skipped and logged for review.
+- Sends events to `/internal/subscription/event` using the configured `x-davix-bridge-token` header with a 15s timeout. Responses update the mirrored key metadata without storing plaintext keys.
+- Admin UI exposes Settings, Plan Mapping, Keys (list/disable/rotate/provision via new Node admin endpoints), and Logs tabs.
 
 ## Uninstall
 If **Delete data on uninstall** is checked in settings, removing the plugin will drop the custom tables and options via `uninstall.php`.
