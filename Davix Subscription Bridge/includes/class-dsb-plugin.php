@@ -9,6 +9,7 @@ class DSB_Plugin {
     protected $client;
     protected $admin;
     protected $events;
+    protected $shortcode;
 
     public static function instance(): self {
         if ( ! self::$instance ) {
@@ -48,10 +49,11 @@ class DSB_Plugin {
             return;
         }
 
-        $this->db     = new DSB_DB( $GLOBALS['wpdb'] );
-        $this->client = new DSB_Client( $this->db );
-        $this->events = new DSB_Events( $this->client, $this->db );
-        $this->admin  = new DSB_Admin( $this->client, $this->db, $this->events );
+        $this->db        = new DSB_DB( $GLOBALS['wpdb'] );
+        $this->client    = new DSB_Client( $this->db );
+        $this->events    = new DSB_Events( $this->client, $this->db );
+        $this->admin     = new DSB_Admin( $this->client, $this->db, $this->events );
+        $this->shortcode = new DSB_Shortcode( $this->client );
 
         add_action( 'init', [ $this, 'init' ] );
     }
@@ -60,6 +62,7 @@ class DSB_Plugin {
         load_plugin_textdomain( 'davix-sub-bridge', false, dirname( plugin_basename( DSB_PLUGIN_FILE ) ) . '/languages' );
         $this->admin->init();
         $this->events->init();
+        $this->shortcode->init();
     }
 
     public function dependency_notice(): void {

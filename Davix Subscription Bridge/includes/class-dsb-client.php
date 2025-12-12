@@ -246,6 +246,32 @@ class DSB_Client {
         return $this->request( 'internal/admin/key/rotate', 'POST', $payload );
     }
 
+    public function fetch_user_summary( array $payload ): array {
+        $response = $this->request( 'internal/user/summary', 'POST', $payload );
+        $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
+        $decoded  = $body ? json_decode( $body, true ) : null;
+        $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+
+        return [
+            'response' => $response,
+            'decoded'  => $decoded,
+            'code'     => $code,
+        ];
+    }
+
+    public function rotate_user_key( array $payload ): array {
+        $response = $this->request( 'internal/user/key/rotate', 'POST', $payload );
+        $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
+        $decoded  = $body ? json_decode( $body, true ) : null;
+        $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+
+        return [
+            'response' => $response,
+            'decoded'  => $decoded,
+            'code'     => $code,
+        ];
+    }
+
     public function fetch_plans() {
         return $this->request( 'internal/admin/plans', 'GET' );
     }
