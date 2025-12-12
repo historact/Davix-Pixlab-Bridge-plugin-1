@@ -22,11 +22,10 @@ class DSB_Dashboard {
         }
 
         $this->enqueue_assets();
-        $nonce = wp_create_nonce( 'dsb_pixlab_dashboard' );
 
         ob_start();
         ?>
-        <div class="dsb-dashboard" data-nonce="<?php echo esc_attr( $nonce ); ?>">
+        <div class="dsb-dashboard">
             <div class="dsb-dashboard__header">
                 <div>
                     <p class="dsb-dashboard__eyebrow"><?php esc_html_e( 'Current Plan', 'davix-sub-bridge' ); ?></p>
@@ -109,8 +108,9 @@ class DSB_Dashboard {
                 </div>
             </div>
 
-            <div class="dsb-modal" data-modal hidden>
-                <div class="dsb-modal__content">
+            <div class="dsb-modal" data-modal aria-hidden="true">
+                <div class="dsb-modal__overlay" data-modal-overlay></div>
+                <div class="dsb-modal__content" role="dialog" aria-modal="true" aria-label="<?php esc_attr_e( 'Your new API key', 'davix-sub-bridge' ); ?>">
                     <h3><?php esc_html_e( 'Your new API key', 'davix-sub-bridge' ); ?></h3>
                     <p class="dsb-modal__message" data-modal-message></p>
                     <div class="dsb-card__input-row">
@@ -174,7 +174,7 @@ class DSB_Dashboard {
             'dsbDashboardData',
             [
                 'ajaxUrl'      => admin_url( 'admin-ajax.php' ),
-                'nonce'        => wp_create_nonce( 'dsb_pixlab_dashboard' ),
+                'nonce'        => wp_create_nonce( 'dsb_dashboard_nonce' ),
                 'defaultRange' => 'daily',
                 'strings'      => [
                     'loading'       => __( 'Loading…', 'davix-sub-bridge' ),
@@ -185,6 +185,10 @@ class DSB_Dashboard {
                     'rotateError'   => __( 'Unable to regenerate key.', 'davix-sub-bridge' ),
                     'shownOnce'     => __( 'Shown once — copy it now.', 'davix-sub-bridge' ),
                     'usageError'    => __( 'Unable to load usage.', 'davix-sub-bridge' ),
+                    'toggleOn'      => __( 'Enable Key', 'davix-sub-bridge' ),
+                    'toggleOff'     => __( 'Disable Key', 'davix-sub-bridge' ),
+                    'toggleError'   => __( 'Unable to update key.', 'davix-sub-bridge' ),
+                    'toastSuccess'  => __( 'Updated', 'davix-sub-bridge' ),
                 ],
                 'colors'       => [
                     'h2i'   => '#0ea5e9',

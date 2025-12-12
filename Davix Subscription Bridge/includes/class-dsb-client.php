@@ -131,10 +131,7 @@ class DSB_Client {
             return new \WP_Error( 'dsb_missing_token', __( 'Bridge token missing', 'davix-sub-bridge' ) );
         }
 
-        $url = trailingslashit( $settings['node_base_url'] ) . ltrim( $path, '/' );
-        if ( $query ) {
-            $url = add_query_arg( $query, $url );
-        }
+        $url = $this->build_url( $path, $query );
 
         $args = [
             'timeout' => 15,
@@ -144,16 +141,40 @@ class DSB_Client {
         ];
 
         if ( 'POST' === strtoupper( $method ) ) {
-            $args['body']             = wp_json_encode( $body );
+            $args['body']                    = wp_json_encode( $body );
             $args['headers']['Content-Type'] = 'application/json';
         }
 
         $response = 'POST' === strtoupper( $method ) ? wp_remote_post( $url, $args ) : wp_remote_get( $url, $args );
+        if ( is_array( $response ) ) {
+            $response['__dsb_request_url']    = $url;
+            $response['__dsb_request_method'] = strtoupper( $method );
+        }
         return $response;
     }
 
+    protected function build_url( string $path, array $query = [] ): string {
+        $settings = $this->get_settings();
+        $base     = isset( $settings['node_base_url'] ) ? rtrim( (string) $settings['node_base_url'], '/' ) : '';
+        $url      = $base . '/' . ltrim( $path, '/' );
+
+        if ( $query ) {
+            $url = add_query_arg( $query, $url );
+        }
+
+        return $url;
+    }
+
+    protected function post_internal( string $path, array $body = [] ): array {
+        $response = $this->request( $path, 'POST', $body );
+        $result   = $this->prepare_response( $response );
+        $result['url']    = is_array( $response ) && isset( $response['__dsb_request_url'] ) ? $response['__dsb_request_url'] : $this->build_url( $path );
+        $result['method'] = 'POST';
+        return $result;
+    }
+
     public function send_event( array $payload ): array {
-        $response = $this->request( 'internal/subscription/event', 'POST', $payload );
+        $response = $this->request( '/internal/subscription/event', 'POST', $payload );
         $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
         $decoded  = $body ? json_decode( $body, true ) : null;
         $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
@@ -210,7 +231,7 @@ class DSB_Client {
     }
 
     public function test_connection(): array {
-        $response = $this->request( 'internal/subscription/debug', 'GET' );
+        $response = $this->request( '/internal/subscription/debug', 'GET' );
         $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
         $decoded  = ! is_wp_error( $response ) ? json_decode( wp_remote_retrieve_body( $response ), true ) : null;
 
@@ -223,7 +244,7 @@ class DSB_Client {
 
     public function fetch_keys( int $page = 1, int $per_page = 20, string $search = '' ) {
         return $this->request(
-            'internal/admin/keys',
+            '/internal/admin/keys',
             'GET',
             [],
             [
@@ -235,88 +256,49 @@ class DSB_Client {
     }
 
     public function provision_key( array $payload ) {
-        return $this->request( 'internal/admin/key/provision', 'POST', $payload );
+        return $this->request( '/internal/admin/key/provision', 'POST', $payload );
     }
 
     public function disable_key( array $payload ) {
-        return $this->request( 'internal/admin/key/disable', 'POST', $payload );
+        return $this->request( '/internal/admin/key/disable', 'POST', $payload );
     }
 
     public function rotate_key( array $payload ) {
-        return $this->request( 'internal/admin/key/rotate', 'POST', $payload );
+        return $this->request( '/internal/admin/key/rotate', 'POST', $payload );
     }
 
     public function user_summary( array $identity ): array {
-        $response = $this->request( 'internal/user/summary', 'POST', $identity );
-        return $this->prepare_response( $response );
+        return $this->post_internal( '/internal/user/summary', $identity );
     }
 
     public function user_usage( array $identity, string $range, array $opts = [] ): array {
         $payload  = array_merge( $identity, [ 'range' => $range ], $opts );
-        $response = $this->request( 'internal/user/usage', 'POST', $payload );
-        return $this->prepare_response( $response );
+        return $this->post_internal( '/internal/user/usage', $payload );
     }
 
     public function user_rotate( array $identity ): array {
-        $response = $this->request( 'internal/user/key/rotate', 'POST', $identity );
-        return $this->prepare_response( $response );
+        return $this->post_internal( '/internal/user/key/rotate', $identity );
     }
 
-    public function user_toggle( array $identity, string $action ): array {
-        $payload  = array_merge( $identity, [ 'action' => $action ] );
-        $response = $this->request( 'internal/user/key/toggle', 'POST', $payload );
-        return $this->prepare_response( $response );
-    }
-
-    public function fetch_user_dashboard_summary( array $identity ): array {
-        $response = $this->request( 'internal/user/dashboard/summary', 'POST', $identity );
-        return $this->prepare_response( $response );
-    }
-
-    public function fetch_user_dashboard_usage( array $identity, string $range ): array {
-        $payload  = array_merge( $identity, [ 'range' => $range ] );
-        $response = $this->request( 'internal/user/dashboard/usage', 'POST', $payload );
-        return $this->prepare_response( $response );
-    }
-
-    public function fetch_user_dashboard_history( array $identity, string $range ): array {
-        $payload  = array_merge( $identity, [ 'range' => $range ] );
-        $response = $this->request( 'internal/user/dashboard/history', 'POST', $payload );
-        return $this->prepare_response( $response );
+    public function user_toggle( array $identity, bool $enabled ): array {
+        $payload = array_merge( $identity, [ 'enabled' => $enabled ] );
+        return $this->post_internal( '/internal/user/key/toggle', $payload );
     }
 
     public function fetch_user_summary( array $payload ): array {
-        $response = $this->request( 'internal/user/summary', 'POST', $payload );
-        $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
-        $decoded  = $body ? json_decode( $body, true ) : null;
-        $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
-
-        return [
-            'response' => $response,
-            'decoded'  => $decoded,
-            'code'     => $code,
-        ];
+        return $this->post_internal( '/internal/user/summary', $payload );
     }
 
     public function rotate_user_key( array $payload ): array {
-        $response = $this->request( 'internal/user/key/rotate', 'POST', $payload );
-        $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
-        $decoded  = $body ? json_decode( $body, true ) : null;
-        $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
-
-        return [
-            'response' => $response,
-            'decoded'  => $decoded,
-            'code'     => $code,
-        ];
+        return $this->post_internal( '/internal/user/key/rotate', $payload );
     }
 
     public function fetch_plans() {
-        return $this->request( 'internal/admin/plans', 'GET' );
+        return $this->request( '/internal/admin/plans', 'GET' );
     }
 
     public function sync_plan( array $payload ) {
-        return $this->request( 'internal/wp-sync/plan', 'POST', $payload );
+        return $this->request( '/internal/wp-sync/plan', 'POST', $payload );
     }
 
     public function save_plan_sync_status( array $status ): void {
