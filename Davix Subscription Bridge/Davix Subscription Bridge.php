@@ -3,7 +3,7 @@
  * Plugin Name: Davix Subscription Bridge
  * Plugin URI: https://pixlab.davix.dev
  * Description: Sync WooCommerce + WPSwings Subscriptions with the Davix Node.js license API.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Davix
  * License: GPL2+
  * Text Domain: davix-sub-bridge
