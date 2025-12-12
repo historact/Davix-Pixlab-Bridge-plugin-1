@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { activateOrProvisionKey, disableCustomerKey, enhanceKeysService } = require('./key-service');
 
 function getToken(req) {
   return req.headers['x-davix-bridge-token'];
@@ -15,6 +16,14 @@ function requireToken(req, res, next) {
 
 router.use(requireToken);
 
+router.use((req, res, next) => {
+  const pool = res.app.get('db');
+  if (pool && pool.keys) {
+    enhanceKeysService(pool.keys);
+  }
+  next();
+});
+
 router.get('/internal/admin/keys', async (req, res) => {
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   const perPage = Math.min(Math.max(parseInt(req.query.per_page, 10) || 20, 1), 100);
@@ -28,22 +37,29 @@ router.get('/internal/admin/keys', async (req, res) => {
 
 router.post('/internal/admin/key/provision', async (req, res) => {
   const { customer_email, plan_slug, subscription_id, order_id } = req.body;
-  const pool = res.app.get('db');
-  const result = await pool.keys.provision({ customer_email, plan_slug, subscription_id, order_id });
-  res.json({ status: 'ok', action: result.action, key: result.key, key_prefix: result.key_prefix, key_last4: result.key_last4 });
+  const pool = res.app.get('db') || {};
+  const result = pool.keys && pool.keys.activateOrProvisionKey
+    ? await pool.keys.activateOrProvisionKey({ customer_email, plan_slug, subscription_id, order_id })
+    : await activateOrProvisionKey(pool.keys || {}, { customer_email, plan_slug, subscription_id, order_id });
+  res.json({ status: 'ok', action: result.action || 'provisioned', key: result.key || result.plaintextKey, key_prefix: result.key_prefix, key_last4: result.key_last4 });
 });
 
 router.post('/internal/admin/key/disable', async (req, res) => {
   const { subscription_id, customer_email } = req.body;
-  const pool = res.app.get('db');
-  const affected = await pool.keys.disable({ subscription_id, customer_email });
+  const pool = res.app.get('db') || {};
+  const affected = pool.keys && pool.keys.disableCustomerKey
+    ? await pool.keys.disableCustomerKey({ subscription_id, customer_email })
+    : await disableCustomerKey(pool.keys || {}, { subscription_id, customer_email });
   res.json({ status: 'ok', action: 'disabled', affected });
 });
 
 router.post('/internal/admin/key/rotate', async (req, res) => {
   const { subscription_id, customer_email } = req.body;
-  const pool = res.app.get('db');
-  const result = await pool.keys.rotate({ subscription_id, customer_email });
+  const pool = res.app.get('db') || {};
+  const keysService = pool.keys || {};
+  const result = keysService.rotate
+    ? await keysService.rotate({ subscription_id, customer_email })
+    : {};
   res.json({ status: 'ok', action: 'rotated', key: result.key, key_prefix: result.key_prefix, key_last4: result.key_last4 });
 });
 

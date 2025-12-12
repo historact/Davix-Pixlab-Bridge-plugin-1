@@ -28,7 +28,20 @@ class DSB_Client {
 
     public function get_product_plans(): array {
         $plans = get_option( self::OPTION_PRODUCT_PLANS, [] );
-        return isset( $plans ) && is_array( $plans ) ? array_map( 'sanitize_text_field', $plans ) : [];
+        if ( ! is_array( $plans ) ) {
+            return [];
+        }
+
+        $clean = [];
+        foreach ( $plans as $product_id => $plan_slug ) {
+            $pid = absint( $product_id );
+            if ( $pid <= 0 ) {
+                continue;
+            }
+            $clean[ $pid ] = sanitize_text_field( $plan_slug );
+        }
+
+        return $clean;
     }
 
     public function get_plan_products(): array {
@@ -55,20 +68,41 @@ class DSB_Client {
             'delete_data'   => isset( $data['delete_data'] ) ? 1 : 0,
         ];
 
-        $existing_plans = $this->get_product_plans();
-        $plans = isset( $data['product_plans'] ) && is_array( $data['product_plans'] ) ? array_filter(
-            array_map( static function ( $value ) {
-                return sanitize_text_field( $value );
-            },
-                $data['product_plans']
-            ),
-            static function ( $value ) {
-                return '' !== $value;
-            }
-        ) : $existing_plans;
-
+        $plan_slug_meta = isset( $data['dsb_plan_slug_meta'] ) && is_array( $data['dsb_plan_slug_meta'] ) ? $data['dsb_plan_slug_meta'] : [];
         $plan_products = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : [];
         $plan_products = array_filter( array_map( 'absint', $plan_products ) );
+
+        $plans = [];
+        if ( isset( $data['product_plans'] ) && is_array( $data['product_plans'] ) ) {
+            foreach ( $data['product_plans'] as $product_id => $plan_slug ) {
+                $pid = absint( $product_id );
+                if ( $pid <= 0 ) {
+                    continue;
+                }
+                $plans[ $pid ] = sanitize_text_field( $plan_slug );
+            }
+        }
+
+        foreach ( $plan_products as $pid ) {
+            $slug = isset( $plan_slug_meta[ $pid ] ) ? sanitize_text_field( $plan_slug_meta[ $pid ] ) : '';
+
+            if ( ! $slug ) {
+                $existing_slug = get_post_meta( $pid, '_dsb_plan_slug', true );
+                $slug          = $existing_slug ? $existing_slug : '';
+            }
+
+            if ( ! $slug ) {
+                $product = wc_get_product( $pid );
+                if ( $product ) {
+                    $slug = str_replace( '-', '_', sanitize_title( $product->get_slug() ) );
+                }
+            }
+
+            if ( $slug ) {
+                update_post_meta( $pid, '_dsb_plan_slug', $slug );
+                $plans[ $pid ] = $slug;
+            }
+        }
 
         update_option( self::OPTION_SETTINGS, $clean );
         update_option( self::OPTION_PRODUCT_PLANS, $plans );

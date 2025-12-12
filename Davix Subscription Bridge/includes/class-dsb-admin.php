@@ -10,6 +10,7 @@ class DSB_Admin {
     protected $db;
     protected $events;
     protected $notices = [];
+    protected $synced_product_ids = [];
 
     public function __construct( DSB_Client $client, DSB_DB $db, DSB_Events $events ) {
         $this->client = $client;
@@ -24,6 +25,11 @@ class DSB_Admin {
         add_action( 'wp_ajax_dsb_search_users', [ $this, 'ajax_search_users' ] );
         add_action( 'wp_ajax_dsb_search_subscriptions', [ $this, 'ajax_search_subscriptions' ] );
         add_action( 'wp_ajax_dsb_search_orders', [ $this, 'ajax_search_orders' ] );
+        add_filter( 'woocommerce_product_data_tabs', [ $this, 'add_plan_limits_tab' ] );
+        add_action( 'woocommerce_product_data_panels', [ $this, 'render_plan_limits_panel' ] );
+        add_action( 'woocommerce_admin_process_product_object', [ $this, 'save_plan_limits_meta' ] );
+        add_action( 'save_post_product', [ $this, 'maybe_sync_product_by_post' ], 20, 3 );
+        add_action( 'woocommerce_update_product', [ $this, 'maybe_sync_product' ], 20, 1 );
     }
 
     public function register_menu(): void {
@@ -64,6 +70,174 @@ class DSB_Admin {
             ]
         );
         wp_enqueue_script( 'dsb-admin' );
+    }
+
+    public function add_plan_limits_tab( array $tabs ): array {
+        $tabs['dsb_plan_limits'] = [
+            'label'    => __( 'Davix Plan Limits', 'davix-sub-bridge' ),
+            'target'   => 'dsb_plan_limits_panel',
+            'class'    => [ 'show_if_simple', 'show_if_variable', 'show_if_subscription', 'show_if_variable-subscription' ],
+            'priority' => 80,
+        ];
+
+        return $tabs;
+    }
+
+    public function render_plan_limits_panel(): void {
+        global $post;
+        $product = wc_get_product( $post );
+        if ( ! $product instanceof \WC_Product ) {
+            return;
+        }
+
+        $defaults = $this->get_plan_limits_defaults( $product );
+        ?>
+        <div id="dsb_plan_limits_panel" class="panel woocommerce_options_panel hidden">
+            <div class="options_group">
+                <?php
+                woocommerce_wp_text_input(
+                    [
+                        'id'          => '_dsb_plan_slug',
+                        'label'       => __( 'Plan Slug', 'davix-sub-bridge' ),
+                        'desc_tip'    => true,
+                        'description' => __( 'Optional override. Defaults to a sanitized product slug.', 'davix-sub-bridge' ),
+                        'value'       => $defaults['plan_slug'],
+                    ]
+                );
+                woocommerce_wp_text_input(
+                    [
+                        'id'                => '_dsb_monthly_quota_files',
+                        'label'             => __( 'Monthly quota (files)', 'davix-sub-bridge' ),
+                        'type'              => 'number',
+                        'custom_attributes' => [ 'min' => 1 ],
+                        'value'             => $defaults['monthly_quota_files'],
+                    ]
+                );
+                woocommerce_wp_text_input(
+                    [
+                        'id'                => '_dsb_max_files_per_request',
+                        'label'             => __( 'Max files per request', 'davix-sub-bridge' ),
+                        'type'              => 'number',
+                        'custom_attributes' => [ 'min' => 1 ],
+                        'value'             => $defaults['max_files_per_request'],
+                    ]
+                );
+                woocommerce_wp_text_input(
+                    [
+                        'id'                => '_dsb_max_total_upload_mb',
+                        'label'             => __( 'Max total upload (MB)', 'davix-sub-bridge' ),
+                        'type'              => 'number',
+                        'custom_attributes' => [ 'min' => 1 ],
+                        'value'             => $defaults['max_total_upload_mb'],
+                    ]
+                );
+                woocommerce_wp_text_input(
+                    [
+                        'id'                => '_dsb_max_dimension_px',
+                        'label'             => __( 'Max dimension (px)', 'davix-sub-bridge' ),
+                        'type'              => 'number',
+                        'custom_attributes' => [ 'min' => 100 ],
+                        'value'             => $defaults['max_dimension_px'],
+                    ]
+                );
+                woocommerce_wp_text_input(
+                    [
+                        'id'                => '_dsb_timeout_seconds',
+                        'label'             => __( 'Timeout (seconds)', 'davix-sub-bridge' ),
+                        'type'              => 'number',
+                        'custom_attributes' => [ 'min' => 5 ],
+                        'value'             => $defaults['timeout_seconds'],
+                    ]
+                );
+                ?>
+            </div>
+            <div class="options_group">
+                <?php
+                woocommerce_wp_checkbox(
+                    [
+                        'id'          => '_dsb_allow_h2i',
+                        'label'       => __( 'Allow H2I', 'davix-sub-bridge' ),
+                        'value'       => $defaults['allow_h2i'],
+                        'desc_tip'    => true,
+                        'description' => __( 'Permit H2I actions for this plan.', 'davix-sub-bridge' ),
+                    ]
+                );
+                woocommerce_wp_checkbox(
+                    [
+                        'id'          => '_dsb_allow_image',
+                        'label'       => __( 'Allow image', 'davix-sub-bridge' ),
+                        'value'       => $defaults['allow_image'],
+                    ]
+                );
+                woocommerce_wp_checkbox(
+                    [
+                        'id'          => '_dsb_allow_pdf',
+                        'label'       => __( 'Allow PDF', 'davix-sub-bridge' ),
+                        'value'       => $defaults['allow_pdf'],
+                    ]
+                );
+                woocommerce_wp_checkbox(
+                    [
+                        'id'          => '_dsb_allow_tools',
+                        'label'       => __( 'Allow tools', 'davix-sub-bridge' ),
+                        'value'       => $defaults['allow_tools'],
+                    ]
+                );
+                woocommerce_wp_checkbox(
+                    [
+                        'id'          => '_dsb_is_free',
+                        'label'       => __( 'Free plan', 'davix-sub-bridge' ),
+                        'value'       => $defaults['is_free'],
+                        'desc_tip'    => true,
+                        'description' => __( 'Mark plan as free when the price is zero.', 'davix-sub-bridge' ),
+                    ]
+                );
+                ?>
+            </div>
+        </div>
+        <?php
+    }
+
+    public function save_plan_limits_meta( \WC_Product $product ): void {
+        $fields = [
+            '_dsb_plan_slug'             => 'sanitize_text_field',
+            '_dsb_monthly_quota_files'   => 'absint',
+            '_dsb_max_files_per_request' => 'absint',
+            '_dsb_max_total_upload_mb'   => 'absint',
+            '_dsb_max_dimension_px'      => 'absint',
+            '_dsb_timeout_seconds'       => 'absint',
+        ];
+
+        foreach ( $fields as $key => $callback ) {
+            $value = isset( $_POST[ $key ] ) ? call_user_func( $callback, wp_unslash( $_POST[ $key ] ) ) : '';
+            if ( '_dsb_plan_slug' === $key && ! $value ) {
+                $value = str_replace( '-', '_', sanitize_title( $product->get_slug() ) );
+            }
+            $product->update_meta_data( $key, $value );
+        }
+
+        $checkboxes = [ '_dsb_allow_h2i', '_dsb_allow_image', '_dsb_allow_pdf', '_dsb_allow_tools', '_dsb_is_free' ];
+        foreach ( $checkboxes as $checkbox ) {
+            $product->update_meta_data( $checkbox, isset( $_POST[ $checkbox ] ) ? 1 : 0 );
+        }
+    }
+
+    protected function get_plan_limits_defaults( \WC_Product $product ): array {
+        $defaults = [
+            'plan_slug'             => $product->get_meta( '_dsb_plan_slug', true ) ?: str_replace( '-', '_', sanitize_title( $product->get_slug() ) ),
+            'monthly_quota_files'   => (int) $product->get_meta( '_dsb_monthly_quota_files', true ) ?: 1000,
+            'max_files_per_request' => (int) $product->get_meta( '_dsb_max_files_per_request', true ) ?: 10,
+            'max_total_upload_mb'   => (int) $product->get_meta( '_dsb_max_total_upload_mb', true ) ?: 10,
+            'max_dimension_px'      => (int) $product->get_meta( '_dsb_max_dimension_px', true ) ?: 2000,
+            'timeout_seconds'       => (int) $product->get_meta( '_dsb_timeout_seconds', true ) ?: 30,
+            'allow_h2i'             => $this->meta_flag( $product, '_dsb_allow_h2i', 1 ),
+            'allow_image'           => $this->meta_flag( $product, '_dsb_allow_image', 1 ),
+            'allow_pdf'             => $this->meta_flag( $product, '_dsb_allow_pdf', 1 ),
+            'allow_tools'           => $this->meta_flag( $product, '_dsb_allow_tools', 1 ),
+            'is_free'               => $this->meta_flag( $product, '_dsb_is_free', (float) $product->get_price() <= 0 ? 1 : 0 ),
+        ];
+
+        return $defaults;
     }
 
     protected function add_notice( string $message, string $type = 'success' ): void {
@@ -378,13 +552,24 @@ class DSB_Admin {
             }
 
             $response = $this->client->sync_plan( $payload );
+            $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+            $decoded  = is_wp_error( $response ) ? null : json_decode( wp_remote_retrieve_body( $response ), true );
+            $this->db->log_event(
+                [
+                    'event'           => 'plan_sync',
+                    'plan_slug'       => $payload['plan_slug'],
+                    'subscription_id' => '',
+                    'order_id'        => '',
+                    'response_action' => $decoded['action'] ?? '',
+                    'http_code'       => $code,
+                    'error_excerpt'   => is_wp_error( $response ) ? $response->get_error_message() : ( $decoded['status'] ?? '' ),
+                ]
+            );
             if ( is_wp_error( $response ) ) {
                 $summary['count_failed'] ++;
                 $summary['errors'][] = $payload['plan_slug'] . ': ' . $response->get_error_message();
                 continue;
             }
-            $code    = wp_remote_retrieve_response_code( $response );
-            $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
             if ( $code >= 200 && $code < 300 && is_array( $decoded ) && ( $decoded['status'] ?? '' ) === 'ok' ) {
                 $summary['count_success'] ++;
             } else {
@@ -398,30 +583,24 @@ class DSB_Admin {
     }
 
     protected function get_plan_payload_for_product( \WC_Product $product ): array {
-        $plan_slug = $product->get_meta( '_dsb_plan_slug', true );
-        if ( ! $plan_slug ) {
-            $plan_slug = str_replace( '-', '_', sanitize_title( $product->get_slug() ) );
-        }
-
-        $monthly_quota_files    = (int) $product->get_meta( '_dsb_monthly_quota_files', true );
-        $max_files_per_request  = (int) $product->get_meta( '_dsb_max_files_per_request', true );
-        $timeout_seconds        = (int) $product->get_meta( '_dsb_timeout_seconds', true );
-        $max_total_upload_mb    = (int) $product->get_meta( '_dsb_max_total_upload_mb', true );
-
+        $defaults = $this->get_plan_limits_defaults( $product );
+        $plan_slug = $defaults['plan_slug'];
         $payload = [
             'plan_slug'             => $plan_slug,
             'name'                  => $product->get_name(),
             'billing_period'        => $this->detect_billing_period( $product ),
-            'monthly_quota_files'   => $monthly_quota_files > 0 ? $monthly_quota_files : 1000,
-            'max_files_per_request' => $max_files_per_request > 0 ? $max_files_per_request : 10,
-            'max_total_upload_mb'   => $max_total_upload_mb > 0 ? $max_total_upload_mb : 10,
-            'timeout_seconds'       => $timeout_seconds > 0 ? $timeout_seconds : 30,
-            'allow_h2i'             => $this->meta_flag( $product, '_dsb_allow_h2i', 1 ),
-            'allow_image'           => $this->meta_flag( $product, '_dsb_allow_image', 1 ),
-            'allow_pdf'             => $this->meta_flag( $product, '_dsb_allow_pdf', 1 ),
-            'allow_tools'           => $this->meta_flag( $product, '_dsb_allow_tools', 1 ),
-            'is_free'               => $this->meta_flag( $product, '_dsb_is_free', (float) $product->get_price() <= 0 ? 1 : 0 ),
+            'monthly_quota_files'   => $defaults['monthly_quota_files'],
+            'max_files_per_request' => $defaults['max_files_per_request'],
+            'max_total_upload_mb'   => $defaults['max_total_upload_mb'],
+            'max_dimension_px'      => $defaults['max_dimension_px'],
+            'timeout_seconds'       => $defaults['timeout_seconds'],
+            'allow_h2i'             => $defaults['allow_h2i'],
+            'allow_image'           => $defaults['allow_image'],
+            'allow_pdf'             => $defaults['allow_pdf'],
+            'allow_tools'           => $defaults['allow_tools'],
+            'is_free'               => $defaults['is_free'],
             'description'           => wp_strip_all_tags( $product->get_short_description() ?: $product->get_description() ),
+            'wp_product_id'         => $product->get_id(),
         ];
 
         return $payload;
@@ -456,6 +635,74 @@ class DSB_Admin {
         return in_array( strtolower( (string) $value ), [ '1', 'yes', 'true', 'on' ], true ) ? 1 : 0;
     }
 
+    protected function product_is_plan( \WC_Product $product ): bool {
+        $plan_products = $this->client->get_plan_products();
+        if ( in_array( $product->get_id(), $plan_products, true ) ) {
+            return true;
+        }
+
+        if ( $product->get_meta( '_dsb_plan_slug', true ) ) {
+            return true;
+        }
+
+        return false;
+    }
+
+    public function maybe_sync_product_by_post( int $post_id, $post = null, bool $update = false ): void {
+        if ( ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) || wp_is_post_revision( $post_id ) ) {
+            return;
+        }
+        $product = wc_get_product( $post_id );
+        $this->maybe_sync_product( $product );
+    }
+
+    public function maybe_sync_product( $product ): void {
+        if ( is_numeric( $product ) ) {
+            $product = wc_get_product( $product );
+        }
+
+        if ( ! $product instanceof \WC_Product ) {
+            return;
+        }
+
+        $product_id = $product->get_id();
+        if ( in_array( $product_id, $this->synced_product_ids, true ) ) {
+            return;
+        }
+        $this->synced_product_ids[] = $product_id;
+
+        if ( ! $this->product_is_plan( $product ) ) {
+            return;
+        }
+
+        $payload = $this->get_plan_payload_for_product( $product );
+        if ( empty( $payload['plan_slug'] ) ) {
+            $this->db->log_event(
+                [
+                    'event'         => 'plan_sync',
+                    'plan_slug'     => '',
+                    'error_excerpt' => __( 'Missing plan slug; sync skipped.', 'davix-sub-bridge' ),
+                ]
+            );
+            return;
+        }
+
+        $response = $this->client->sync_plan( $payload );
+        $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+        $decoded  = is_wp_error( $response ) ? null : json_decode( wp_remote_retrieve_body( $response ), true );
+        $this->db->log_event(
+            [
+                'event'           => 'plan_sync',
+                'plan_slug'       => $payload['plan_slug'],
+                'subscription_id' => '',
+                'order_id'        => '',
+                'response_action' => $decoded['action'] ?? '',
+                'http_code'       => $code,
+                'error_excerpt'   => is_wp_error( $response ) ? $response->get_error_message() : ( $decoded['status'] ?? '' ),
+            ]
+        );
+    }
+
     protected function discover_plan_products(): array {
         $products = [];
 
@@ -470,7 +717,7 @@ class DSB_Admin {
         );
 
         foreach ( $query->get_products() as $product ) {
-            if ( $product instanceof \WC_Product && $this->product_is_subscription( $product ) ) {
+            if ( $product instanceof \WC_Product && ( $this->product_is_plan( $product ) || $this->product_is_subscription( $product ) ) ) {
                 $products[ $product->get_id() ] = $product;
             }
         }
