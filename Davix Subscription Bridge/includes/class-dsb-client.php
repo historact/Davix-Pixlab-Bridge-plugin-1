@@ -25,12 +25,13 @@ class DSB_Client {
     }
 
     public function save_settings( array $data ): void {
-        $clean = [
+        $raw_product_plans = $data['product_plans'] ?? [];
+        $clean             = [
             'node_base_url' => esc_url_raw( $data['node_base_url'] ?? '' ),
             'bridge_token'  => sanitize_text_field( $data['bridge_token'] ?? '' ),
             'plan_mode'     => in_array( $data['plan_mode'] ?? 'product', [ 'product', 'plan_meta' ], true ) ? $data['plan_mode'] : 'product',
             'delete_data'   => isset( $data['delete_data'] ) ? 1 : 0,
-            'product_plans' => is_array( $data['product_plans'] ?? [] ) ? array_map( 'sanitize_text_field', $data['product_plans'] ) : [],
+            'product_plans' => is_array( $raw_product_plans ) ? array_map( 'sanitize_text_field', $raw_product_plans ) : [],
         ];
 
         update_option( self::OPTION_SETTINGS, $clean );
