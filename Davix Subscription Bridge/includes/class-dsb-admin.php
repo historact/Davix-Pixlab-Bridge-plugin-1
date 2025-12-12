@@ -3,6 +3,8 @@ namespace Davix\SubscriptionBridge;
 
 defined( 'ABSPATH' ) || exit;
 
+if ( ! class_exists( __NAMESPACE__ . '\\DSB_Admin' ) ) {
+
 class DSB_Admin {
     protected $client;
     protected $db;
@@ -214,6 +216,13 @@ class DSB_Admin {
         } else {
             $this->add_notice( __( 'Request failed', 'davix-sub-bridge' ) . ' ' . wp_json_encode( $decoded ), 'error' );
         }
+    }
+
+    protected function add_notice( string $message, string $type = 'success' ): void {
+        $this->notices[] = [
+            'message' => $message,
+            'type'    => $type,
+        ];
     }
 
     public function handle_actions(): void {
@@ -845,4 +854,6 @@ class DSB_Admin {
         }
         wp_send_json( [ 'results' => $results ] );
     }
+}
+
 }
