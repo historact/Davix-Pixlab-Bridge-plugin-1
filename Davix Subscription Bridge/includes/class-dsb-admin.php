@@ -216,7 +216,7 @@ class DSB_Admin {
         }
     }
 
-    public function render_page(): void {
+    public function handle_actions(): void {
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
