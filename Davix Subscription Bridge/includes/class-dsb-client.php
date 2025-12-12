@@ -21,6 +21,7 @@ class DSB_Client {
             'bridge_token'  => '',
             'enable_logging'=> 1,
             'delete_data'   => 0,
+            'allow_provision_without_refs' => 0,
         ];
         $options  = get_option( self::OPTION_SETTINGS, [] );
         return wp_parse_args( is_array( $options ) ? $options : [], $defaults );
@@ -66,6 +67,7 @@ class DSB_Client {
             'bridge_token'  => sanitize_text_field( $data['bridge_token'] ?? '' ),
             'enable_logging'=> isset( $data['enable_logging'] ) ? 1 : 0,
             'delete_data'   => isset( $data['delete_data'] ) ? 1 : 0,
+            'allow_provision_without_refs' => isset( $data['allow_provision_without_refs'] ) ? 1 : 0,
         ];
 
         $plan_slug_meta = isset( $data['dsb_plan_slug_meta'] ) && is_array( $data['dsb_plan_slug_meta'] ) ? $data['dsb_plan_slug_meta'] : [];
