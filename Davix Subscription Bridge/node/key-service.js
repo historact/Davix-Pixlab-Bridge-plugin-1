@@ -18,7 +18,7 @@ async function fetchBySubscription(service, subscriptionId) {
   }
   const runner = service.db || service.pool || service;
   if (runner && typeof runner.query === 'function') {
-    const { rows } = await runner.query('SELECT * FROM api_keys WHERE subscription_id = $1 LIMIT 1', [subscriptionId]);
+    const [rows] = await runner.query('SELECT * FROM api_keys WHERE subscription_id = ? LIMIT 1', [subscriptionId]);
     return rows && rows[0] ? rows[0] : null;
   }
   return null;
@@ -31,7 +31,10 @@ async function fetchByEmail(service, customerEmail) {
   }
   const runner = service.db || service.pool || service;
   if (runner && typeof runner.query === 'function') {
-    const { rows } = await runner.query('SELECT * FROM api_keys WHERE customer_email = $1 ORDER BY updated_at DESC LIMIT 1', [customerEmail]);
+    const [rows] = await runner.query(
+      'SELECT * FROM api_keys WHERE customer_email = ? ORDER BY updated_at DESC LIMIT 1',
+      [customerEmail],
+    );
     return rows && rows[0] ? rows[0] : null;
   }
   return null;
@@ -47,55 +50,60 @@ async function saveNewKey(service, payload) {
   const runner = service.db || service.pool || service;
   if (runner && typeof runner.query === 'function') {
     await runner.query(
-      `INSERT INTO api_keys (subscription_id, customer_email, plan_slug, license_key, key_hash, key_prefix, key_last4, order_id, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE($9,'active'))
-       ON CONFLICT (subscription_id) DO NOTHING`,
+      `INSERT INTO api_keys (subscription_id, customer_email, plan_id, order_id, status, license_key, key_hash, key_prefix, key_last4)
+       VALUES (?,?,?,?,COALESCE(?, 'active'), ?,?,?,?)`,
       [
         payload.subscription_id || null,
-        payload.customer_email,
-        payload.plan_slug,
+        payload.customer_email || null,
+        payload.plan_id || null,
+        payload.order_id || null,
+        payload.status || 'active',
         payload.license_key || null,
         payload.key_hash,
         payload.key_prefix,
         payload.key_last4,
-        payload.order_id || null,
-        payload.status || 'active',
       ],
     );
   }
   return null;
 }
 
-async function updateExistingKey(service, subscriptionId, payload) {
-  if (typeof service.updateBySubscriptionId === 'function') {
-    return service.updateBySubscriptionId(subscriptionId, payload);
-  }
-  if (typeof service.update === 'function') {
-    return service.update(subscriptionId, payload);
-  }
+async function updateExistingKey(service, params) {
   const runner = service.db || service.pool || service;
+  const subscriptionId = params.subscription_id;
+  const customerEmail = params.customer_email;
+
+  if (typeof service.updateBySubscriptionId === 'function' && subscriptionId) {
+    return service.updateBySubscriptionId(subscriptionId, params);
+  }
+  if (typeof service.update === 'function' && subscriptionId) {
+    return service.update(subscriptionId, params);
+  }
   if (runner && typeof runner.query === 'function') {
+    const identifierClause = subscriptionId ? 'subscription_id = ?' : 'customer_email = ?';
+    const identifierValue = subscriptionId || customerEmail;
     await runner.query(
       `UPDATE api_keys
-       SET customer_email = COALESCE($2, customer_email),
-           plan_slug = COALESCE($3, plan_slug),
-           license_key = $4,
-           key_hash = $5,
-           key_prefix = $6,
-           key_last4 = $7,
-           order_id = COALESCE($8, order_id),
-           status = COALESCE($9, status)
-       WHERE subscription_id = $1`,
+         SET customer_email = COALESCE(?, customer_email),
+             plan_id = COALESCE(?, plan_id),
+             order_id = COALESCE(?, order_id),
+             status = COALESCE(?, status),
+             license_key = ?,
+             key_hash = ?,
+             key_prefix = ?,
+             key_last4 = ?,
+             updated_at = NOW()
+       WHERE ${identifierClause}`,
       [
-        subscriptionId,
-        payload.customer_email || null,
-        payload.plan_slug || null,
-        payload.license_key || null,
-        payload.key_hash || null,
-        payload.key_prefix || null,
-        payload.key_last4 || null,
-        payload.order_id || null,
-        payload.status || null,
+        params.customer_email || null,
+        params.plan_id || null,
+        params.order_id || null,
+        params.status || null,
+        params.license_key || null,
+        params.key_hash || null,
+        params.key_prefix || null,
+        params.key_last4 || null,
+        identifierValue,
       ],
     );
   }
@@ -104,47 +112,53 @@ async function updateExistingKey(service, subscriptionId, payload) {
 
 async function activateOrProvisionKey(service, params) {
   if (!service) return {};
-  const { subscription_id: subscriptionId, customer_email: customerEmail, plan_slug: planSlug, order_id: orderId } = params;
-  const lookupByEmail = !subscriptionId;
-  const existing = lookupByEmail ? await fetchByEmail(service, customerEmail) : await fetchBySubscription(service, subscriptionId);
+  const { subscription_id: subscriptionId, customer_email: customerEmail, plan_id: planId, plan_slug: planSlug, order_id: orderId } = params;
+
+  const existing = subscriptionId
+    ? await fetchBySubscription(service, subscriptionId)
+    : await fetchByEmail(service, customerEmail);
 
   if (!existing) {
     const parts = generateKeyParts(params.license_key);
     const payload = {
       subscription_id: subscriptionId || null,
-      customer_email: customerEmail,
-      plan_slug: planSlug,
+      customer_email: customerEmail || null,
+      plan_id: planId || null,
+      plan_slug: planSlug || null,
       order_id: orderId || null,
-      license_key: parts.plaintextKey,
+      license_key: parts.plaintextKey || null,
       key_hash: parts.key_hash,
       key_prefix: parts.key_prefix,
       key_last4: parts.key_last4,
       status: params.status || 'active',
     };
     await saveNewKey(service, payload);
-    return { action: 'created', ...parts };
+    return { action: 'created', ...parts, key_prefix: parts.key_prefix, key_last4: parts.key_last4 };
   }
 
   let repairParts = null;
-  if (!existing.key_hash) {
+  if (!existing.key_hash || existing.key_hash === '') {
     repairParts = generateKeyParts();
   }
 
   const updatePayload = {
-    customer_email: customerEmail || existing.customer_email,
-    plan_slug: planSlug || existing.plan_slug,
-    order_id: orderId || existing.order_id,
-    license_key: repairParts ? repairParts.plaintextKey : existing.license_key,
-    key_hash: repairParts ? repairParts.key_hash : existing.key_hash,
-    key_prefix: repairParts ? repairParts.key_prefix : existing.key_prefix,
-    key_last4: repairParts ? repairParts.key_last4 : existing.key_last4,
+    subscription_id: subscriptionId || existing.subscription_id || null,
+    customer_email: customerEmail || existing.customer_email || null,
+    plan_id: planId || existing.plan_id || null,
+    plan_slug: planSlug || existing.plan_slug || null,
+    order_id: orderId || existing.order_id || null,
+    license_key: repairParts ? repairParts.plaintextKey : existing.license_key || null,
+    key_hash: repairParts ? repairParts.key_hash : existing.key_hash || null,
+    key_prefix: repairParts ? repairParts.key_prefix : existing.key_prefix || null,
+    key_last4: repairParts ? repairParts.key_last4 : existing.key_last4 || null,
     status: params.status || existing.status || 'active',
   };
 
-  await updateExistingKey(service, subscriptionId || existing.subscription_id, updatePayload);
+  await updateExistingKey(service, updatePayload);
   return {
-    action: repairParts ? 'repaired' : 'existing',
+    action: repairParts ? 'repaired' : 'updated',
     key: repairParts ? repairParts.plaintextKey : undefined,
+    plaintextKey: repairParts ? repairParts.plaintextKey : undefined,
     key_prefix: repairParts ? repairParts.key_prefix : existing.key_prefix,
     key_last4: repairParts ? repairParts.key_last4 : existing.key_last4,
   };
@@ -162,11 +176,11 @@ async function disableCustomerKey(service, params) {
   const runner = service.db || service.pool || service;
   if (runner && typeof runner.query === 'function') {
     if (subscriptionId) {
-      const { rowCount } = await runner.query('UPDATE api_keys SET status = $2 WHERE subscription_id = $1', [subscriptionId, 'disabled']);
-      return rowCount || 0;
+      const [result] = await runner.query('UPDATE api_keys SET status = ? WHERE subscription_id = ?', ['disabled', subscriptionId]);
+      return result && typeof result.affectedRows === 'number' ? result.affectedRows : 0;
     }
-    const { rowCount } = await runner.query('UPDATE api_keys SET status = $2 WHERE customer_email = $1', [customerEmail, 'disabled']);
-    return rowCount || 0;
+    const [result] = await runner.query('UPDATE api_keys SET status = ? WHERE customer_email = ?', ['disabled', customerEmail]);
+    return result && typeof result.affectedRows === 'number' ? result.affectedRows : 0;
   }
   if (typeof service.disable === 'function') {
     return service.disable(params);
