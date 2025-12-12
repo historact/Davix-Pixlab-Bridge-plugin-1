@@ -1,4 +1,7 @@
 (function () {
+    if (window.DSB_PIXLAB_DASHBOARD_INIT) return;
+    window.DSB_PIXLAB_DASHBOARD_INIT = true;
+
     const data = window.dsbDashboardData || {};
     const root = document.querySelector('.dsb-dashboard');
     if (!root || !data.ajaxUrl || !data.nonce) {
@@ -44,16 +47,9 @@
 
     const state = {
         chart: null,
-        range: 'daily',
+        range: data.defaultRange || 'daily',
         maskedKey: '',
-        lastKeyHide: null,
     };
-
-    function setStatus(text, type) {
-        if (!els.keyStatus) return;
-        els.keyStatus.textContent = text || '';
-        els.keyStatus.className = 'dsb-status ' + (type ? 'is-' + type : '');
-    }
 
     function formatMasked(prefix, last4) {
         if (!prefix && !last4) return '—';
@@ -74,8 +70,21 @@
         }).then((res) => res.json());
     }
 
-    function renderSummary(summary) {
-        const res = summary.data || summary;
+    function handleResponse(json) {
+        if (!json || json.status !== 'ok') {
+            const message = json && json.message ? json.message : data.strings.error;
+            throw new Error(message);
+        }
+        return json;
+    }
+
+    function setStatus(text, type) {
+        if (!els.keyStatus) return;
+        els.keyStatus.textContent = text || '';
+        els.keyStatus.className = 'dsb-status ' + (type ? 'is-' + type : '');
+    }
+
+    function renderSummary(res) {
         const plan = res.plan || {};
         const key = res.key || {};
         const usage = res.usage || {};
@@ -90,12 +99,10 @@
             els.keyCreated.textContent = key.created_at ? `Created ${key.created_at}` : '';
         }
         if (els.keyToggle) {
-            const status = (key.status || '').toLowerCase();
-            const isActive = status !== 'disabled';
-            els.keyToggle.textContent = isActive ? 'Disable' : 'Enable';
-            els.keyToggle.dataset.state = isActive ? 'active' : 'disabled';
-            setStatus(isActive ? 'Active' : 'Disabled', isActive ? 'success' : 'muted');
+            els.keyToggle.textContent = (key.status || '').toLowerCase() === 'disabled' ? 'Disabled' : 'Active';
+            els.keyToggle.disabled = true;
         }
+        setStatus((key.status || 'active') === 'disabled' ? 'Disabled' : 'Active', (key.status || 'active') === 'disabled' ? 'muted' : 'success');
 
         if (els.planName) {
             els.planName.textContent = plan.name || '—';
@@ -111,6 +118,10 @@
             els.billing.textContent = start || end ? `${start} – ${end}` : '';
         }
 
+        applyUsage(usage, billing, per);
+    }
+
+    function applyUsage(usage = {}, billing = {}, per = {}) {
         const used = usage.total_calls_used || 0;
         const limit = usage.total_calls_limit || null;
         const percent = usage.percent != null ? usage.percent : limit ? Math.min(100, Math.round((used / limit) * 100)) : null;
@@ -128,7 +139,9 @@
             els.usageTotal.textContent = billing.period ? `Period: ${billing.period}` : '';
         }
         if (els.usageWindow) {
-            els.usageWindow.textContent = billing.start || billing.end ? `${billing.start || ''} – ${billing.end || ''}` : '';
+            const start = billing.start || '';
+            const end = billing.end || '';
+            els.usageWindow.textContent = start || end ? `${start} – ${end}` : '';
         }
 
         if (els.endpoint.h2i) els.endpoint.h2i.textContent = `${per.h2i_calls || 0} calls`;
@@ -137,10 +150,9 @@
         if (els.endpoint.tools) els.endpoint.tools.textContent = `${per.tools_calls || 0} calls`;
     }
 
-    function renderUsage(payload) {
-        const res = payload.data || payload;
-        const labels = res.labels || [];
-        const series = res.series || {};
+    function renderHistory(payload) {
+        const labels = payload.labels || [];
+        const series = payload.series || {};
         const ctx = document.getElementById('dsb-usage-chart');
         if (!ctx) return;
 
@@ -187,41 +199,61 @@
 
     function handleRotate() {
         if (!window.confirm(data.strings.confirmRotate)) return;
-        els.rotate.disabled = true;
-        post('dsb_dashboard_rotate')
+        if (els.rotate) {
+            els.rotate.disabled = true;
+        }
+
+        post('dsb_pixlab_dashboard_rotate_key')
+            .then(handleResponse)
             .then((json) => {
-                if (!json || !json.success) throw new Error(data.strings.rotateError);
-                const res = json.data || {};
+                const res = json || {};
                 state.maskedKey = formatMasked(res.key_prefix, res.key_last4);
                 if (els.keyDisplay) {
-                    els.keyDisplay.value = res.key || state.maskedKey;
+                    els.keyDisplay.value = res.key ? res.key : state.maskedKey;
                 }
-                showModal(res.key || '');
+                openKeyModal(res.key || '');
+                fetchSummary();
             })
-            .catch(() => alert(data.strings.rotateError))
+            .catch((err) => alert(err.message || data.strings.rotateError))
             .finally(() => {
-                els.rotate.disabled = false;
+                if (els.rotate) {
+                    els.rotate.disabled = false;
+                }
             });
     }
 
-    function showModal(key) {
+    function openKeyModal(key) {
         if (!els.modal) return;
-        els.modal.hidden = false;
+        els.modal.removeAttribute('hidden');
+        els.modal.classList.add('is-open');
         if (els.modalKey) {
             els.modalKey.value = key;
         }
         if (els.modalMessage) {
             els.modalMessage.textContent = data.strings.shownOnce;
         }
-        if (state.lastKeyHide) {
-            clearTimeout(state.lastKeyHide);
-        }
-        state.lastKeyHide = setTimeout(hideModal, 60000);
+        document.addEventListener('keydown', handleEscClose);
     }
 
-    function hideModal() {
-        if (els.modal) {
-            els.modal.hidden = true;
+    function closeKeyModal() {
+        if (!els.modal) return;
+        els.modal.classList.remove('is-open');
+        els.modal.setAttribute('hidden', '');
+        if (els.modalKey) {
+            els.modalKey.value = '';
+        }
+        document.removeEventListener('keydown', handleEscClose);
+    }
+
+    function handleEscClose(event) {
+        if (event.key === 'Escape') {
+            closeKeyModal();
+        }
+    }
+
+    function handleModalBackdrop(event) {
+        if (event.target === els.modal) {
+            closeKeyModal();
         }
     }
 
@@ -235,53 +267,36 @@
             .catch(() => alert(data.strings.copyFailed));
     }
 
-    function handleToggle() {
-        const stateAttr = els.keyToggle.dataset.state || 'active';
-        const action = stateAttr === 'active' ? 'disable' : 'enable';
-        els.keyToggle.disabled = true;
-        post('dsb_dashboard_toggle', { action_name: action })
-            .then((json) => {
-                if (!json || !json.success) throw new Error(data.strings.toggleError);
-                const payload = json.data || {};
-                const key = payload.key || {};
-                const status = (key.status || (action === 'disable' ? 'disabled' : 'active')).toLowerCase();
-                const isActive = status !== 'disabled';
-                els.keyToggle.textContent = isActive ? 'Disable' : 'Enable';
-                els.keyToggle.dataset.state = isActive ? 'active' : 'disabled';
-                setStatus(isActive ? 'Active' : 'Disabled', isActive ? 'success' : 'muted');
-            })
-            .catch(() => alert(data.strings.toggleError))
-            .finally(() => {
-                els.keyToggle.disabled = false;
-            });
-    }
-
     function setRange(range) {
         state.range = range;
         els.rangeButtons.forEach((btn) => btn.classList.toggle('is-active', btn.dataset.range === range));
         fetchUsage(range);
+        fetchHistory(range);
     }
 
     function fetchSummary() {
-        post('dsb_dashboard_summary')
-            .then((json) => {
-                if (!json || !json.success) throw new Error(data.strings.error);
-                renderSummary(json.data);
-            })
-            .catch(() => {
-                setStatus(data.strings.error, 'error');
+        post('dsb_pixlab_dashboard_summary')
+            .then(handleResponse)
+            .then(renderSummary)
+            .catch((err) => {
+                setStatus(err.message || data.strings.error, 'error');
             });
     }
 
     function fetchUsage(range) {
-        post('dsb_dashboard_usage', { range })
+        post('dsb_pixlab_dashboard_usage', { range })
+            .then(handleResponse)
             .then((json) => {
-                if (!json || !json.success) throw new Error(data.strings.error);
-                renderUsage(json.data);
+                applyUsage(json.usage || {}, json.billing || {}, json.per_endpoint || {});
             })
-            .catch(() => {
-                setStatus(data.strings.error, 'error');
-            });
+            .catch((err) => setStatus(err.message || data.strings.usageError, 'error'));
+    }
+
+    function fetchHistory(range) {
+        post('dsb_pixlab_dashboard_history', { range })
+            .then(handleResponse)
+            .then(renderHistory)
+            .catch((err) => setStatus(err.message || data.strings.error, 'error'));
     }
 
     // Events
@@ -295,15 +310,15 @@
         els.modalCopy.addEventListener('click', () => handleCopy(els.modalKey));
     }
     if (els.modalClose) {
-        els.modalClose.addEventListener('click', hideModal);
+        els.modalClose.addEventListener('click', closeKeyModal);
     }
-    if (els.keyToggle) {
-        els.keyToggle.addEventListener('click', handleToggle);
+    if (els.modal) {
+        els.modal.addEventListener('click', handleModalBackdrop);
     }
     els.rangeButtons.forEach((btn) => {
         btn.addEventListener('click', () => setRange(btn.dataset.range));
     });
 
     fetchSummary();
-    fetchUsage(state.range);
+    setRange(state.range);
 })();

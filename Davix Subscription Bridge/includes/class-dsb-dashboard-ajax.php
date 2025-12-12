@@ -3,19 +3,19 @@ namespace Davix\SubscriptionBridge;
 
 defined( 'ABSPATH' ) || exit;
 
-if ( ! function_exists( __NAMESPACE__ . '\\dsb_get_current_identity' ) ) {
-    function dsb_get_current_identity(): array {
-        $user = wp_get_current_user();
-        $identity = [
-            'customer_email' => $user && $user->exists() ? sanitize_email( $user->user_email ) : '',
-        ];
-
-        $order_id       = '';
+if ( ! function_exists( __NAMESPACE__ . '\\dsb_pixlab_get_identity' ) ) {
+    function dsb_pixlab_get_identity(): array {
+        $user          = wp_get_current_user();
+        $identity      = [];
         $subscription_id = '';
+        $order_id        = '';
+
+        if ( $user && $user->exists() && $user->user_email ) {
+            $identity['customer_email'] = sanitize_email( $user->user_email );
+        }
 
         if ( function_exists( 'wc_get_orders' ) ) {
-            $email = $identity['customer_email'];
-            $args  = [
+            $args = [
                 'limit'   => 1,
                 'orderby' => 'date',
                 'order'   => 'DESC',
@@ -23,16 +23,16 @@ if ( ! function_exists( __NAMESPACE__ . '\\dsb_get_current_identity' ) ) {
 
             if ( $user && $user->ID ) {
                 $args['customer_id'] = (int) $user->ID;
-            } elseif ( $email ) {
-                $args['billing_email'] = $email;
+            } elseif ( isset( $identity['customer_email'] ) ) {
+                $args['billing_email'] = $identity['customer_email'];
             }
 
             $orders = wc_get_orders( $args );
-            if ( empty( $orders ) && $email ) {
+            if ( empty( $orders ) && isset( $identity['customer_email'] ) ) {
                 $orders = wc_get_orders(
                     [
                         'limit'         => 1,
-                        'billing_email' => $email,
+                        'billing_email' => $identity['customer_email'],
                         'orderby'       => 'date',
                         'order'         => 'DESC',
                     ]
@@ -54,11 +54,14 @@ if ( ! function_exists( __NAMESPACE__ . '\\dsb_get_current_identity' ) ) {
             }
         }
 
-        if ( $order_id ) {
-            $identity['order_id'] = $order_id;
-        }
         if ( $subscription_id ) {
-            $identity['subscription_id'] = $subscription_id;
+            $identity['subscription_id'] = sanitize_text_field( $subscription_id );
+        }
+        if ( isset( $identity['customer_email'] ) && $identity['customer_email'] ) {
+            $identity['customer_email'] = sanitize_email( $identity['customer_email'] );
+        }
+        if ( $order_id ) {
+            $identity['order_id'] = sanitize_text_field( $order_id );
         }
 
         return array_filter(
@@ -78,196 +81,93 @@ class DSB_Dashboard_Ajax {
     }
 
     public function init(): void {
-        add_action( 'wp_ajax_dsb_dashboard_summary', [ $this, 'summary' ] );
-        add_action( 'wp_ajax_dsb_dashboard_usage', [ $this, 'usage' ] );
-        add_action( 'wp_ajax_dsb_dashboard_rotate', [ $this, 'rotate' ] );
-        add_action( 'wp_ajax_dsb_dashboard_toggle', [ $this, 'toggle' ] );
+        add_action( 'wp_ajax_dsb_pixlab_dashboard_summary', [ $this, 'summary' ] );
+        add_action( 'wp_ajax_dsb_pixlab_dashboard_usage', [ $this, 'usage' ] );
+        add_action( 'wp_ajax_dsb_pixlab_dashboard_history', [ $this, 'history' ] );
+        add_action( 'wp_ajax_dsb_pixlab_dashboard_rotate_key', [ $this, 'rotate_key' ] );
     }
 
     public function summary(): void {
-        if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => __( 'Authentication required.', 'davix-sub-bridge' ) ], 401 );
-        }
+        $identity = $this->validate_request();
+        $result   = $this->client->fetch_user_dashboard_summary( $identity );
 
-        check_ajax_referer( 'dsb_dashboard', 'nonce' );
-
-        $identity = dsb_get_current_identity();
-        $result   = $this->client->user_summary( $identity );
-
-        if ( is_wp_error( $result['response'] ) ) {
-            wp_send_json_error( [ 'message' => $result['response']->get_error_message() ], 500 );
-        }
-
-        $decoded = $result['decoded'] ?? [];
-        if ( 200 !== $result['code'] || ( $decoded['status'] ?? '' ) !== 'ok' ) {
-            wp_send_json_error( [ 'message' => __( 'Unable to load summary.', 'davix-sub-bridge' ) ], 500 );
-        }
-
-        $plan   = $decoded['plan'] ?? [];
-        $key    = $decoded['key'] ?? [];
-        $usage  = $decoded['usage'] ?? [];
-        $period = $usage['period'] ?? '';
-
-        $total_calls_used  = (int) ( $usage['total_calls_used'] ?? $usage['total_calls'] ?? 0 );
-        $total_calls_limit = isset( $usage['total_calls_limit'] )
-            ? (int) $usage['total_calls_limit']
-            : (int) ( $plan['call_limit_per_month'] ?? $plan['monthly_quota_files'] ?? 0 );
-
-        $percent = $total_calls_limit > 0 ? min( 100, round( ( $total_calls_used / $total_calls_limit ) * 100, 2 ) ) : null;
-
-        $per_endpoint = $usage['per_endpoint'] ?? [];
-
-        $response = [
-            'status'        => 'ok',
-            'plan'          => [
-                'name'                 => sanitize_text_field( $plan['name'] ?? '' ),
-                'call_limit_per_month' => $total_calls_limit ?: null,
-            ],
-            'key'           => [
-                'key_prefix' => sanitize_text_field( $key['key_prefix'] ?? '' ),
-                'key_last4'  => sanitize_text_field( $key['key_last4'] ?? '' ),
-                'status'     => sanitize_text_field( $key['status'] ?? ( $decoded['status'] ?? '' ) ),
-                'created_at' => sanitize_text_field( $key['created_at'] ?? '' ),
-            ],
-            'billing'       => [
-                'start' => sanitize_text_field( $usage['billing_start'] ?? $usage['billing_window_start'] ?? '' ),
-                'end'   => sanitize_text_field( $usage['billing_end'] ?? $usage['billing_window_end'] ?? '' ),
-                'period'=> sanitize_text_field( $period ),
-            ],
-            'usage'         => [
-                'total_calls_used'  => $total_calls_used,
-                'total_calls_limit' => $total_calls_limit ?: null,
-                'percent'           => $percent,
-            ],
-            'per_endpoint'  => [
-                'h2i_calls'   => (int) ( $per_endpoint['h2i']['calls'] ?? $per_endpoint['h2i_calls'] ?? 0 ),
-                'image_calls' => (int) ( $per_endpoint['image']['calls'] ?? $per_endpoint['image_calls'] ?? 0 ),
-                'pdf_calls'   => (int) ( $per_endpoint['pdf']['calls'] ?? $per_endpoint['pdf_calls'] ?? 0 ),
-                'tools_calls' => (int) ( $per_endpoint['tools']['calls'] ?? $per_endpoint['tools_calls'] ?? 0 ),
-            ],
-        ];
-
-        wp_send_json_success( $response );
+        $this->respond_from_result( $result, __( 'Unable to load summary.', 'davix-sub-bridge' ) );
     }
 
     public function usage(): void {
-        if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => __( 'Authentication required.', 'davix-sub-bridge' ) ], 401 );
-        }
-
-        check_ajax_referer( 'dsb_dashboard', 'nonce' );
-
-        $range   = isset( $_POST['range'] ) ? sanitize_key( wp_unslash( $_POST['range'] ) ) : 'daily';
-        $allowed = [ 'hourly', 'daily', 'monthly', 'billing_period' ];
+        $identity = $this->validate_request();
+        $range    = isset( $_POST['range'] ) ? sanitize_key( wp_unslash( $_POST['range'] ) ) : 'daily';
+        $allowed  = [ 'hourly', 'daily', 'monthly', 'billing_period' ];
         if ( ! in_array( $range, $allowed, true ) ) {
             $range = 'daily';
         }
 
-        $identity = dsb_get_current_identity();
-        $result   = $this->client->user_usage( $identity, $range );
-
-        if ( is_wp_error( $result['response'] ) ) {
-            wp_send_json_error( [ 'message' => $result['response']->get_error_message() ], 500 );
-        }
-
-        $decoded = $result['decoded'] ?? [];
-        if ( 200 !== $result['code'] || ( $decoded['status'] ?? '' ) !== 'ok' ) {
-            wp_send_json_error( [ 'message' => __( 'Unable to load usage.', 'davix-sub-bridge' ) ], 500 );
-        }
-
-        $series = $decoded['series'] ?? [];
-        $labels = $decoded['labels'] ?? [];
-
-        $payload = [
-            'status' => 'ok',
-            'range'  => $range,
-            'labels' => array_map( 'sanitize_text_field', $labels ),
-            'series' => [
-                'h2i'   => array_map( 'intval', $series['h2i'] ?? [] ),
-                'image' => array_map( 'intval', $series['image'] ?? [] ),
-                'pdf'   => array_map( 'intval', $series['pdf'] ?? [] ),
-                'tools' => array_map( 'intval', $series['tools'] ?? [] ),
-            ],
-            'totals' => array_map( 'intval', $decoded['totals'] ?? [] ),
-        ];
-
-        wp_send_json_success( $payload );
+        $result = $this->client->fetch_user_dashboard_usage( $identity, $range );
+        $this->respond_from_result( $result, __( 'Unable to load usage.', 'davix-sub-bridge' ) );
     }
 
-    public function rotate(): void {
-        if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => __( 'Authentication required.', 'davix-sub-bridge' ) ], 401 );
+    public function history(): void {
+        $identity = $this->validate_request();
+        $range    = isset( $_POST['range'] ) ? sanitize_key( wp_unslash( $_POST['range'] ) ) : 'daily';
+        $allowed  = [ 'hourly', 'daily', 'monthly', 'billing_period' ];
+        if ( ! in_array( $range, $allowed, true ) ) {
+            $range = 'daily';
         }
 
-        check_ajax_referer( 'dsb_dashboard', 'nonce' );
+        $result = $this->client->fetch_user_dashboard_history( $identity, $range );
+        $this->respond_from_result( $result, __( 'Unable to load history.', 'davix-sub-bridge' ) );
+    }
+
+    public function rotate_key(): void {
+        $identity = $this->validate_request();
 
         $user    = wp_get_current_user();
         $now     = time();
         $metaKey = '_dsb_last_key_rotation';
-        $last    = (int) get_user_meta( $user->ID, $metaKey, true );
+        $last    = $user && $user->ID ? (int) get_user_meta( $user->ID, $metaKey, true ) : 0;
+
         if ( $last && ( $now - $last ) < 60 ) {
-            wp_send_json_error( [ 'message' => __( 'Please wait before rotating again.', 'davix-sub-bridge' ) ], 429 );
+            wp_send_json( [ 'status' => 'error', 'message' => __( 'Please wait before rotating again.', 'davix-sub-bridge' ) ], 429 );
         }
 
-        $identity = dsb_get_current_identity();
-        $result   = $this->client->user_rotate( $identity );
+        $result = $this->client->rotate_user_key( $identity );
 
-        if ( is_wp_error( $result['response'] ) ) {
-            wp_send_json_error( [ 'message' => $result['response']->get_error_message() ], 500 );
+        if ( $user && $user->ID && ! is_wp_error( $result['response'] ) && 200 === $result['code'] && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
+            update_user_meta( $user->ID, $metaKey, $now );
         }
 
-        $decoded = $result['decoded'] ?? [];
-        if ( 200 !== $result['code'] || ( $decoded['status'] ?? '' ) !== 'ok' ) {
-            wp_send_json_error( [ 'message' => __( 'Unable to rotate key.', 'davix-sub-bridge' ) ], 500 );
-        }
-
-        update_user_meta( $user->ID, $metaKey, $now );
-
-        $response = [
-            'status'     => 'ok',
-            'key'        => sanitize_text_field( $decoded['key'] ?? '' ),
-            'key_prefix' => sanitize_text_field( $decoded['key_prefix'] ?? '' ),
-            'key_last4'  => sanitize_text_field( $decoded['key_last4'] ?? '' ),
-            'subscription_id' => sanitize_text_field( $decoded['subscription_id'] ?? '' ),
-        ];
-
-        wp_send_json_success( $response );
+        $this->respond_from_result( $result, __( 'Unable to regenerate key.', 'davix-sub-bridge' ) );
     }
 
-    public function toggle(): void {
+    protected function validate_request(): array {
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => __( 'Authentication required.', 'davix-sub-bridge' ) ], 401 );
+            wp_send_json( [ 'status' => 'error', 'message' => __( 'Authentication required.', 'davix-sub-bridge' ) ], 401 );
         }
 
-        check_ajax_referer( 'dsb_dashboard', 'nonce' );
-
-        $action = isset( $_POST['action_name'] ) ? sanitize_key( wp_unslash( $_POST['action_name'] ) ) : '';
-        if ( ! in_array( $action, [ 'enable', 'disable' ], true ) ) {
-            wp_send_json_error( [ 'message' => __( 'Invalid action.', 'davix-sub-bridge' ) ], 400 );
+        $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+        if ( ! wp_verify_nonce( $nonce, 'dsb_pixlab_dashboard' ) ) {
+            wp_send_json( [ 'status' => 'error', 'message' => __( 'Invalid request.', 'davix-sub-bridge' ) ], 403 );
         }
 
-        $identity = dsb_get_current_identity();
-        $result   = $this->client->user_toggle( $identity, $action );
+        $identity = dsb_pixlab_get_identity();
+        if ( empty( $identity ) ) {
+            wp_send_json( [ 'status' => 'error', 'message' => __( 'We could not find your subscription details.', 'davix-sub-bridge' ) ], 404 );
+        }
 
+        return $identity;
+    }
+
+    protected function respond_from_result( array $result, string $default_message ): void {
         if ( is_wp_error( $result['response'] ) ) {
-            wp_send_json_error( [ 'message' => $result['response']->get_error_message() ], 500 );
+            wp_send_json( [ 'status' => 'error', 'message' => $result['response']->get_error_message() ], 500 );
         }
 
         $decoded = $result['decoded'] ?? [];
         if ( 200 !== $result['code'] || ( $decoded['status'] ?? '' ) !== 'ok' ) {
-            wp_send_json_error( [ 'message' => __( 'Unable to update status.', 'davix-sub-bridge' ) ], 500 );
+            $message = $decoded['message'] ?? $default_message;
+            wp_send_json( [ 'status' => 'error', 'message' => $message ], 500 );
         }
 
-        $response = [
-            'status' => 'ok',
-            'action' => sanitize_text_field( $decoded['action'] ?? $action ),
-            'key'    => [
-                'status'     => sanitize_text_field( $decoded['key']['status'] ?? $decoded['status'] ?? '' ),
-                'key_prefix' => sanitize_text_field( $decoded['key']['key_prefix'] ?? '' ),
-                'key_last4'  => sanitize_text_field( $decoded['key']['key_last4'] ?? '' ),
-            ],
-        ];
-
-        wp_send_json_success( $response );
+        wp_send_json( $decoded );
     }
 }

@@ -268,6 +268,23 @@ class DSB_Client {
         return $this->prepare_response( $response );
     }
 
+    public function fetch_user_dashboard_summary( array $identity ): array {
+        $response = $this->request( 'internal/user/dashboard/summary', 'POST', $identity );
+        return $this->prepare_response( $response );
+    }
+
+    public function fetch_user_dashboard_usage( array $identity, string $range ): array {
+        $payload  = array_merge( $identity, [ 'range' => $range ] );
+        $response = $this->request( 'internal/user/dashboard/usage', 'POST', $payload );
+        return $this->prepare_response( $response );
+    }
+
+    public function fetch_user_dashboard_history( array $identity, string $range ): array {
+        $payload  = array_merge( $identity, [ 'range' => $range ] );
+        $response = $this->request( 'internal/user/dashboard/history', 'POST', $payload );
+        return $this->prepare_response( $response );
+    }
+
     public function fetch_user_summary( array $payload ): array {
         $response = $this->request( 'internal/user/summary', 'POST', $payload );
         $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );

@@ -3,8 +3,9 @@ namespace Davix\SubscriptionBridge;
 
 defined( 'ABSPATH' ) || exit;
 
-class DSB_Shortcode_Dashboard {
+class DSB_Dashboard {
     protected $client;
+    protected static $enqueued = false;
 
     public function __construct( DSB_Client $client ) {
         $this->client = $client;
@@ -12,7 +13,6 @@ class DSB_Shortcode_Dashboard {
 
     public function init(): void {
         add_shortcode( 'PIXLAB_DASHBOARD', [ $this, 'render' ] );
-        add_shortcode( 'DAVIX_PIXLAB_DASHBOARD', [ $this, 'render' ] );
         add_action( 'wp_enqueue_scripts', [ $this, 'maybe_enqueue_assets' ] );
     }
 
@@ -21,7 +21,8 @@ class DSB_Shortcode_Dashboard {
             return '<div class="dsb-dashboard__message">' . esc_html__( 'Please log in to view your API usage.', 'davix-sub-bridge' ) . '</div>';
         }
 
-        $nonce = wp_create_nonce( 'dsb_dashboard' );
+        $this->enqueue_assets();
+        $nonce = wp_create_nonce( 'dsb_pixlab_dashboard' );
 
         ob_start();
         ?>
@@ -133,17 +134,15 @@ class DSB_Shortcode_Dashboard {
         }
 
         global $post;
-        if ( ! $post ) {
+        if ( ! $post || ! has_shortcode( $post->post_content, 'PIXLAB_DASHBOARD' ) ) {
             return;
         }
 
-        $content = $post->post_content;
-        $has_shortcode = has_shortcode( $content, 'PIXLAB_DASHBOARD' )
-            || has_shortcode( $content, 'DAVIX_PIXLAB_DASHBOARD' )
-            || has_shortcode( $content, 'pixlab_dashboard' )
-            || has_shortcode( $content, 'davix_pixlab_dashboard' );
+        $this->enqueue_assets();
+    }
 
-        if ( ! $has_shortcode ) {
+    protected function enqueue_assets(): void {
+        if ( self::$enqueued ) {
             return;
         }
 
@@ -174,19 +173,20 @@ class DSB_Shortcode_Dashboard {
             'dsb-dashboard',
             'dsbDashboardData',
             [
-                'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-                'nonce'   => wp_create_nonce( 'dsb_dashboard' ),
-                'strings' => [
-                    'loading'        => __( 'Loading…', 'davix-sub-bridge' ),
-                    'error'          => __( 'Unable to load dashboard right now.', 'davix-sub-bridge' ),
-                    'copied'         => __( 'Copied to clipboard.', 'davix-sub-bridge' ),
-                    'copyFailed'     => __( 'Copy failed.', 'davix-sub-bridge' ),
-                    'confirmRotate'  => __( 'Are you sure you want to regenerate your API key?', 'davix-sub-bridge' ),
-                    'rotateError'    => __( 'Unable to regenerate key.', 'davix-sub-bridge' ),
-                    'toggleError'    => __( 'Unable to update key status.', 'davix-sub-bridge' ),
-                    'shownOnce'      => __( 'Shown once — copy it now.', 'davix-sub-bridge' ),
+                'ajaxUrl'      => admin_url( 'admin-ajax.php' ),
+                'nonce'        => wp_create_nonce( 'dsb_pixlab_dashboard' ),
+                'defaultRange' => 'daily',
+                'strings'      => [
+                    'loading'       => __( 'Loading…', 'davix-sub-bridge' ),
+                    'error'         => __( 'Unable to load dashboard right now.', 'davix-sub-bridge' ),
+                    'copied'        => __( 'Copied to clipboard.', 'davix-sub-bridge' ),
+                    'copyFailed'    => __( 'Copy failed.', 'davix-sub-bridge' ),
+                    'confirmRotate' => __( 'Are you sure you want to regenerate your API key?', 'davix-sub-bridge' ),
+                    'rotateError'   => __( 'Unable to regenerate key.', 'davix-sub-bridge' ),
+                    'shownOnce'     => __( 'Shown once — copy it now.', 'davix-sub-bridge' ),
+                    'usageError'    => __( 'Unable to load usage.', 'davix-sub-bridge' ),
                 ],
-                'colors'  => [
+                'colors'       => [
                     'h2i'   => '#0ea5e9',
                     'image' => '#22c55e',
                     'pdf'   => '#a855f7',
@@ -197,5 +197,6 @@ class DSB_Shortcode_Dashboard {
 
         wp_enqueue_style( 'dsb-dashboard' );
         wp_enqueue_script( 'dsb-dashboard' );
+        self::$enqueued = true;
     }
 }
