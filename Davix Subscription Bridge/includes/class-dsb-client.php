@@ -4,7 +4,10 @@ namespace Davix\SubscriptionBridge;
 defined( 'ABSPATH' ) || exit;
 
 class DSB_Client {
-    const OPTION_SETTINGS = 'dsb_settings';
+    const OPTION_SETTINGS      = 'dsb_settings';
+    const OPTION_PRODUCT_PLANS = 'dsb_product_plans';
+    const OPTION_PLAN_PRODUCTS = 'dsb_plan_products';
+    const OPTION_PLAN_SYNC     = 'dsb_plan_sync';
 
     protected $db;
 
@@ -14,27 +17,62 @@ class DSB_Client {
 
     public function get_settings(): array {
         $defaults = [
-            'node_base_url' => 'https://pixlab.davix.dev',
+            'node_base_url' => '',
             'bridge_token'  => '',
-            'plan_mode'     => 'product',
+            'enable_logging'=> 1,
             'delete_data'   => 0,
-            'product_plans' => [],
         ];
         $options  = get_option( self::OPTION_SETTINGS, [] );
         return wp_parse_args( is_array( $options ) ? $options : [], $defaults );
     }
 
+    public function get_product_plans(): array {
+        $plans = get_option( self::OPTION_PRODUCT_PLANS, [] );
+        return isset( $plans ) && is_array( $plans ) ? array_map( 'sanitize_text_field', $plans ) : [];
+    }
+
+    public function get_plan_products(): array {
+        $products = get_option( self::OPTION_PLAN_PRODUCTS, [] );
+        if ( ! is_array( $products ) ) {
+            return [];
+        }
+        return array_values( array_filter( array_map( 'absint', $products ) ) );
+    }
+
+    public function get_plan_sync_status(): array {
+        $status = get_option( self::OPTION_PLAN_SYNC, [] );
+        if ( ! is_array( $status ) ) {
+            return [];
+        }
+        return $status;
+    }
+
     public function save_settings( array $data ): void {
-        $raw_product_plans = $data['product_plans'] ?? [];
-        $clean             = [
+        $clean = [
             'node_base_url' => esc_url_raw( $data['node_base_url'] ?? '' ),
             'bridge_token'  => sanitize_text_field( $data['bridge_token'] ?? '' ),
-            'plan_mode'     => in_array( $data['plan_mode'] ?? 'product', [ 'product', 'plan_meta' ], true ) ? $data['plan_mode'] : 'product',
+            'enable_logging'=> isset( $data['enable_logging'] ) ? 1 : 0,
             'delete_data'   => isset( $data['delete_data'] ) ? 1 : 0,
-            'product_plans' => is_array( $raw_product_plans ) ? array_map( 'sanitize_text_field', $raw_product_plans ) : [],
         ];
 
+        $existing_plans = $this->get_product_plans();
+        $plans = isset( $data['product_plans'] ) && is_array( $data['product_plans'] ) ? array_filter(
+            array_map( static function ( $value ) {
+                return sanitize_text_field( $value );
+            },
+                $data['product_plans']
+            ),
+            static function ( $value ) {
+                return '' !== $value;
+            }
+        ) : $existing_plans;
+
+        $plan_products = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : [];
+        $plan_products = array_filter( array_map( 'absint', $plan_products ) );
+
         update_option( self::OPTION_SETTINGS, $clean );
+        update_option( self::OPTION_PRODUCT_PLANS, $plans );
+        update_option( self::OPTION_PLAN_PRODUCTS, $plan_products );
         update_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL, $clean['delete_data'] );
     }
 
@@ -51,23 +89,35 @@ class DSB_Client {
         return substr( $token, 0, 3 ) . str_repeat( '*', $len - 6 ) . substr( $token, -3 );
     }
 
-    public function send_event( array $payload ): array {
+    protected function request( string $path, string $method = 'GET', array $body = [], array $query = [] ) {
         $settings = $this->get_settings();
         if ( empty( $settings['bridge_token'] ) ) {
-            return [ 'error' => __( 'Bridge token missing', 'davix-sub-bridge' ) ];
+            return new \WP_Error( 'dsb_missing_token', __( 'Bridge token missing', 'davix-sub-bridge' ) );
         }
 
-        $url = trailingslashit( $settings['node_base_url'] ) . 'internal/subscription/event';
+        $url = trailingslashit( $settings['node_base_url'] ) . ltrim( $path, '/' );
+        if ( $query ) {
+            $url = add_query_arg( $query, $url );
+        }
+
         $args = [
-            'timeout' => 10,
+            'timeout' => 15,
             'headers' => [
                 'x-davix-bridge-token' => $settings['bridge_token'],
-                'Content-Type'         => 'application/json',
             ],
-            'body'    => wp_json_encode( $payload ),
         ];
 
-        $response = $this->retry_request( $url, $args, 'POST' );
+        if ( 'POST' === strtoupper( $method ) ) {
+            $args['body']             = wp_json_encode( $body );
+            $args['headers']['Content-Type'] = 'application/json';
+        }
+
+        $response = 'POST' === strtoupper( $method ) ? wp_remote_post( $url, $args ) : wp_remote_get( $url, $args );
+        return $response;
+    }
+
+    public function send_event( array $payload ): array {
+        $response = $this->request( 'internal/subscription/event', 'POST', $payload );
         $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
         $decoded  = $body ? json_decode( $body, true ) : null;
         $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
@@ -82,7 +132,10 @@ class DSB_Client {
             'http_code'       => $code,
             'error_excerpt'   => is_wp_error( $response ) ? $response->get_error_message() : ( $decoded['status'] ?? '' ),
         ];
-        $this->db->log_event( $log );
+        $settings = $this->get_settings();
+        if ( $settings['enable_logging'] ) {
+            $this->db->log_event( $log );
+        }
 
         if ( $decoded && 'ok' === ( $decoded['status'] ?? '' ) ) {
             $this->db->upsert_key(
@@ -90,16 +143,16 @@ class DSB_Client {
                     'subscription_id' => sanitize_text_field( $payload['subscription_id'] ?? '' ),
                     'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
                     'plan_slug'       => sanitize_text_field( $payload['plan_slug'] ?? '' ),
-                    'status'          => $payload['event'] === 'disabled' ? 'disabled' : 'active',
-                    'key_prefix'      => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], 0, 6 ) : ( $decoded['key_prefix'] ?? null ),
-                    'key_last4'       => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], -4 ) : null,
+                    'status'          => isset( $payload['event'] ) && in_array( $payload['event'], [ 'cancelled', 'disabled' ], true ) ? 'disabled' : 'active',
+                    'key_prefix'      => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], 0, 10 ) : ( $decoded['key_prefix'] ?? null ),
+                    'key_last4'       => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], -4 ) : ( $decoded['key_last4'] ?? null ),
                     'node_plan_id'    => $decoded['plan_id'] ?? null,
                     'last_action'     => $decoded['action'] ?? null,
                     'last_http_code'  => $code,
                     'last_error'      => null,
                 ]
             );
-        } else {
+        } elseif ( $settings['enable_logging'] ) {
             $this->db->upsert_key(
                 [
                     'subscription_id' => sanitize_text_field( $payload['subscription_id'] ?? '' ),
@@ -120,34 +173,8 @@ class DSB_Client {
         ];
     }
 
-    protected function retry_request( string $url, array $args, string $method = 'POST' ) {
-        $attempts = 0;
-        $response = null;
-        while ( $attempts < 2 ) {
-            $attempts ++;
-            $response = 'POST' === $method ? wp_remote_post( $url, $args ) : wp_remote_get( $url, $args );
-            if ( ! is_wp_error( $response ) && wp_remote_retrieve_response_code( $response ) < 500 ) {
-                break;
-            }
-        }
-        return $response;
-    }
-
     public function test_connection(): array {
-        $settings = $this->get_settings();
-        if ( empty( $settings['bridge_token'] ) ) {
-            return [ 'error' => __( 'Bridge token missing', 'davix-sub-bridge' ) ];
-        }
-
-        $url = trailingslashit( $settings['node_base_url'] ) . 'internal/subscription/debug';
-        $args = [
-            'timeout' => 10,
-            'headers' => [
-                'x-davix-bridge-token' => $settings['bridge_token'],
-            ],
-        ];
-
-        $response = $this->retry_request( $url, $args, 'GET' );
+        $response = $this->request( 'internal/subscription/debug', 'GET' );
         $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
         $decoded  = ! is_wp_error( $response ) ? json_decode( wp_remote_retrieve_body( $response ), true ) : null;
 
@@ -156,5 +183,42 @@ class DSB_Client {
             'decoded'  => $decoded,
             'code'     => $code,
         ];
+    }
+
+    public function fetch_keys( int $page = 1, int $per_page = 20, string $search = '' ) {
+        return $this->request(
+            'internal/admin/keys',
+            'GET',
+            [],
+            [
+                'page'     => max( 1, $page ),
+                'per_page' => max( 1, $per_page ),
+                'search'   => $search,
+            ]
+        );
+    }
+
+    public function provision_key( array $payload ) {
+        return $this->request( 'internal/admin/key/provision', 'POST', $payload );
+    }
+
+    public function disable_key( array $payload ) {
+        return $this->request( 'internal/admin/key/disable', 'POST', $payload );
+    }
+
+    public function rotate_key( array $payload ) {
+        return $this->request( 'internal/admin/key/rotate', 'POST', $payload );
+    }
+
+    public function fetch_plans() {
+        return $this->request( 'internal/admin/plans', 'GET' );
+    }
+
+    public function sync_plan( array $payload ) {
+        return $this->request( 'internal/wp-sync/plan', 'POST', $payload );
+    }
+
+    public function save_plan_sync_status( array $status ): void {
+        update_option( self::OPTION_PLAN_SYNC, $status );
     }
 }
