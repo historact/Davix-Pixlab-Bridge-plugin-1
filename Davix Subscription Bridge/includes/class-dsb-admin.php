@@ -218,7 +218,14 @@ class DSB_Admin {
         }
     }
 
-    public function render_page(): void {
+    protected function add_notice( string $message, string $type = 'success' ): void {
+        $this->notices[] = [
+            'message' => $message,
+            'type'    => $type,
+        ];
+    }
+
+    public function handle_actions(): void {
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
