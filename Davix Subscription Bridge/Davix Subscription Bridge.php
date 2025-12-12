@@ -23,6 +23,7 @@ require_once __DIR__ . '/includes/class-dsb-db.php';
 require_once __DIR__ . '/includes/class-dsb-client.php';
 require_once __DIR__ . '/includes/class-dsb-admin.php';
 require_once __DIR__ . '/includes/class-dsb-events.php';
+require_once __DIR__ . '/includes/class-dsb-keys-table.php';
 require_once __DIR__ . '/includes/class-dsb-plugin.php';
 
 register_activation_hook( __FILE__, '\\Davix\\SubscriptionBridge\\DSB_Plugin::activate' );
