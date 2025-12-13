@@ -272,7 +272,6 @@ class DSB_Events {
         } else {
             $activation = $this->determine_activation_time( $order );
             if ( $activation ) {
-                $valid_from  = $this->format_datetime_for_node( $activation );
                 $valid_until = $this->format_datetime_for_node( $activation->add( $interval ) );
             }
         }
@@ -426,7 +425,7 @@ class DSB_Events {
     }
 
     protected function format_datetime_for_node( \DateTimeInterface $dt ): string {
-        return $dt->setTimezone( new \DateTimeZone( 'UTC' ) )->format( DATE_ATOM );
+        return DSB_Util::to_iso_utc( $dt );
     }
 
     protected function parse_datetime_string( $value ): ?\DateTimeImmutable {
