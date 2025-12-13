@@ -301,6 +301,15 @@ class DSB_Client {
         return $this->post_internal( '/internal/user/key/toggle', $payload );
     }
 
+    public function user_logs( array $identity, int $page, int $per_page, array $filters = [] ): array {
+        $payload = array_merge( $identity, [
+            'page'     => $page,
+            'per_page' => $per_page,
+        ], $filters );
+
+        return $this->post_internal( '/internal/user/logs', $payload );
+    }
+
     public function fetch_user_summary( array $payload ): array {
         return $this->post_internal( '/internal/user/summary', $payload );
     }
