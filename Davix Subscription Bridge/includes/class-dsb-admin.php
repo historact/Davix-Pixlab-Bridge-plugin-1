@@ -333,11 +333,21 @@ class DSB_Admin {
             $plan_slug      = isset( $_POST['plan_slug'] ) ? sanitize_text_field( wp_unslash( $_POST['plan_slug'] ) ) : '';
             $subscriptionId = isset( $_POST['subscription_id'] ) ? sanitize_text_field( wp_unslash( $_POST['subscription_id'] ) ) : '';
             $order_id       = isset( $_POST['order_id'] ) ? sanitize_text_field( wp_unslash( $_POST['order_id'] ) ) : '';
-            $valid_from_raw = isset( $_POST['valid_from'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_from'] ) ) : '';
+            $valid_from_raw  = isset( $_POST['valid_from'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_from'] ) ) : '';
             $valid_until_raw = isset( $_POST['valid_until'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_until'] ) ) : '';
 
-            $valid_from  = $this->parse_datetime_local( $valid_from_raw );
-            $valid_until = $this->parse_datetime_local( $valid_until_raw );
+            $valid_from  = DSB_Util::to_iso_utc( $valid_from_raw );
+            $valid_until = DSB_Util::to_iso_utc( $valid_until_raw );
+
+            if ( $valid_from_raw && ! $valid_from ) {
+                $this->add_notice( __( 'Invalid Valid From date. Please use a valid date/time.', 'davix-sub-bridge' ), 'error' );
+                return;
+            }
+
+            if ( $valid_until_raw && ! $valid_until ) {
+                $this->add_notice( __( 'Invalid Valid Until date. Please use a valid date/time.', 'davix-sub-bridge' ), 'error' );
+                return;
+            }
 
             if ( $valid_from && $valid_until && strtotime( $valid_until ) < strtotime( $valid_from ) ) {
                 $this->add_notice( __( 'Valid Until must be after Valid From.', 'davix-sub-bridge' ), 'error' );
@@ -846,21 +856,6 @@ class DSB_Admin {
             return wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $timestamp );
         } catch ( \Throwable $e ) {
             return '—';
-        }
-    }
-
-    protected function parse_datetime_local( string $value ): ?string {
-        if ( '' === $value ) {
-            return null;
-        }
-
-        try {
-            $tz  = wp_timezone();
-            $dt  = new \DateTimeImmutable( $value, $tz );
-            $utc = $dt->setTimezone( new \DateTimeZone( 'UTC' ) );
-            return $utc->format( DATE_ATOM );
-        } catch ( \Throwable $e ) {
-            return null;
         }
     }
 
