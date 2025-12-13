@@ -59,6 +59,8 @@ if ( ! function_exists( __NAMESPACE__ . '\\dsb_pixlab_get_identity' ) ) {
     }
 }
 
+if ( ! class_exists( __NAMESPACE__ . '\\DSB_Dashboard_Ajax' ) ) {
+
 class DSB_Dashboard_Ajax {
     protected $client;
     protected $diag_enabled;
@@ -154,14 +156,6 @@ class DSB_Dashboard_Ajax {
         } catch ( \Throwable $e ) {
             $this->handle_exception( $e );
         }
-    }
-
-    public function toggle_key(): void {
-        $identity = $this->validate_request();
-        $enabled  = isset( $_POST['enabled'] ) ? (bool) sanitize_text_field( wp_unslash( $_POST['enabled'] ) ) : true;
-
-        $result = $this->client->user_toggle( $identity, $enabled );
-        $this->respond_from_result( $result, __( 'Unable to update key.', 'davix-sub-bridge' ) );
     }
 
     protected function validate_request(): array {
@@ -282,4 +276,6 @@ class DSB_Dashboard_Ajax {
             'error'  => $message,
         ];
     }
+}
+
 }
