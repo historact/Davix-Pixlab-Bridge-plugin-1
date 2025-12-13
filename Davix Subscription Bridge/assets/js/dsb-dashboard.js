@@ -36,6 +36,7 @@
         modalKey: root.querySelector('[data-modal-key]'),
         modalCopy: root.querySelector('[data-modal-copy]'),
         modalClose: root.querySelector('[data-modal-close]'),
+        modalOverlay: root.querySelector('[data-modal-overlay]'),
     };
 
     const colors = data.colors || {
@@ -49,11 +50,12 @@
         chart: null,
         range: data.defaultRange || 'daily',
         maskedKey: '',
+        keyEnabled: true,
     };
 
     function formatMasked(prefix, last4) {
-        if (!prefix && !last4) return '—';
-        return `${prefix || ''} •••• ${last4 || ''}`.trim();
+        if (!prefix && !last4) return data.strings.loading || '—';
+        return `${prefix || ''}••••${last4 || ''}`;
     }
 
     function post(action, payload = {}) {
@@ -73,6 +75,9 @@
     function handleResponse(json) {
         if (!json || json.status !== 'ok') {
             const message = json && json.message ? json.message : data.strings.error;
+            if (data.isAdmin && json && json.debug) {
+                console.warn('DSB dashboard debug:', json.debug);
+            }
             throw new Error(message);
         }
         return json;
@@ -84,6 +89,18 @@
         els.keyStatus.className = 'dsb-status ' + (type ? 'is-' + type : '');
     }
 
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'dsb-status is-success';
+        toast.style.position = 'fixed';
+        toast.style.bottom = '16px';
+        toast.style.right = '16px';
+        toast.style.zIndex = '10000';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+    }
+
     function renderSummary(res) {
         const plan = res.plan || {};
         const key = res.key || {};
@@ -91,18 +108,18 @@
         const billing = res.billing || {};
         const per = res.per_endpoint || {};
 
-        state.maskedKey = formatMasked(key.key_prefix, key.key_last4);
+        const enabled = key.enabled !== false && (key.status || '').toLowerCase() !== 'disabled';
+        state.keyEnabled = enabled;
+        state.maskedKey = key.key_prefix || key.key_last4 ? formatMasked(key.key_prefix, key.key_last4) : data.strings.loading;
+
         if (els.keyDisplay) {
-            els.keyDisplay.value = state.maskedKey;
+            els.keyDisplay.value = key.key_prefix || key.key_last4 ? state.maskedKey : data.strings.loading;
         }
         if (els.keyCreated) {
             els.keyCreated.textContent = key.created_at ? `Created ${key.created_at}` : '';
         }
-        if (els.keyToggle) {
-            els.keyToggle.textContent = (key.status || '').toLowerCase() === 'disabled' ? 'Disabled' : 'Active';
-            els.keyToggle.disabled = true;
-        }
-        setStatus((key.status || 'active') === 'disabled' ? 'Disabled' : 'Active', (key.status || 'active') === 'disabled' ? 'muted' : 'success');
+        updateToggleButton();
+        setStatus(enabled ? 'Active' : 'Disabled', enabled ? 'success' : 'muted');
 
         if (els.planName) {
             els.planName.textContent = plan.name || '—';
@@ -119,11 +136,14 @@
         }
 
         applyUsage(usage, billing, per);
+        if (res.history || res.labels || res.series) {
+            renderHistory(res.history || { labels: res.labels || [], series: res.series || {} });
+        }
     }
 
     function applyUsage(usage = {}, billing = {}, per = {}) {
-        const used = usage.total_calls_used || 0;
-        const limit = usage.total_calls_limit || null;
+        const used = usage.total_calls_used ?? usage.used ?? 0;
+        const limit = usage.total_calls_limit ?? usage.limit ?? null;
         const percent = usage.percent != null ? usage.percent : limit ? Math.min(100, Math.round((used / limit) * 100)) : null;
 
         if (els.usageCalls) {
@@ -161,21 +181,34 @@
         }
 
         const datasets = [
-            { label: 'H2I', data: series.h2i || [], borderColor: colors.h2i, backgroundColor: colors.h2i, tension: 0.3 },
-            { label: 'Image', data: series.image || [], borderColor: colors.image, backgroundColor: colors.image, tension: 0.3 },
-            { label: 'PDF', data: series.pdf || [], borderColor: colors.pdf, backgroundColor: colors.pdf, tension: 0.3 },
-            { label: 'Tools', data: series.tools || [], borderColor: colors.tools, backgroundColor: colors.tools, tension: 0.3 },
+            { label: 'H2I', data: series.h2i || [], borderColor: colors.h2i, backgroundColor: `${colors.h2i}80`, stack: 'stack' },
+            { label: 'Image', data: series.image || [], borderColor: colors.image, backgroundColor: `${colors.image}80`, stack: 'stack' },
+            { label: 'PDF', data: series.pdf || [], borderColor: colors.pdf, backgroundColor: `${colors.pdf}80`, stack: 'stack' },
+            { label: 'Tools', data: series.tools || [], borderColor: colors.tools, backgroundColor: `${colors.tools}80`, stack: 'stack' },
         ];
 
         updateLegend(datasets);
 
-        const type = state.range === 'hourly' ? 'bar' : 'line';
         state.chart = new Chart(ctx.getContext('2d'), {
-            type,
+            type: 'bar',
             data: { labels, datasets },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                scales: {
+                    x: { stacked: true },
+                    y: { stacked: true, beginAtZero: true },
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label(context) {
+                                const label = context.dataset.label || '';
+                                return `${label}: ${context.raw || 0}`;
+                            },
+                        },
+                    },
+                },
             },
         });
     }
@@ -203,7 +236,7 @@
             els.rotate.disabled = true;
         }
 
-        post('dsb_pixlab_dashboard_rotate_key')
+        post('dsb_dashboard_rotate')
             .then(handleResponse)
             .then((json) => {
                 const res = json || {};
@@ -213,6 +246,7 @@
                 }
                 openKeyModal(res.key || '');
                 fetchSummary();
+                fetchUsage(state.range);
             })
             .catch((err) => alert(err.message || data.strings.rotateError))
             .finally(() => {
@@ -222,10 +256,39 @@
             });
     }
 
+    function handleToggle() {
+        const nextState = !state.keyEnabled;
+        if (els.keyToggle) {
+            els.keyToggle.disabled = true;
+        }
+
+        post('dsb_dashboard_toggle', { enabled: nextState ? '1' : '' })
+            .then(handleResponse)
+            .then(() => {
+                state.keyEnabled = nextState;
+                updateToggleButton();
+                setStatus(nextState ? 'Active' : 'Disabled', nextState ? 'success' : 'muted');
+                fetchSummary();
+                fetchUsage(state.range);
+                showToast(data.strings.toastSuccess);
+            })
+            .catch((err) => alert(err.message || data.strings.toggleError))
+            .finally(() => {
+                if (els.keyToggle) {
+                    els.keyToggle.disabled = false;
+                }
+            });
+    }
+
+    function updateToggleButton() {
+        if (!els.keyToggle) return;
+        els.keyToggle.textContent = state.keyEnabled ? data.strings.toggleOff : data.strings.toggleOn;
+    }
+
     function openKeyModal(key) {
         if (!els.modal) return;
-        els.modal.removeAttribute('hidden');
         els.modal.classList.add('is-open');
+        els.modal.setAttribute('aria-hidden', 'false');
         if (els.modalKey) {
             els.modalKey.value = key;
         }
@@ -238,7 +301,7 @@
     function closeKeyModal() {
         if (!els.modal) return;
         els.modal.classList.remove('is-open');
-        els.modal.setAttribute('hidden', '');
+        els.modal.setAttribute('aria-hidden', 'true');
         if (els.modalKey) {
             els.modalKey.value = '';
         }
@@ -252,13 +315,13 @@
     }
 
     function handleModalBackdrop(event) {
-        if (event.target === els.modal) {
+        if (event.target === els.modalOverlay || event.target === els.modal) {
             closeKeyModal();
         }
     }
 
     function handleCopy(target) {
-        if (!target) return;
+        if (!target || !target.value) return;
         target.select();
         target.setSelectionRange(0, target.value.length);
         navigator.clipboard
@@ -271,11 +334,10 @@
         state.range = range;
         els.rangeButtons.forEach((btn) => btn.classList.toggle('is-active', btn.dataset.range === range));
         fetchUsage(range);
-        fetchHistory(range);
     }
 
     function fetchSummary() {
-        post('dsb_pixlab_dashboard_summary')
+        post('dsb_dashboard_summary')
             .then(handleResponse)
             .then(renderSummary)
             .catch((err) => {
@@ -284,19 +346,18 @@
     }
 
     function fetchUsage(range) {
-        post('dsb_pixlab_dashboard_usage', { range })
+        post('dsb_dashboard_usage', { range })
             .then(handleResponse)
             .then((json) => {
                 applyUsage(json.usage || {}, json.billing || {}, json.per_endpoint || {});
+                renderHistory(json.history || { labels: json.labels || [], series: json.series || {} });
             })
-            .catch((err) => setStatus(err.message || data.strings.usageError, 'error'));
-    }
-
-    function fetchHistory(range) {
-        post('dsb_pixlab_dashboard_history', { range })
-            .then(handleResponse)
-            .then(renderHistory)
-            .catch((err) => setStatus(err.message || data.strings.error, 'error'));
+            .catch((err) => {
+                if (data.isAdmin) {
+                    console.error('DSB usage error', err);
+                }
+                setStatus(err.message || data.strings.usageError, 'error');
+            });
     }
 
     // Events
@@ -306,11 +367,17 @@
     if (els.keyCopy) {
         els.keyCopy.addEventListener('click', () => handleCopy(els.keyDisplay));
     }
+    if (els.keyToggle) {
+        els.keyToggle.addEventListener('click', handleToggle);
+    }
     if (els.modalCopy) {
         els.modalCopy.addEventListener('click', () => handleCopy(els.modalKey));
     }
     if (els.modalClose) {
         els.modalClose.addEventListener('click', closeKeyModal);
+    }
+    if (els.modalOverlay) {
+        els.modalOverlay.addEventListener('click', handleModalBackdrop);
     }
     if (els.modal) {
         els.modal.addEventListener('click', handleModalBackdrop);
