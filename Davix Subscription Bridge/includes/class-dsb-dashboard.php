@@ -25,6 +25,20 @@ class DSB_Dashboard {
         $styles  = $this->client->get_style_settings();
         $style_attr = $this->build_style_attribute( $styles );
 
+        $default_styles   = $this->client->get_style_defaults();
+        $override_count   = 0;
+        foreach ( $default_styles as $key => $default_value ) {
+            if ( isset( $styles[ $key ] ) && $styles[ $key ] !== $default_value ) {
+                $override_count ++;
+            }
+        }
+
+        dsb_log( 'debug', 'Dashboard render preparing styles', [
+            'style_attr_length' => strlen( $style_attr ),
+            'override_count'    => $override_count,
+            'uses_defaults'     => $override_count === 0,
+        ] );
+
         $this->enqueue_assets();
 
         ob_start();
