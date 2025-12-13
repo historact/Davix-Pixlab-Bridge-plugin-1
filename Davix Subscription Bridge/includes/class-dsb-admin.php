@@ -28,6 +28,7 @@ class DSB_Admin {
         add_action( 'wp_ajax_dsb_search_users', [ $this, 'ajax_search_users' ] );
         add_action( 'wp_ajax_dsb_search_subscriptions', [ $this, 'ajax_search_subscriptions' ] );
         add_action( 'wp_ajax_dsb_search_orders', [ $this, 'ajax_search_orders' ] );
+        add_action( 'wp_ajax_dsb_js_log', __NAMESPACE__ . '\\dsb_handle_js_log' );
         add_filter( 'woocommerce_product_data_tabs', [ $this, 'add_plan_limits_tab' ] );
         add_action( 'woocommerce_product_data_panels', [ $this, 'render_plan_limits_panel' ] );
         add_action( 'woocommerce_admin_process_product_object', [ $this, 'save_plan_limits_meta' ] );
@@ -49,6 +50,7 @@ class DSB_Admin {
     public function enqueue_assets( string $hook ): void {
         $page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
         $tab  = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+        $settings = $this->client->get_settings();
 
         dsb_log( 'debug', 'Admin enqueue called', [
             'hook' => $hook,
@@ -93,15 +95,18 @@ class DSB_Admin {
         );
         wp_localize_script(
             'dsb-admin',
-            'dsbAdminData',
+            'DSB_ADMIN',
             [
                 'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-                'nonce'   => wp_create_nonce( 'dsb_admin_ajax' ),
-                'debug'   => defined( 'WP_DEBUG' ) && WP_DEBUG,
-                'hook'    => $hook,
+                'nonce'   => wp_create_nonce( 'dsb_js_log' ),
+                'page'    => $page,
+                'tab'     => $tab,
+                'debug'   => ! empty( $settings['debug_enabled'] ),
             ]
         );
         wp_enqueue_script( 'dsb-admin' );
+
+        wp_add_inline_script( 'dsb-admin', 'console.log("[DSB] inline after dsb-admin loaded"); window.DSB_INLINE_PROOF=true;', 'after' );
 
         dsb_log( 'info', 'Enqueuing dsb-admin.js', [
             'handle'    => 'dsb-admin',

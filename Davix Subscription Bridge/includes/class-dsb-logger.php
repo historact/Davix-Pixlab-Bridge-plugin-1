@@ -230,3 +230,68 @@ function dsb_clear_logs(): void {
         @unlink( $legacy );
     }
 }
+
+function dsb_handle_js_log(): void {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_send_json_error( [ 'message' => 'forbidden' ], 403 );
+    }
+
+    $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+    if ( ! wp_verify_nonce( $nonce, 'dsb_js_log' ) ) {
+        wp_send_json_error( [ 'message' => 'invalid_nonce' ], 403 );
+    }
+
+    $message = isset( $_POST['message'] ) ? wp_strip_all_tags( wp_unslash( (string) $_POST['message'] ) ) : '';
+    if ( strlen( $message ) > 2000 ) {
+        wp_send_json_success( [ 'ignored' => true, 'reason' => 'too_long' ] );
+    }
+
+    $user_id = get_current_user_id() ?: 'guest';
+    $bucket  = gmdate( 'YmdHi' );
+    $key     = 'dsb_js_log_count_' . $user_id . '_' . $bucket;
+    $count   = (int) get_transient( $key );
+    if ( $count >= 30 ) {
+        wp_send_json_success( [ 'ignored' => true, 'reason' => 'rate_limited' ] );
+    }
+    set_transient( $key, $count + 1, 2 * MINUTE_IN_SECONDS );
+
+    $level    = isset( $_POST['level'] ) ? sanitize_key( wp_unslash( $_POST['level'] ) ) : 'info';
+    $allowed  = [ 'debug', 'info', 'warn', 'error' ];
+    $level    = in_array( $level, $allowed, true ) ? $level : 'info';
+    $context  = [];
+
+    if ( ! empty( $_POST['context'] ) ) {
+        $raw = wp_unslash( $_POST['context'] );
+        if ( is_string( $raw ) ) {
+            $decoded = json_decode( $raw, true );
+            if ( is_array( $decoded ) ) {
+                $context = $decoded;
+            }
+        } elseif ( is_array( $raw ) ) {
+            $context = $raw;
+        }
+    }
+
+    $sanitize_recursive = static function ( $value ) use ( &$sanitize_recursive ) {
+        if ( is_array( $value ) ) {
+            $clean = [];
+            foreach ( $value as $key => $item ) {
+                $clean[ sanitize_key( $key ) ] = $sanitize_recursive( $item );
+            }
+            return $clean;
+        }
+
+        if ( is_scalar( $value ) ) {
+            $string = wp_strip_all_tags( (string) $value );
+            return substr( $string, 0, 500 );
+        }
+
+        return null;
+    };
+
+    $clean_context = dsb_mask_secrets( $sanitize_recursive( $context ) );
+
+    dsb_log( $level, 'JS: ' . $message, [ 'js_context' => $clean_context ] );
+
+    wp_send_json_success( [ 'logged' => true ] );
+}
