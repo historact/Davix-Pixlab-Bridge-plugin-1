@@ -142,7 +142,8 @@ class DSB_Dashboard_Ajax {
         try {
             $identity = $this->validate_request();
             $page     = isset( $_POST['page'] ) ? max( 1, (int) $_POST['page'] ) : 1;
-            $per_page = isset( $_POST['per_page'] ) ? max( 1, (int) $_POST['per_page'] ) : 20;
+            $per_page = isset( $_POST['per_page'] ) ? (int) $_POST['per_page'] : 20;
+            $per_page = min( 50, max( 1, $per_page ) );
 
             $filters = [];
             $maybe_endpoint = isset( $_POST['endpoint'] ) ? sanitize_text_field( wp_unslash( $_POST['endpoint'] ) ) : '';
@@ -363,6 +364,18 @@ class DSB_Dashboard_Ajax {
         }
     }
 
+    private function placeholder_or_value( $value ) {
+        if ( null === $value ) {
+            return '—';
+        }
+
+        if ( is_string( $value ) && '' === trim( $value ) ) {
+            return '—';
+        }
+
+        return $value;
+    }
+
     private function normalize_summary_payload( array $decoded ): array {
         $plan   = $decoded['plan'] ?? [];
         $key    = $decoded['key'] ?? [];
@@ -434,14 +447,18 @@ class DSB_Dashboard_Ajax {
         $rows  = $decoded['items'] ?? $decoded['logs'] ?? [];
 
         foreach ( $rows as $row ) {
+            $files_processed = $row['files_processed'] ?? ( $row['files'] ?? null );
+            $bytes_in        = $row['bytes_in'] ?? null;
+            $bytes_out       = $row['bytes_out'] ?? null;
+
             $items[] = [
                 'timestamp' => $this->fmt_datetime( $row['timestamp'] ?? ( $row['created_at'] ?? null ) ),
-                'endpoint'  => sanitize_text_field( $row['endpoint'] ?? '' ),
-                'status'    => sanitize_text_field( $row['status'] ?? '' ),
-                'files'     => isset( $row['files'] ) ? (int) $row['files'] : 0,
-                'bytes_in'  => isset( $row['bytes_in'] ) ? (int) $row['bytes_in'] : 0,
-                'bytes_out' => isset( $row['bytes_out'] ) ? (int) $row['bytes_out'] : 0,
-                'error'     => sanitize_text_field( $row['error_code'] ?? ( $row['error'] ?? '' ) ),
+                'endpoint'  => $this->placeholder_or_value( sanitize_text_field( $row['endpoint'] ?? '' ) ),
+                'status'    => $this->placeholder_or_value( sanitize_text_field( $row['status'] ?? '' ) ),
+                'files'     => $this->placeholder_or_value( isset( $files_processed ) ? (int) $files_processed : null ),
+                'bytes_in'  => $this->placeholder_or_value( isset( $bytes_in ) ? (int) $bytes_in : null ),
+                'bytes_out' => $this->placeholder_or_value( isset( $bytes_out ) ? (int) $bytes_out : null ),
+                'error'     => $this->placeholder_or_value( sanitize_text_field( $row['error_code'] ?? ( $row['error_message'] ?? ( $row['error'] ?? '' ) ) ) ),
             ];
         }
 
