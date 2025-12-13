@@ -46,7 +46,7 @@ class DSB_Admin {
 
     public function enqueue_assets( string $hook ): void {
         $page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
-        if ( 'davix-bridge' !== $page && 'toplevel_page_davix-bridge' !== $hook ) {
+        if ( ! isset( $_GET['page'] ) || 'davix-bridge' !== $page ) {
             return;
         }
 
@@ -61,11 +61,19 @@ class DSB_Admin {
         wp_enqueue_style( 'wp-color-picker' );
         wp_enqueue_script( 'wp-color-picker' );
 
+        wp_register_style(
+            'dsb-admin-styles',
+            DSB_PLUGIN_URL . 'assets/css/dsb-admin.css',
+            [ 'wp-color-picker' ],
+            DSB_VERSION
+        );
+        wp_enqueue_style( 'dsb-admin-styles' );
+
         if ( function_exists( 'wc' ) ) {
             wp_enqueue_style( 'woocommerce_admin_styles' );
         }
 
-        wp_register_script( 'dsb-admin', DSB_PLUGIN_URL . 'assets/js/dsb-admin.js', [ 'jquery' ], DSB_VERSION, true );
+        wp_register_script( 'dsb-admin', DSB_PLUGIN_URL . 'assets/js/dsb-admin.js', [ 'jquery', 'wp-color-picker' ], DSB_VERSION, true );
         wp_localize_script(
             'dsb-admin',
             'dsbAdminData',

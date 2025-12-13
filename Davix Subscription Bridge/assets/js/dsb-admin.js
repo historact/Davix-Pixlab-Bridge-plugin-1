@@ -44,7 +44,12 @@
         }
     }
 
-    $(function(){
+    function bindSelects(){
+        if (!($.fn.selectWoo || $.fn.select2)) {
+            console.warn('[DSB] select2/selectWoo missing');
+            return;
+        }
+
         $('.dsb-select-ajax').each(function(){
             initAjaxSelect($(this));
         });
@@ -61,19 +66,40 @@
                 $('#dsb-customer-email').val('');
             }
         });
+    }
 
+    $(function(){
+        console.log('[DSB] admin JS loaded', { page: location.href });
+        window.DSB_ADMIN_LOADED = true;
+
+        bindSelects();
+
+        console.log('[DSB] wpColorPicker exists', typeof $.fn.wpColorPicker);
+        console.log('[DSB] color fields count', $('.dsb-color-field').length);
         if (typeof $.fn.wpColorPicker === 'function') {
             $('.dsb-color-field').wpColorPicker();
+        } else {
+            console.warn('[DSB] wpColorPicker missing');
         }
 
-        var $modal = $('[data-dsb-modal]');
+        var $modal = $('[data-dsb-modal]').first();
+
         function closeModal(){
-            $modal.removeClass('is-open');
+            if (!$modal.length) {
+                return;
+            }
+            $modal.removeClass('is-open').attr('aria-hidden', 'true');
+            $('body').removeClass('dsb-modal-open');
         }
 
-        $('.dsb-open-key-modal').on('click', function(e){
+        $(document).on('click', '.dsb-open-key-modal', function(e){
             e.preventDefault();
-            $modal.addClass('is-open');
+            if (!$modal.length) {
+                return;
+            }
+            console.log('[DSB] Create Key clicked');
+            $modal.addClass('is-open').attr('aria-hidden', 'false');
+            $('body').addClass('dsb-modal-open');
         });
 
         $(document).on('click', '[data-dsb-modal-close]', function(e){
@@ -87,7 +113,7 @@
             }
         });
 
-        $modal.on('click', function(e){
+        $(document).on('click', '[data-dsb-modal]', function(e){
             if ($(e.target).is('[data-dsb-modal]')) {
                 closeModal();
             }
