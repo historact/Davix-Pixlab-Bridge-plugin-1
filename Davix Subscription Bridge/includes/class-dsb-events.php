@@ -228,6 +228,250 @@ class DSB_Events {
             'plan_slug'       => $plan_slug,
             'subscription_id' => $subscription_id,
             'order_id'        => $order_id,
+        ] + $this->maybe_add_validity_window( $event, $product_id, $order, $subscription_id, $customer_email, $plan_slug );
+    }
+
+    protected function maybe_add_validity_window( string $event, int $product_id, ?\WC_Order $order, string $subscription_id, string $customer_email, string $plan_slug ): array {
+        $eligible_events = [ 'activated', 'activated_pending_subscription_id', 'renewed' ];
+        if ( ! in_array( $event, $eligible_events, true ) ) {
+            return [];
+        }
+
+        $interval = $this->get_product_expiry_interval( $product_id );
+        if ( ! $interval ) {
+            return [];
+        }
+
+        $valid_from  = null;
+        $valid_until = null;
+
+        if ( 'renewed' === $event ) {
+            $existing = $this->fetch_current_validity( $subscription_id, $customer_email );
+            if ( isset( $existing['valid_from'] ) ) {
+                $valid_from = $this->format_datetime_for_node( $existing['valid_from'] );
+            }
+            if ( isset( $existing['valid_until'] ) ) {
+                $valid_until = $this->format_datetime_for_node( $existing['valid_until']->add( $interval ) );
+            } elseif ( isset( $existing['valid_from'] ) ) {
+                $valid_until = $this->format_datetime_for_node( $existing['valid_from']->add( $interval ) );
+            }
+
+            if ( ! $valid_from ) {
+                $activation = $this->determine_activation_time( $order );
+                if ( $activation ) {
+                    $valid_from = $this->format_datetime_for_node( $activation );
+                }
+            }
+
+            if ( ! $valid_until && $valid_from ) {
+                $start_dt = $this->parse_datetime_string( $valid_from );
+                if ( $start_dt ) {
+                    $valid_until = $this->format_datetime_for_node( $start_dt->add( $interval ) );
+                }
+            }
+        } else {
+            $activation = $this->determine_activation_time( $order );
+            if ( $activation ) {
+                $valid_from  = $this->format_datetime_for_node( $activation );
+                $valid_until = $this->format_datetime_for_node( $activation->add( $interval ) );
+            }
+        }
+
+        $payload = [];
+        if ( $valid_from ) {
+            $payload['valid_from'] = $valid_from;
+        }
+        if ( $valid_until ) {
+            $payload['valid_until'] = $valid_until;
+        }
+
+        return $payload;
+    }
+
+    protected function get_product_expiry_interval( int $product_id ): ?\DateInterval {
+        if ( $product_id <= 0 ) {
+            return null;
+        }
+
+        $product = wc_get_product( $product_id );
+        if ( ! $product instanceof \WC_Product ) {
+            return null;
+        }
+
+        $value_keys = [
+            'wps_sfw_subscription_expiry_interval',
+            'wps_sfw_subscription_expiry_value',
+            'wps_sfw_subs_expiry_interval',
+            '_subscription_expiry_interval',
+            'wps_sfw_expiry_interval',
         ];
+        $unit_keys  = [
+            'wps_sfw_subscription_expiry_interval_type',
+            'wps_sfw_subscription_expiry_unit',
+            'wps_sfw_subs_expiry_interval_type',
+            '_subscription_expiry_period',
+            'wps_sfw_subscription_expiry_type',
+            'wps_sfw_expiry_unit',
+        ];
+
+        $interval_value = null;
+        foreach ( $value_keys as $key ) {
+            $value = $product->get_meta( $key, true );
+            if ( '' !== $value && null !== $value && is_numeric( $value ) ) {
+                $interval_value = (int) $value;
+                break;
+            }
+        }
+
+        if ( ! $interval_value || $interval_value <= 0 ) {
+            return null;
+        }
+
+        $unit = '';
+        foreach ( $unit_keys as $key ) {
+            $candidate = $product->get_meta( $key, true );
+            if ( $candidate ) {
+                $unit = $this->normalize_interval_unit( (string) $candidate );
+                if ( $unit ) {
+                    break;
+                }
+            }
+        }
+
+        if ( ! $unit ) {
+            $unit = $this->normalize_interval_unit( $this->detect_billing_period( $product ) );
+        }
+
+        if ( ! $unit ) {
+            return null;
+        }
+
+        try {
+            switch ( $unit ) {
+                case 'day':
+                    return new \DateInterval( 'P' . $interval_value . 'D' );
+                case 'week':
+                    return new \DateInterval( 'P' . $interval_value . 'W' );
+                case 'month':
+                    return new \DateInterval( 'P' . $interval_value . 'M' );
+                case 'year':
+                    return new \DateInterval( 'P' . $interval_value . 'Y' );
+                default:
+                    return null;
+            }
+        } catch ( \Throwable $e ) {
+            return null;
+        }
+    }
+
+    protected function normalize_interval_unit( string $unit ): string {
+        $unit = strtolower( trim( $unit ) );
+        switch ( $unit ) {
+            case 'day':
+            case 'days':
+                return 'day';
+            case 'week':
+            case 'weeks':
+                return 'week';
+            case 'month':
+            case 'months':
+            case 'monthly':
+                return 'month';
+            case 'year':
+            case 'years':
+            case 'yearly':
+            case 'annually':
+                return 'year';
+            default:
+                return '';
+        }
+    }
+
+    protected function detect_billing_period( \WC_Product $product ): string {
+        $candidates = [
+            $product->get_meta( 'wps_sfw_subscription_interval_type', true ),
+            $product->get_meta( 'wps_sfw_subscription_period', true ),
+            $product->get_meta( '_subscription_period', true ),
+            $product->get_meta( 'wps_sfw_billing_period', true ),
+        ];
+
+        foreach ( $candidates as $value ) {
+            $period = strtolower( (string) $value );
+            if ( in_array( $period, [ 'month', 'monthly' ], true ) ) {
+                return 'month';
+            }
+            if ( in_array( $period, [ 'year', 'yearly', 'annual', 'annually' ], true ) ) {
+                return 'year';
+            }
+        }
+
+        return '';
+    }
+
+    protected function determine_activation_time( ?\WC_Order $order ): ?\DateTimeImmutable {
+        if ( $order ) {
+            $dt_candidates = [ $order->get_date_completed(), $order->get_date_paid(), $order->get_date_created() ];
+            foreach ( $dt_candidates as $dt ) {
+                if ( $dt instanceof \WC_DateTime ) {
+                    return ( new \DateTimeImmutable( '@' . $dt->getTimestamp() ) )->setTimezone( wp_timezone() );
+                }
+            }
+        }
+
+        try {
+            return new \DateTimeImmutable( 'now', wp_timezone() );
+        } catch ( \Throwable $e ) {
+            return null;
+        }
+    }
+
+    protected function format_datetime_for_node( \DateTimeInterface $dt ): string {
+        return $dt->setTimezone( new \DateTimeZone( 'UTC' ) )->format( DATE_ATOM );
+    }
+
+    protected function parse_datetime_string( $value ): ?\DateTimeImmutable {
+        if ( empty( $value ) ) {
+            return null;
+        }
+
+        try {
+            $dt = new \DateTimeImmutable( is_string( $value ) ? $value : '' );
+            return $dt;
+        } catch ( \Throwable $e ) {
+            return null;
+        }
+    }
+
+    protected function fetch_current_validity( string $subscription_id, string $customer_email ): array {
+        if ( '' === $subscription_id && '' === $customer_email ) {
+            return [];
+        }
+
+        $identity = [];
+        if ( $subscription_id ) {
+            $identity['subscription_id'] = $subscription_id;
+        }
+        if ( $customer_email ) {
+            $identity['customer_email'] = $customer_email;
+        }
+
+        $result = $this->client->user_summary( $identity );
+        if ( is_wp_error( $result['response'] ?? null ) || 200 !== ( $result['code'] ?? 0 ) || ( $result['decoded']['status'] ?? '' ) !== 'ok' ) {
+            return [];
+        }
+
+        $key = $result['decoded']['key'] ?? $result['decoded'];
+        $valid_from  = $this->parse_datetime_string( $key['valid_from'] ?? null );
+        $valid_until = $this->parse_datetime_string( $key['valid_until'] ?? null );
+
+        $payload = [];
+        if ( $valid_from ) {
+            $payload['valid_from'] = $valid_from;
+        }
+        if ( $valid_until ) {
+            $payload['valid_until'] = $valid_until;
+        }
+
+        return $payload;
     }
 }

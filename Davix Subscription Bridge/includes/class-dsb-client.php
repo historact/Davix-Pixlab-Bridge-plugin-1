@@ -206,6 +206,8 @@ class DSB_Client {
         }
 
         if ( $decoded && 'ok' === ( $decoded['status'] ?? '' ) ) {
+            $valid_from  = $this->normalize_mysql_datetime( $decoded['key']['valid_from'] ?? $decoded['valid_from'] ?? ( $payload['valid_from'] ?? null ) );
+            $valid_until = $this->normalize_mysql_datetime( $decoded['key']['valid_until'] ?? $decoded['valid_until'] ?? ( $payload['valid_until'] ?? null ) );
             $this->db->upsert_key(
                 [
                     'subscription_id' => sanitize_text_field( $payload['subscription_id'] ?? '' ),
@@ -214,6 +216,8 @@ class DSB_Client {
                     'status'          => isset( $payload['event'] ) && in_array( $payload['event'], [ 'cancelled', 'disabled' ], true ) ? 'disabled' : 'active',
                     'key_prefix'      => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], 0, 10 ) : ( $decoded['key_prefix'] ?? null ),
                     'key_last4'       => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], -4 ) : ( $decoded['key_last4'] ?? null ),
+                    'valid_from'      => $valid_from,
+                    'valid_until'     => $valid_until,
                     'node_plan_id'    => $decoded['plan_id'] ?? null,
                     'last_action'     => $decoded['action'] ?? null,
                     'last_http_code'  => $code,
@@ -340,5 +344,18 @@ class DSB_Client {
             'url'      => $url,
             'method'   => $method,
         ];
+    }
+
+    protected function normalize_mysql_datetime( $value ): ?string {
+        if ( empty( $value ) ) {
+            return null;
+        }
+
+        try {
+            $dt = new \DateTimeImmutable( is_string( $value ) ? $value : '' );
+            return $dt->format( 'Y-m-d H:i:s' );
+        } catch ( \Throwable $e ) {
+            return null;
+        }
     }
 }
