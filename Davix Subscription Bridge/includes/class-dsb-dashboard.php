@@ -45,7 +45,6 @@ class DSB_Dashboard {
                         <label><?php esc_html_e( 'Key', 'davix-sub-bridge' ); ?></label>
                         <div class="dsb-card__input-row">
                             <input type="text" readonly class="dsb-card__input" data-key-display value="" />
-                            <button type="button" class="dsb-button dsb-button--ghost" data-copy-key aria-label="<?php esc_attr_e( 'Copy key', 'davix-sub-bridge' ); ?>">📋</button>
                         </div>
                         <p class="dsb-card__hint" data-key-created></p>
                     </div>
@@ -58,7 +57,6 @@ class DSB_Dashboard {
                 <div class="dsb-card dsb-card--usage">
                     <div class="dsb-card__header">
                         <h3><?php esc_html_e( 'Usage this period', 'davix-sub-bridge' ); ?></h3>
-                        <span class="dsb-card__window" data-usage-window></span>
                     </div>
                     <div class="dsb-progress" aria-live="polite">
                         <div class="dsb-progress__labels">
@@ -69,23 +67,6 @@ class DSB_Dashboard {
                             <div class="dsb-progress__bar" data-progress-bar style="width:0%"></div>
                         </div>
                     </div>
-                    <p class="dsb-card__hint" data-usage-total></p>
-                </div>
-            </div>
-
-            <div class="dsb-card dsb-card--chart">
-                <div class="dsb-card__header">
-                    <h3><?php esc_html_e( 'History', 'davix-sub-bridge' ); ?></h3>
-                    <div class="dsb-filter" role="group" aria-label="<?php esc_attr_e( 'Usage range', 'davix-sub-bridge' ); ?>">
-                        <button type="button" class="dsb-button dsb-button--ghost" data-range="hourly"><?php esc_html_e( 'Hourly', 'davix-sub-bridge' ); ?></button>
-                        <button type="button" class="dsb-button dsb-button--ghost is-active" data-range="daily"><?php esc_html_e( 'Daily', 'davix-sub-bridge' ); ?></button>
-                        <button type="button" class="dsb-button dsb-button--ghost" data-range="monthly"><?php esc_html_e( 'Monthly', 'davix-sub-bridge' ); ?></button>
-                        <button type="button" class="dsb-button dsb-button--ghost" data-range="billing_period"><?php esc_html_e( 'Billing Period', 'davix-sub-bridge' ); ?></button>
-                    </div>
-                </div>
-                <div class="dsb-chart">
-                    <canvas id="dsb-usage-chart" height="160"></canvas>
-                    <div class="dsb-legend" data-chart-legend></div>
                 </div>
             </div>
 
@@ -105,6 +86,37 @@ class DSB_Dashboard {
                 <div class="dsb-card dsb-card--endpoint">
                     <p class="dsb-card__eyebrow">Tools</p>
                     <h4 data-endpoint-tools>—</h4>
+                </div>
+            </div>
+
+            <div class="dsb-card dsb-card--history">
+                <div class="dsb-card__header">
+                    <h3><?php esc_html_e( 'History', 'davix-sub-bridge' ); ?></h3>
+                </div>
+                <div class="dsb-table" data-log-container>
+                    <div class="dsb-table__loading" data-log-loading><?php esc_html_e( 'Loading…', 'davix-sub-bridge' ); ?></div>
+                    <div class="dsb-table__empty" data-log-empty style="display:none;">&mdash; <?php esc_html_e( 'No requests yet.', 'davix-sub-bridge' ); ?> &mdash;</div>
+                    <div class="dsb-table__scroller">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th><?php esc_html_e( 'Date/Time', 'davix-sub-bridge' ); ?></th>
+                                    <th><?php esc_html_e( 'Endpoint', 'davix-sub-bridge' ); ?></th>
+                                    <th><?php esc_html_e( 'Status', 'davix-sub-bridge' ); ?></th>
+                                    <th><?php esc_html_e( 'Files', 'davix-sub-bridge' ); ?></th>
+                                    <th><?php esc_html_e( 'Bytes In', 'davix-sub-bridge' ); ?></th>
+                                    <th><?php esc_html_e( 'Bytes Out', 'davix-sub-bridge' ); ?></th>
+                                    <th><?php esc_html_e( 'Error', 'davix-sub-bridge' ); ?></th>
+                                </tr>
+                            </thead>
+                            <tbody data-log-rows></tbody>
+                        </table>
+                    </div>
+                    <div class="dsb-pagination" data-log-pagination style="display:none;">
+                        <button type="button" class="dsb-button dsb-button--ghost" data-log-prev><?php esc_html_e( 'Previous', 'davix-sub-bridge' ); ?></button>
+                        <span data-log-page></span>
+                        <button type="button" class="dsb-button dsb-button--ghost" data-log-next><?php esc_html_e( 'Next', 'davix-sub-bridge' ); ?></button>
+                    </div>
                 </div>
             </div>
 
@@ -154,17 +166,9 @@ class DSB_Dashboard {
         );
 
         wp_register_script(
-            'dsb-chartjs',
-            DSB_PLUGIN_URL . 'assets/js/chart.min.js',
-            [],
-            DSB_VERSION,
-            true
-        );
-
-        wp_register_script(
             'dsb-dashboard',
             DSB_PLUGIN_URL . 'assets/js/dsb-dashboard.js',
-            [ 'dsb-chartjs' ],
+            [],
             DSB_VERSION,
             true
         );
@@ -175,7 +179,6 @@ class DSB_Dashboard {
             [
                 'ajaxUrl'      => admin_url( 'admin-ajax.php' ),
                 'nonce'        => wp_create_nonce( 'dsb_dashboard_nonce' ),
-                'defaultRange' => 'daily',
                 'isAdmin'      => current_user_can( 'manage_options' ),
                 'strings'      => [
                     'loading'       => __( 'Loading…', 'davix-sub-bridge' ),
@@ -185,17 +188,10 @@ class DSB_Dashboard {
                     'confirmRotate' => __( 'Are you sure you want to regenerate your API key?', 'davix-sub-bridge' ),
                     'rotateError'   => __( 'Unable to regenerate key.', 'davix-sub-bridge' ),
                     'shownOnce'     => __( 'Shown once — copy it now.', 'davix-sub-bridge' ),
-                    'usageError'    => __( 'Unable to load usage.', 'davix-sub-bridge' ),
                     'toggleOn'      => __( 'Enable Key', 'davix-sub-bridge' ),
                     'toggleOff'     => __( 'Disable Key', 'davix-sub-bridge' ),
                     'toggleError'   => __( 'Unable to update key.', 'davix-sub-bridge' ),
                     'toastSuccess'  => __( 'Updated', 'davix-sub-bridge' ),
-                ],
-                'colors'       => [
-                    'h2i'   => '#0ea5e9',
-                    'image' => '#22c55e',
-                    'pdf'   => '#a855f7',
-                    'tools' => '#f97316',
                 ],
             ]
         );

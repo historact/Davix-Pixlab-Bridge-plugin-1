@@ -16,15 +16,10 @@
         keyCreated: root.querySelector('[data-key-created]'),
         keyStatus: root.querySelector('[data-key-status]'),
         keyToggle: root.querySelector('[data-toggle-key]'),
-        keyCopy: root.querySelector('[data-copy-key]'),
         rotate: root.querySelector('[data-rotate-key]'),
         usageCalls: root.querySelector('[data-usage-calls]'),
         usagePercent: root.querySelector('[data-usage-percent]'),
-        usageTotal: root.querySelector('[data-usage-total]'),
-        usageWindow: root.querySelector('[data-usage-window]'),
         progress: root.querySelector('[data-progress-bar]'),
-        rangeButtons: root.querySelectorAll('[data-range]'),
-        legend: root.querySelector('[data-chart-legend]'),
         endpoint: {
             h2i: root.querySelector('[data-endpoint-h2i]'),
             image: root.querySelector('[data-endpoint-image]'),
@@ -37,21 +32,23 @@
         modalCopy: root.querySelector('[data-modal-copy]'),
         modalClose: root.querySelector('[data-modal-close]'),
         modalOverlay: root.querySelector('[data-modal-overlay]'),
-    };
-
-    const colors = data.colors || {
-        h2i: '#0ea5e9',
-        image: '#22c55e',
-        pdf: '#a855f7',
-        tools: '#f97316',
+        logs: {
+            rows: root.querySelector('[data-log-rows]'),
+            empty: root.querySelector('[data-log-empty]'),
+            loading: root.querySelector('[data-log-loading]'),
+            pagination: root.querySelector('[data-log-pagination]'),
+            prev: root.querySelector('[data-log-prev]'),
+            next: root.querySelector('[data-log-next]'),
+            page: root.querySelector('[data-log-page]'),
+        },
     };
 
     const state = {
-        chart: null,
-        range: data.defaultRange || 'daily',
         maskedKey: '',
         keyEnabled: true,
         lastSummary: null,
+        logsPage: 1,
+        perPage: 20,
     };
 
     function formatMasked(prefix, last4) {
@@ -106,8 +103,8 @@
         const plan = res.plan || {};
         const key = res.key || {};
         const usage = res.usage || {};
-        const billing = res.billing || {};
         const per = res.per_endpoint || {};
+        const validity = res.plan_validity || '';
 
         state.lastSummary = res;
 
@@ -128,20 +125,18 @@
             els.planName.textContent = plan.name || '—';
         }
         if (els.planLimit) {
-            els.planLimit.textContent = plan.call_limit_per_month
-                ? `${plan.call_limit_per_month} calls/month`
-                : 'Usage metered';
+            const limit = plan.limit != null ? plan.limit : null;
+            const period = plan.billing_period ? `${plan.billing_period} plan` : '';
+            els.planLimit.textContent = limit != null ? `${period ? period + ' · ' : ''}Monthly limit: ${limit}` : period || '';
         }
         if (els.billing) {
-            const start = billing.start || '';
-            const end = billing.end || '';
-            els.billing.textContent = start || end ? `${start} – ${end}` : '';
+            els.billing.textContent = validity;
         }
 
-        applyUsage(usage, billing, per);
+        applyUsage(usage, per);
     }
 
-    function applyUsage(usage = {}, billing = {}, per = {}) {
+    function applyUsage(usage = {}, per = {}) {
         const used = usage.total_calls_used ?? usage.used ?? 0;
         const limit = usage.total_calls_limit ?? usage.limit ?? null;
         const percent = usage.percent != null ? usage.percent : limit ? Math.min(100, Math.round((used / limit) * 100)) : null;
@@ -157,100 +152,11 @@
         if (els.progress) {
             els.progress.style.width = `${percent != null ? percent : Math.min(100, used)}%`;
         }
-        if (els.usageTotal) {
-            els.usageTotal.textContent = billing.period ? `Period: ${billing.period}` : '';
-        }
-        if (els.usageWindow) {
-            const start = billing.start || '';
-            const end = billing.end || '';
-            els.usageWindow.textContent = start || end ? `${start} – ${end}` : '';
-        }
 
         if (els.endpoint.h2i) els.endpoint.h2i.textContent = `${per.h2i_calls || 0} calls`;
         if (els.endpoint.image) els.endpoint.image.textContent = `${per.image_calls || 0} calls`;
         if (els.endpoint.pdf) els.endpoint.pdf.textContent = `${per.pdf_calls || 0} calls`;
         if (els.endpoint.tools) els.endpoint.tools.textContent = `${per.tools_calls || 0} calls`;
-    }
-
-    function renderHistory(payload) {
-        const labels = payload.labels || [];
-        const series = payload.series || {};
-        const ctx = document.getElementById('dsb-usage-chart');
-        if (!ctx) return;
-
-        if (state.chart && typeof state.chart.destroy === 'function') {
-            state.chart.destroy();
-        }
-
-        const datasets = [
-            { label: 'H2I', data: series.h2i || [], borderColor: colors.h2i, backgroundColor: `${colors.h2i}80`, stack: 'stack' },
-            { label: 'Image', data: series.image || [], borderColor: colors.image, backgroundColor: `${colors.image}80`, stack: 'stack' },
-            { label: 'PDF', data: series.pdf || [], borderColor: colors.pdf, backgroundColor: `${colors.pdf}80`, stack: 'stack' },
-            { label: 'Tools', data: series.tools || [], borderColor: colors.tools, backgroundColor: `${colors.tools}80`, stack: 'stack' },
-        ];
-
-        updateLegend(datasets);
-
-        state.chart = new Chart(ctx.getContext('2d'), {
-            type: 'bar',
-            data: { labels, datasets },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: { stacked: true },
-                    y: { stacked: true, beginAtZero: true },
-                },
-                plugins: {
-                    tooltip: {
-                        callbacks: {
-                            label(context) {
-                                const label = context.dataset.label || '';
-                                return `${label}: ${context.raw || 0}`;
-                            },
-                        },
-                    },
-                },
-            },
-        });
-    }
-
-    function renderHistoryFromUsage(payload = {}) {
-        const labels = payload.labels || [];
-        const series = payload.series || {};
-
-        if (data.isAdmin) {
-            if (!payload.labels || !payload.series) {
-                console.warn('DSB usage payload missing labels/series', payload);
-            }
-        }
-
-        renderHistory({
-            labels,
-            series: {
-                h2i: series.h2i || [],
-                image: series.image || [],
-                pdf: series.pdf || [],
-                tools: series.tools || [],
-            },
-        });
-    }
-
-    function updateLegend(datasets) {
-        if (!els.legend) return;
-        els.legend.innerHTML = '';
-        datasets.forEach((ds) => {
-            const item = document.createElement('span');
-            item.className = 'dsb-legend__item';
-            const swatch = document.createElement('span');
-            swatch.className = 'dsb-legend__swatch';
-            swatch.style.backgroundColor = ds.borderColor || ds.backgroundColor;
-            const label = document.createElement('span');
-            label.textContent = ds.label;
-            item.appendChild(swatch);
-            item.appendChild(label);
-            els.legend.appendChild(item);
-        });
     }
 
     function handleRotate() {
@@ -269,7 +175,7 @@
                 }
                 openKeyModal(res.key || '');
                 fetchSummary();
-                fetchUsage(state.range);
+                loadLogs(1);
             })
             .catch((err) => alert(err.message || data.strings.rotateError))
             .finally(() => {
@@ -292,7 +198,6 @@
                 updateToggleButton();
                 setStatus(nextState ? 'Active' : 'Disabled', nextState ? 'success' : 'muted');
                 fetchSummary();
-                fetchUsage(state.range);
                 showToast(data.strings.toastSuccess);
             })
             .catch((err) => alert(err.message || data.strings.toggleError))
@@ -353,12 +258,6 @@
             .catch(() => alert(data.strings.copyFailed));
     }
 
-    function setRange(range) {
-        state.range = range;
-        els.rangeButtons.forEach((btn) => btn.classList.toggle('is-active', btn.dataset.range === range));
-        fetchUsage(range);
-    }
-
     function fetchSummary() {
         post('dsb_dashboard_summary')
             .then(handleResponse)
@@ -368,26 +267,67 @@
             });
     }
 
-    function fetchUsage(range) {
-        post('dsb_dashboard_usage', { range })
+    function renderLogs(payload = {}) {
+        const rows = payload.items || [];
+        const page = payload.page || 1;
+        const perPage = payload.per_page || state.perPage;
+        const total = payload.total || rows.length;
+        const totalPages = Math.max(1, Math.ceil(total / perPage));
+
+        if (els.logs.loading) {
+            els.logs.loading.style.display = 'none';
+        }
+
+        if (els.logs.rows) {
+            els.logs.rows.innerHTML = '';
+            rows.forEach((item) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${item.timestamp || ''}</td>
+                    <td>${item.endpoint || ''}</td>
+                    <td>${item.status || ''}</td>
+                    <td>${item.files || ''}</td>
+                    <td>${item.bytes_in || ''}</td>
+                    <td>${item.bytes_out || ''}</td>
+                    <td>${item.error || ''}</td>
+                `;
+                els.logs.rows.appendChild(tr);
+            });
+        }
+
+        if (els.logs.empty) {
+            els.logs.empty.style.display = rows.length ? 'none' : '';
+        }
+
+        if (els.logs.pagination && els.logs.page && els.logs.prev && els.logs.next) {
+            els.logs.pagination.style.display = totalPages > 1 ? '' : 'none';
+            els.logs.page.textContent = `Page ${page} of ${totalPages}`;
+            els.logs.prev.disabled = page <= 1;
+            els.logs.next.disabled = page >= totalPages;
+            els.logs.prev.onclick = () => loadLogs(page - 1);
+            els.logs.next.onclick = () => loadLogs(page + 1);
+        }
+
+        state.logsPage = page;
+    }
+
+    function loadLogs(page = 1) {
+        if (els.logs.loading) {
+            els.logs.loading.style.display = '';
+        }
+        post('dsb_dashboard_logs', { page, per_page: state.perPage })
             .then(handleResponse)
-            .then((json) => {
-                renderHistoryFromUsage(json.history || { labels: json.labels || [], series: json.series || {} });
-            })
+            .then(renderLogs)
             .catch((err) => {
-                if (data.isAdmin) {
-                    console.error('DSB usage error', err);
+                if (els.logs.loading) {
+                    els.logs.loading.textContent = err.message || data.strings.error;
                 }
-                setStatus(err.message || data.strings.usageError, 'error');
             });
     }
 
     // Events
     if (els.rotate) {
         els.rotate.addEventListener('click', handleRotate);
-    }
-    if (els.keyCopy) {
-        els.keyCopy.addEventListener('click', () => handleCopy(els.keyDisplay));
     }
     if (els.keyToggle) {
         els.keyToggle.addEventListener('click', handleToggle);
@@ -404,10 +344,7 @@
     if (els.modal) {
         els.modal.addEventListener('click', handleModalBackdrop);
     }
-    els.rangeButtons.forEach((btn) => {
-        btn.addEventListener('click', () => setRange(btn.dataset.range));
-    });
 
     fetchSummary();
-    setRange(state.range);
+    loadLogs(state.logsPage);
 })();

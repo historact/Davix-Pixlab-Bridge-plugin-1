@@ -75,6 +75,7 @@ class DSB_Dashboard_Ajax {
         add_action( 'wp_ajax_dsb_dashboard_usage', [ $this, 'usage' ] );
         add_action( 'wp_ajax_dsb_dashboard_rotate', [ $this, 'rotate_key' ] );
         add_action( 'wp_ajax_dsb_dashboard_toggle', [ $this, 'toggle_key' ] );
+        add_action( 'wp_ajax_dsb_dashboard_logs', [ $this, 'logs' ] );
     }
 
     public function summary(): void {
@@ -130,6 +131,36 @@ class DSB_Dashboard_Ajax {
                 ];
             }
             $this->respond_from_result( $result, __( 'Unable to load usage.', 'davix-sub-bridge' ) );
+        } catch ( \Throwable $e ) {
+            $this->handle_exception( $e );
+        }
+    }
+
+    public function logs(): void {
+        $this->start_response();
+
+        try {
+            $identity = $this->validate_request();
+            $page     = isset( $_POST['page'] ) ? max( 1, (int) $_POST['page'] ) : 1;
+            $per_page = isset( $_POST['per_page'] ) ? max( 1, (int) $_POST['per_page'] ) : 20;
+
+            $filters = [];
+            $maybe_endpoint = isset( $_POST['endpoint'] ) ? sanitize_text_field( wp_unslash( $_POST['endpoint'] ) ) : '';
+            $maybe_status   = isset( $_POST['status'] ) ? sanitize_text_field( wp_unslash( $_POST['status'] ) ) : '';
+            if ( $maybe_endpoint ) {
+                $filters['endpoint'] = $maybe_endpoint;
+            }
+            if ( $maybe_status ) {
+                $filters['status'] = $maybe_status;
+            }
+
+            $result = $this->client->user_logs( $identity, $page, $per_page, $filters );
+
+            if ( ! is_wp_error( $result['response'] ) && 200 === $result['code'] && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
+                $result['decoded'] = $this->normalize_logs_payload( $result['decoded'], $page, $per_page );
+            }
+
+            $this->respond_from_result( $result, __( 'Unable to load logs.', 'davix-sub-bridge' ) );
         } catch ( \Throwable $e ) {
             $this->handle_exception( $e );
         }
@@ -307,6 +338,18 @@ class DSB_Dashboard_Ajax {
         }
     }
 
+    private function fmt_datetime( $value ): string {
+        if ( empty( $value ) ) {
+            return '—';
+        }
+        try {
+            $dt = new \DateTime( is_string( $value ) ? $value : '' );
+            return $dt->setTimezone( new \DateTimeZone( 'UTC' ) )->format( 'Y/m/d H:i' );
+        } catch ( \Throwable $e ) {
+            return '—';
+        }
+    }
+
     private function compute_billing_end_from_start( ?string $startUtc ): string {
         if ( empty( $startUtc ) ) {
             return '—';
@@ -338,6 +381,18 @@ class DSB_Dashboard_Ajax {
 
         $startUtc = $usage['billing_window']['start_utc'] ?? null;
         $endUtc   = $usage['billing_window']['end_utc'] ?? null;
+        $validFrom = $this->fmt_date_ymd( $key['valid_from'] ?? null );
+        $validUntil = $this->fmt_date_ymd( $key['valid_until'] ?? null );
+        $hasFrom = $validFrom && '—' !== $validFrom;
+        $hasUntil = $validUntil && '—' !== $validUntil;
+        $validity = '';
+        if ( $hasFrom && $hasUntil ) {
+            $validity = $validFrom . ' – ' . $validUntil;
+        } elseif ( $hasFrom ) {
+            $validity = sprintf( __( 'Valid from %s', 'davix-sub-bridge' ), $validFrom );
+        } elseif ( $hasUntil ) {
+            $validity = sprintf( __( 'Valid until %s', 'davix-sub-bridge' ), $validUntil );
+        }
 
         return [
             'status' => 'ok',
@@ -351,8 +406,8 @@ class DSB_Dashboard_Ajax {
                 'key_last4'  => $key['key_last4'] ?? null,
                 'status'     => $key['status'] ?? null,
                 'created_at' => $this->fmt_date_ymd( $key['created_at'] ?? null ),
-                'valid_from' => $this->fmt_date_ymd( $key['valid_from'] ?? null ),
-                'valid_until'=> $this->fmt_date_ymd( $key['valid_until'] ?? null ),
+                'valid_from' => $validFrom,
+                'valid_until'=> $validUntil,
             ],
             'usage'  => [
                 'total_calls_used'  => $used,
@@ -370,6 +425,32 @@ class DSB_Dashboard_Ajax {
                 'start'  => $this->fmt_date_ymd( $startUtc ),
                 'end'    => ! empty( $endUtc ) ? $this->fmt_date_ymd( $endUtc ) : $this->compute_billing_end_from_start( $startUtc ),
             ],
+            'plan_validity' => $validity,
+        ];
+    }
+
+    private function normalize_logs_payload( array $decoded, int $page, int $per_page ): array {
+        $items = [];
+        $rows  = $decoded['items'] ?? $decoded['logs'] ?? [];
+
+        foreach ( $rows as $row ) {
+            $items[] = [
+                'timestamp' => $this->fmt_datetime( $row['timestamp'] ?? ( $row['created_at'] ?? null ) ),
+                'endpoint'  => sanitize_text_field( $row['endpoint'] ?? '' ),
+                'status'    => sanitize_text_field( $row['status'] ?? '' ),
+                'files'     => isset( $row['files'] ) ? (int) $row['files'] : 0,
+                'bytes_in'  => isset( $row['bytes_in'] ) ? (int) $row['bytes_in'] : 0,
+                'bytes_out' => isset( $row['bytes_out'] ) ? (int) $row['bytes_out'] : 0,
+                'error'     => sanitize_text_field( $row['error_code'] ?? ( $row['error'] ?? '' ) ),
+            ];
+        }
+
+        return [
+            'status'   => 'ok',
+            'page'     => $page,
+            'per_page' => $per_page,
+            'total'    => isset( $decoded['total'] ) ? (int) $decoded['total'] : count( $items ),
+            'items'    => $items,
         ];
     }
 }
