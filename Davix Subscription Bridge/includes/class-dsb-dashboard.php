@@ -176,6 +176,7 @@ class DSB_Dashboard {
                 'ajaxUrl'      => admin_url( 'admin-ajax.php' ),
                 'nonce'        => wp_create_nonce( 'dsb_dashboard_nonce' ),
                 'defaultRange' => 'daily',
+                'isAdmin'      => current_user_can( 'manage_options' ),
                 'strings'      => [
                     'loading'       => __( 'Loading…', 'davix-sub-bridge' ),
                     'error'         => __( 'Unable to load dashboard right now.', 'davix-sub-bridge' ),

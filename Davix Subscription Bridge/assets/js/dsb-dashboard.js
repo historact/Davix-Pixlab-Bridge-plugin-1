@@ -75,6 +75,9 @@
     function handleResponse(json) {
         if (!json || json.status !== 'ok') {
             const message = json && json.message ? json.message : data.strings.error;
+            if (data.isAdmin && json && json.debug) {
+                console.warn('DSB dashboard debug:', json.debug);
+            }
             throw new Error(message);
         }
         return json;
@@ -349,7 +352,12 @@
                 applyUsage(json.usage || {}, json.billing || {}, json.per_endpoint || {});
                 renderHistory(json.history || { labels: json.labels || [], series: json.series || {} });
             })
-            .catch((err) => setStatus(err.message || data.strings.usageError, 'error'));
+            .catch((err) => {
+                if (data.isAdmin) {
+                    console.error('DSB usage error', err);
+                }
+                setStatus(err.message || data.strings.usageError, 'error');
+            });
     }
 
     // Events

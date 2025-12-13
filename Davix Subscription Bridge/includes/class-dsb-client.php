@@ -127,6 +127,12 @@ class DSB_Client {
 
     protected function request( string $path, string $method = 'GET', array $body = [], array $query = [] ) {
         $settings = $this->get_settings();
+        $method   = strtoupper( $method );
+
+        if ( empty( $settings['node_base_url'] ) ) {
+            return new \WP_Error( 'dsb_missing_base', __( 'Node base URL missing', 'davix-sub-bridge' ) );
+        }
+
         if ( empty( $settings['bridge_token'] ) ) {
             return new \WP_Error( 'dsb_missing_token', __( 'Bridge token missing', 'davix-sub-bridge' ) );
         }
@@ -140,16 +146,21 @@ class DSB_Client {
             ],
         ];
 
-        if ( 'POST' === strtoupper( $method ) ) {
+        if ( 'POST' === $method ) {
             $args['body']                    = wp_json_encode( $body );
             $args['headers']['Content-Type'] = 'application/json';
         }
 
-        $response = 'POST' === strtoupper( $method ) ? wp_remote_post( $url, $args ) : wp_remote_get( $url, $args );
+        $response = 'POST' === $method ? wp_remote_post( $url, $args ) : wp_remote_get( $url, $args );
         if ( is_array( $response ) ) {
             $response['__dsb_request_url']    = $url;
-            $response['__dsb_request_method'] = strtoupper( $method );
+            $response['__dsb_request_method'] = $method;
         }
+
+        if ( is_wp_error( $response ) ) {
+            $response->add_data( [ 'dsb_url' => $url, 'dsb_method' => $method ] );
+        }
+
         return $response;
     }
 
@@ -309,11 +320,24 @@ class DSB_Client {
         $body    = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
         $decoded = $body ? json_decode( $body, true ) : null;
         $code    = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+        $url     = '';
+        $method  = '';
+
+        if ( is_array( $response ) ) {
+            $url    = $response['__dsb_request_url'] ?? '';
+            $method = $response['__dsb_request_method'] ?? '';
+        } elseif ( is_wp_error( $response ) ) {
+            $error_data = $response->get_error_data();
+            $url        = is_array( $error_data ) && isset( $error_data['dsb_url'] ) ? $error_data['dsb_url'] : '';
+            $method     = is_array( $error_data ) && isset( $error_data['dsb_method'] ) ? $error_data['dsb_method'] : '';
+        }
 
         return [
             'response' => $response,
             'decoded'  => $decoded,
             'code'     => $code,
+            'url'      => $url,
+            'method'   => $method,
         ];
     }
 }

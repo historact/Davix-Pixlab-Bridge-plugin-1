@@ -61,9 +61,11 @@ if ( ! function_exists( __NAMESPACE__ . '\\dsb_pixlab_get_identity' ) ) {
 
 class DSB_Dashboard_Ajax {
     protected $client;
+    protected $diag_enabled;
 
     public function __construct( DSB_Client $client ) {
         $this->client = $client;
+        $this->diag_enabled = defined( 'DSB_DASH_DIAG' ) ? (bool) DSB_DASH_DIAG : current_user_can( 'manage_options' );
     }
 
     public function init(): void {
@@ -74,52 +76,84 @@ class DSB_Dashboard_Ajax {
     }
 
     public function summary(): void {
-        $identity = $this->validate_request();
-        $result   = $this->client->user_summary( $identity );
+        $this->start_response();
 
-        $this->respond_from_result( $result, __( 'Unable to load summary.', 'davix-sub-bridge' ) );
+        try {
+            $identity = $this->validate_request();
+            $result   = $this->client->user_summary( $identity );
+
+            $this->respond_from_result( $result, __( 'Unable to load summary.', 'davix-sub-bridge' ) );
+        } catch ( \Throwable $e ) {
+            $this->handle_exception( $e );
+        }
     }
 
     public function usage(): void {
-        $identity = $this->validate_request();
-        $range    = isset( $_POST['range'] ) ? sanitize_key( wp_unslash( $_POST['range'] ) ) : 'daily';
-        $allowed  = [ 'hourly', 'daily', 'monthly', 'billing_period' ];
-        if ( ! in_array( $range, $allowed, true ) ) {
-            $range = 'daily';
+        $this->start_response();
+
+        try {
+            $identity = $this->validate_request();
+            $range    = isset( $_POST['range'] ) ? sanitize_key( wp_unslash( $_POST['range'] ) ) : 'daily';
+            $allowed  = [ 'hourly', 'daily', 'monthly', 'billing_period' ];
+            if ( ! in_array( $range, $allowed, true ) ) {
+                $range = 'daily';
+            }
+
+            $window = $this->get_window_for_range( $range );
+
+            $result = $this->client->user_usage(
+                array_merge( $identity, [
+                    'range'  => $range,
+                    'window' => $window,
+                ] ),
+                $range,
+                [ 'window' => $window ]
+            );
+            $this->respond_from_result( $result, __( 'Unable to load usage.', 'davix-sub-bridge' ) );
+        } catch ( \Throwable $e ) {
+            $this->handle_exception( $e );
         }
-
-        $window = $this->get_window_for_range( $range );
-
-        $result = $this->client->user_usage(
-            array_merge( $identity, [
-                'range'  => $range,
-                'window' => $window,
-            ] ),
-            $range,
-            [ 'window' => $window ]
-        );
-        $this->respond_from_result( $result, __( 'Unable to load usage.', 'davix-sub-bridge' ) );
     }
 
     public function rotate_key(): void {
-        $identity = $this->validate_request();
+        $this->start_response();
 
-        $user    = wp_get_current_user();
-        $now     = time();
-        $metaKey = '_dsb_last_key_rotation';
-        $last    = $user && $user->ID ? (int) get_user_meta( $user->ID, $metaKey, true ) : 0;
+        try {
+            $identity = $this->validate_request();
 
-        if ( $last && ( $now - $last ) < 60 ) {
-            wp_send_json( [ 'status' => 'error', 'message' => __( 'Please wait before rotating again.', 'davix-sub-bridge' ) ], 429 );
+            $user    = wp_get_current_user();
+            $now     = time();
+            $metaKey = '_dsb_last_key_rotation';
+            $last    = $user && $user->ID ? (int) get_user_meta( $user->ID, $metaKey, true ) : 0;
+
+            if ( $last && ( $now - $last ) < 60 ) {
+                wp_send_json( [ 'status' => 'error', 'message' => __( 'Please wait before rotating again.', 'davix-sub-bridge' ) ], 429 );
+            }
+
+            $result = $this->client->rotate_user_key( $identity );
+
+            if ( $user && $user->ID && ! is_wp_error( $result['response'] ) && 200 === $result['code'] && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
+                update_user_meta( $user->ID, $metaKey, $now );
+            }
+
+            $this->respond_from_result( $result, __( 'Unable to regenerate key.', 'davix-sub-bridge' ) );
+        } catch ( \Throwable $e ) {
+            $this->handle_exception( $e );
         }
+    }
 
-        $result = $this->client->rotate_user_key( $identity );
+    public function toggle_key(): void {
+        $this->start_response();
 
-        if ( $user && $user->ID && ! is_wp_error( $result['response'] ) && 200 === $result['code'] && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
-            update_user_meta( $user->ID, $metaKey, $now );
+        try {
+            $identity = $this->validate_request();
+            $enabled  = isset( $_POST['enabled'] ) ? (bool) sanitize_text_field( wp_unslash( $_POST['enabled'] ) ) : true;
+
+            $result = $this->client->user_toggle( $identity, $enabled );
+            $this->respond_from_result( $result, __( 'Unable to update key.', 'davix-sub-bridge' ) );
+        } catch ( \Throwable $e ) {
+            $this->handle_exception( $e );
         }
-
-        $this->respond_from_result( $result, __( 'Unable to regenerate key.', 'davix-sub-bridge' ) );
     }
 
     public function toggle_key(): void {
@@ -132,12 +166,12 @@ class DSB_Dashboard_Ajax {
 
     protected function validate_request(): array {
         if ( ! is_user_logged_in() ) {
-            wp_send_json( [ 'status' => 'error', 'message' => __( 'Authentication required.', 'davix-sub-bridge' ) ], 401 );
+            wp_send_json_error( [ 'status' => 'error', 'code' => 'unauthorized', 'message' => __( 'Please log in.', 'davix-sub-bridge' ) ], 401 );
         }
 
         $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
         if ( ! wp_verify_nonce( $nonce, 'dsb_dashboard_nonce' ) ) {
-            wp_send_json( [ 'status' => 'error', 'message' => __( 'Invalid request.', 'davix-sub-bridge' ) ], 403 );
+            wp_send_json_error( [ 'status' => 'error', 'code' => 'bad_nonce', 'message' => __( 'Security check failed.', 'davix-sub-bridge' ) ], 403 );
         }
 
         $identity = dsb_pixlab_get_identity();
@@ -146,7 +180,15 @@ class DSB_Dashboard_Ajax {
 
     protected function respond_from_result( array $result, string $default_message ): void {
         if ( is_wp_error( $result['response'] ) ) {
-            wp_send_json( [ 'status' => 'error', 'message' => $result['response']->get_error_message() ], 500 );
+            $message = $result['response']->get_error_message();
+            $payload = [ 'status' => 'error', 'message' => $message ];
+
+            if ( $this->diag_enabled ) {
+                $payload['debug'] = $this->debug_payload_from_result( $result, $message );
+            }
+
+            $this->log_error( $message, $result );
+            wp_send_json( $payload, 500 );
         }
 
         $decoded = $result['decoded'] ?? [];
@@ -154,15 +196,12 @@ class DSB_Dashboard_Ajax {
             $message = $decoded['message'] ?? $default_message;
             $payload = [ 'status' => 'error', 'message' => $message ];
 
-            if ( current_user_can( 'manage_options' ) && ( 404 === $result['code'] || false !== strpos( strtolower( (string) $message ), 'endpoint does not exist' ) ) ) {
-                $payload['debug'] = [
-                    'url'    => $result['url'] ?? '',
-                    'method' => $result['method'] ?? 'POST',
-                    'http'   => $result['code'],
-                ];
+            if ( $this->diag_enabled ) {
+                $payload['debug'] = $this->debug_payload_from_result( $result, $message );
             }
 
-            wp_send_json( $payload, 500 );
+            $this->log_error( $message, $result );
+            wp_send_json( $payload, max( 400, (int) $result['code'] ?: 500 ) );
         }
 
         wp_send_json( $decoded );
@@ -180,5 +219,67 @@ class DSB_Dashboard_Ajax {
             default:
                 return [ 'days' => 30 ];
         }
+    }
+
+    protected function start_response(): void {
+        nocache_headers();
+        header( 'Content-Type: application/json; charset=utf-8' );
+    }
+
+    protected function handle_exception( \Throwable $e ): void {
+        $message = $e->getMessage();
+        $this->log_error( $message, [ 'file' => $e->getFile(), 'line' => $e->getLine() ] );
+
+        $payload = [ 'status' => 'error', 'message' => __( 'Something went wrong.', 'davix-sub-bridge' ) ];
+        if ( $this->diag_enabled ) {
+            $payload['debug'] = [
+                'error' => $message,
+                'file'  => $e->getFile(),
+                'line'  => $e->getLine(),
+            ];
+        }
+
+        wp_send_json( $payload, 500 );
+    }
+
+    protected function log_error( string $message, $context = [] ): void {
+        $settings = $this->client->get_settings();
+        $token    = $settings['bridge_token'] ?? '';
+        if ( $token ) {
+            $message = str_replace( $token, '***', $message );
+        }
+
+        $context_str = '';
+        if ( ! empty( $context ) ) {
+            $clean = $context;
+            if ( is_array( $clean ) ) {
+                array_walk_recursive(
+                    $clean,
+                    function ( &$value ) use ( $token ) {
+                        if ( is_string( $value ) && $token ) {
+                            $value = str_replace( $token, '***', $value );
+                        }
+                    }
+                );
+            }
+            $context_str = wp_json_encode( $clean );
+        }
+
+        error_log( '[DSB_DASH] ' . $message . ( $context_str ? ' | ' . $context_str : '' ) );
+    }
+
+    protected function debug_payload_from_result( array $result, string $message = '' ): array {
+        $body_excerpt = '';
+        if ( isset( $result['response'] ) && ! is_wp_error( $result['response'] ) && isset( $result['response']['body'] ) ) {
+            $body_excerpt = wp_trim_words( (string) $result['response']['body'], 40, '…' );
+        }
+
+        return [
+            'url'    => $result['url'] ?? '',
+            'method' => $result['method'] ?? 'POST',
+            'http'   => $result['code'] ?? 0,
+            'body'   => $body_excerpt,
+            'error'  => $message,
+        ];
     }
 }
