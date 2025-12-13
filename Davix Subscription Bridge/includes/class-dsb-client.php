@@ -16,15 +16,124 @@ class DSB_Client {
     }
 
     public function get_settings(): array {
-        $defaults = [
-            'node_base_url' => '',
-            'bridge_token'  => '',
-            'enable_logging'=> 1,
-            'delete_data'   => 0,
-            'allow_provision_without_refs' => 0,
-        ];
+        $defaults = array_merge(
+            [
+                'node_base_url' => '',
+                'bridge_token'  => '',
+                'enable_logging'=> 1,
+                'delete_data'   => 0,
+                'allow_provision_without_refs' => 0,
+            ],
+            $this->get_style_defaults(),
+            $this->get_label_defaults()
+        );
         $options  = get_option( self::OPTION_SETTINGS, [] );
         return wp_parse_args( is_array( $options ) ? $options : [], $defaults );
+    }
+
+    public function get_style_defaults(): array {
+        return [
+            'style_dashboard_bg'          => '#0f172a',
+            'style_card_bg'               => '#0b1220',
+            'style_card_border'           => '#1e293b',
+            'style_card_shadow'           => 'rgba(0,0,0,0.4)',
+            'style_text_primary'          => '#f8fafc',
+            'style_text_secondary'        => '#cbd5e1',
+            'style_text_muted'            => '#94a3b8',
+            'style_button_bg'             => '#0ea5e9',
+            'style_button_text'           => '#0b1220',
+            'style_button_border'         => '#0ea5e9',
+            'style_button_hover_bg'       => '#0ea5e9',
+            'style_button_hover_border'   => '#0ea5e9',
+            'style_button_active_bg'      => '#0ea5e9',
+            'style_input_bg'              => '#0f172a',
+            'style_input_text'            => '#e2e8f0',
+            'style_input_border'          => '#1f2a3d',
+            'style_input_focus_border'    => '#0ea5e9',
+            'style_badge_active_bg'       => '#0ea5e9',
+            'style_badge_active_border'   => '#0ea5e9',
+            'style_badge_active_text'     => '#0b1220',
+            'style_badge_disabled_bg'     => '#1f2937',
+            'style_badge_disabled_border' => '#1f2937',
+            'style_badge_disabled_text'   => '#e2e8f0',
+            'style_progress_track'        => '#111827',
+            'style_progress_fill'         => '#22c55e',
+            'style_progress_text'         => '#cbd5e1',
+            'style_table_bg'              => '#0b1220',
+            'style_table_header_bg'       => '#0f172a',
+            'style_table_header_text'     => '#cbd5e1',
+            'style_table_border'          => '#1e293b',
+            'style_table_row_bg'          => '#0e1627',
+            'style_table_row_hover_bg'    => '#111827',
+            'style_table_error_text'      => '#f87171',
+            'style_status_success_text'   => '#22c55e',
+            'style_status_error_text'     => '#f87171',
+        ];
+    }
+
+    public function get_label_defaults(): array {
+        return [
+            'label_current_plan'          => __( 'Current Plan', 'davix-sub-bridge' ),
+            'label_usage_metered'         => __( 'Monthly limit', 'davix-sub-bridge' ),
+            'label_api_key'               => __( 'API Key', 'davix-sub-bridge' ),
+            'label_key'                   => __( 'Key', 'davix-sub-bridge' ),
+            'label_created'               => __( 'Created', 'davix-sub-bridge' ),
+            'label_disable_key'           => __( 'Disable Key', 'davix-sub-bridge' ),
+            'label_enable_key'            => __( 'Enable Key', 'davix-sub-bridge' ),
+            'label_regenerate_key'        => __( 'Regenerate Key', 'davix-sub-bridge' ),
+            'label_usage_this_period'     => __( 'Usage this period', 'davix-sub-bridge' ),
+            'label_used_calls'            => __( 'Used Calls', 'davix-sub-bridge' ),
+            'label_history'               => __( 'History', 'davix-sub-bridge' ),
+            'label_h2i'                   => __( 'H2I', 'davix-sub-bridge' ),
+            'label_image'                 => __( 'IMAGE', 'davix-sub-bridge' ),
+            'label_pdf'                   => __( 'PDF', 'davix-sub-bridge' ),
+            'label_tools'                 => __( 'TOOLS', 'davix-sub-bridge' ),
+            'label_date_time'             => __( 'Date/Time', 'davix-sub-bridge' ),
+            'label_endpoint'              => __( 'Endpoint', 'davix-sub-bridge' ),
+            'label_files'                 => __( 'Files', 'davix-sub-bridge' ),
+            'label_bytes_in'              => __( 'Bytes In', 'davix-sub-bridge' ),
+            'label_bytes_out'             => __( 'Bytes Out', 'davix-sub-bridge' ),
+            'label_error'                 => __( 'Error', 'davix-sub-bridge' ),
+            'label_status'                => __( 'Status', 'davix-sub-bridge' ),
+            'label_create_key'            => __( 'Create Key', 'davix-sub-bridge' ),
+            'label_create_api_key_title'  => __( 'Create API Key', 'davix-sub-bridge' ),
+            'label_create_api_key_submit' => __( 'Create API Key', 'davix-sub-bridge' ),
+            'label_usage_metered_hint'    => __( 'Usage metered', 'davix-sub-bridge' ),
+            'label_login_required'        => __( 'Please log in to view your API usage.', 'davix-sub-bridge' ),
+            'label_loading'               => __( 'Loading…', 'davix-sub-bridge' ),
+            'label_no_requests'           => __( 'No requests yet.', 'davix-sub-bridge' ),
+            'label_pagination_previous'   => __( 'Previous', 'davix-sub-bridge' ),
+            'label_pagination_next'       => __( 'Next', 'davix-sub-bridge' ),
+            'label_modal_title'           => __( 'Your new API key', 'davix-sub-bridge' ),
+            'label_modal_hint'            => __( 'Shown once — copy it now.', 'davix-sub-bridge' ),
+            'label_modal_close'           => __( 'Close', 'davix-sub-bridge' ),
+        ];
+    }
+
+    public function get_style_settings(): array {
+        $defaults = $this->get_style_defaults();
+        $settings = get_option( self::OPTION_SETTINGS, [] );
+        $settings = is_array( $settings ) ? $settings : [];
+        $resolved = [];
+
+        foreach ( $defaults as $key => $default ) {
+            $value = array_key_exists( $key, $settings ) ? (string) $settings[ $key ] : '';
+            $resolved[ $key ] = '' === $value ? $default : $value;
+        }
+
+        return $resolved;
+    }
+
+    public function get_label_settings(): array {
+        $defaults = $this->get_label_defaults();
+        $settings = $this->get_settings();
+        $resolved = [];
+        foreach ( $defaults as $key => $default ) {
+            $value = isset( $settings[ $key ] ) ? (string) $settings[ $key ] : '';
+            $resolved[ $key ] = '' === $value ? $default : $value;
+        }
+
+        return $resolved;
     }
 
     public function get_product_plans(): array {
@@ -62,20 +171,36 @@ class DSB_Client {
     }
 
     public function save_settings( array $data ): void {
+        $existing = $this->get_settings();
         $clean = [
-            'node_base_url' => esc_url_raw( $data['node_base_url'] ?? '' ),
-            'bridge_token'  => sanitize_text_field( $data['bridge_token'] ?? '' ),
-            'enable_logging'=> isset( $data['enable_logging'] ) ? 1 : 0,
-            'delete_data'   => isset( $data['delete_data'] ) ? 1 : 0,
-            'allow_provision_without_refs' => isset( $data['allow_provision_without_refs'] ) ? 1 : 0,
+            'node_base_url' => esc_url_raw( $data['node_base_url'] ?? ( $existing['node_base_url'] ?? '' ) ),
+            'bridge_token'  => sanitize_text_field( $data['bridge_token'] ?? ( $existing['bridge_token'] ?? '' ) ),
+            'enable_logging'=> isset( $data['enable_logging'] ) ? 1 : ( $existing['enable_logging'] ?? 0 ),
+            'delete_data'   => isset( $data['delete_data'] ) ? 1 : ( $existing['delete_data'] ?? 0 ),
+            'allow_provision_without_refs' => isset( $data['allow_provision_without_refs'] ) ? 1 : ( $existing['allow_provision_without_refs'] ?? 0 ),
         ];
 
         $plan_slug_meta = isset( $data['dsb_plan_slug_meta'] ) && is_array( $data['dsb_plan_slug_meta'] ) ? $data['dsb_plan_slug_meta'] : [];
-        $plan_products = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : [];
+        $plan_products = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : $this->get_plan_products();
         $plan_products = array_filter( array_map( 'absint', $plan_products ) );
 
-        $plans = [];
+        $existing_product_plans = $this->get_product_plans();
+
+        $style_defaults = $this->get_style_defaults();
+        foreach ( $style_defaults as $key => $default ) {
+            $value = isset( $data[ $key ] ) ? sanitize_text_field( $data[ $key ] ) : ( $existing[ $key ] ?? $default );
+            $clean[ $key ] = '' === $value ? $default : $value;
+        }
+
+        $label_defaults = $this->get_label_defaults();
+        foreach ( $label_defaults as $key => $default ) {
+            $value = isset( $data[ $key ] ) ? sanitize_text_field( $data[ $key ] ) : ( $existing[ $key ] ?? $default );
+            $clean[ $key ] = '' === $value ? $default : $value;
+        }
+
+        $plans = $existing_product_plans;
         if ( isset( $data['product_plans'] ) && is_array( $data['product_plans'] ) ) {
+            $plans = [];
             foreach ( $data['product_plans'] as $product_id => $plan_slug ) {
                 $pid = absint( $product_id );
                 if ( $pid <= 0 ) {

@@ -61,5 +61,36 @@
                 $('#dsb-customer-email').val('');
             }
         });
+
+        if (typeof $.fn.wpColorPicker === 'function') {
+            $('.dsb-color-field').wpColorPicker();
+        }
+
+        var $modal = $('[data-dsb-modal]');
+        function closeModal(){
+            $modal.removeClass('is-open');
+        }
+
+        $('.dsb-open-key-modal').on('click', function(e){
+            e.preventDefault();
+            $modal.addClass('is-open');
+        });
+
+        $(document).on('click', '[data-dsb-modal-close]', function(e){
+            e.preventDefault();
+            closeModal();
+        });
+
+        $(document).on('keydown', function(e){
+            if (e.key === 'Escape') {
+                closeModal();
+            }
+        });
+
+        $modal.on('click', function(e){
+            if ($(e.target).is('[data-dsb-modal]')) {
+                closeModal();
+            }
+        });
     });
 })(jQuery);
