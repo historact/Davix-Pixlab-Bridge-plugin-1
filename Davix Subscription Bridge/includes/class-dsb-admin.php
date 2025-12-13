@@ -11,6 +11,7 @@ class DSB_Admin {
     protected $events;
     protected $notices = [];
     protected $synced_product_ids = [];
+    protected $diagnostics_result = null;
 
     public function __construct( DSB_Client $client, DSB_DB $db, DSB_Events $events ) {
         $this->client = $client;
@@ -276,6 +277,10 @@ class DSB_Admin {
             } else {
                 $this->add_notice( __( 'Connection failed. Check URL/token.', 'davix-sub-bridge' ), 'error' );
             }
+        }
+
+        if ( 'settings' === $tab && isset( $_POST['dsb_request_log_diagnostics_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_request_log_diagnostics_nonce'] ) ), 'dsb_request_log_diagnostics' ) ) {
+            $this->diagnostics_result = $this->run_request_log_diagnostics();
         }
 
         if ( 'plan-mapping' === $tab && isset( $_POST['dsb_plans_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_plans_nonce'] ) ), 'dsb_save_plans' ) ) {
@@ -568,6 +573,21 @@ class DSB_Admin {
                 </p>
             <?php endif; ?>
         </form>
+
+        <h2><?php esc_html_e( 'Request Log Diagnostics', 'davix-sub-bridge' ); ?></h2>
+        <p class="description"><?php esc_html_e( 'Fetches the latest Node request log payload for debugging. Output is masked for sensitive fields and not stored.', 'davix-sub-bridge' ); ?></p>
+        <form method="post" style="margin-top:10px;">
+            <?php wp_nonce_field( 'dsb_request_log_diagnostics', 'dsb_request_log_diagnostics_nonce' ); ?>
+            <?php submit_button( __( 'Run Diagnostics', 'davix-sub-bridge' ), 'secondary', 'dsb_request_log_diagnostics', false ); ?>
+        </form>
+        <?php if ( $this->diagnostics_result ) : ?>
+            <div class="dsb-diagnostics-output" style="margin-top:15px;">
+                <p><strong><?php esc_html_e( 'HTTP code:', 'davix-sub-bridge' ); ?></strong> <?php echo esc_html( $this->diagnostics_result['code'] ?? '' ); ?></p>
+                <?php if ( ! empty( $this->diagnostics_result['body'] ) ) : ?>
+                    <textarea class="large-text code" rows="12" readonly><?php echo esc_textarea( $this->diagnostics_result['body'] ); ?></textarea>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
         <?php
     }
 
@@ -1088,6 +1108,89 @@ class DSB_Admin {
             </tbody>
         </table>
         <?php
+    }
+
+    protected function run_request_log_diagnostics(): array {
+        $result   = $this->client->fetch_request_log_diagnostics();
+        $response = $result['response'] ?? null;
+
+        if ( is_wp_error( $response ) ) {
+            $message = sprintf(
+                '%s %s',
+                __( 'Diagnostics request failed.', 'davix-sub-bridge' ),
+                $response->get_error_message()
+            );
+            $this->add_notice( $message, 'error' );
+
+            return [
+                'code' => 0,
+                'body' => $response->get_error_message(),
+            ];
+        }
+
+        $masked = $this->mask_sensitive_fields( $result['decoded'] ?? null );
+        $body   = $masked !== null ? wp_json_encode( $masked, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) : '';
+
+        if ( ! $body && ! is_wp_error( $response ) ) {
+            $body = wp_remote_retrieve_body( $response );
+        }
+
+        $this->add_notice( __( 'Diagnostics response loaded. Copy/paste below output for support.', 'davix-sub-bridge' ) );
+
+        return [
+            'code' => $result['code'] ?? 0,
+            'body' => (string) $body,
+        ];
+    }
+
+    protected function mask_sensitive_fields( $data ) {
+        if ( is_array( $data ) ) {
+            $clean = [];
+            foreach ( $data as $key => $value ) {
+                $value = $this->mask_sensitive_fields( $value );
+                if ( is_string( $key ) && $this->is_sensitive_key( $key ) ) {
+                    $value = $this->mask_value( $value );
+                }
+                $clean[ $key ] = $value;
+            }
+            return $clean;
+        }
+
+        return $data;
+    }
+
+    protected function mask_value( $value ) {
+        if ( is_array( $value ) ) {
+            foreach ( $value as $k => $v ) {
+                $value[ $k ] = $this->mask_value( $v );
+            }
+            return $value;
+        }
+
+        if ( is_scalar( $value ) ) {
+            $value = (string) $value;
+            $len   = strlen( $value );
+            if ( $len <= 4 ) {
+                return str_repeat( '*', $len );
+            }
+
+            $mask_length = max( 3, $len - 4 );
+            return substr( $value, 0, 2 ) . str_repeat( '*', $mask_length ) . substr( $value, -2 );
+        }
+
+        return $value;
+    }
+
+    protected function is_sensitive_key( string $key ): bool {
+        $key       = strtolower( $key );
+        $sensitive = [ 'token', 'secret', 'password', 'auth', 'key', 'cookie', 'credential' ];
+        foreach ( $sensitive as $word ) {
+            if ( false !== strpos( $key, $word ) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function ajax_search_users(): void {
