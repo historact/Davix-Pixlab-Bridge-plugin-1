@@ -146,8 +146,10 @@
         const limit = usage.total_calls_limit ?? usage.limit ?? null;
         const percent = usage.percent != null ? usage.percent : limit ? Math.min(100, Math.round((used / limit) * 100)) : null;
 
+        const hasLimit = limit !== null && limit !== undefined;
+
         if (els.usageCalls) {
-            els.usageCalls.textContent = limit ? `Used Calls: ${used} / ${limit}` : `Used Calls: ${used}`;
+            els.usageCalls.textContent = hasLimit ? `Used Calls: ${used} / ${limit}` : `Used Calls: ${used}`;
         }
         if (els.usagePercent) {
             els.usagePercent.textContent = percent != null ? `${percent}%` : '';

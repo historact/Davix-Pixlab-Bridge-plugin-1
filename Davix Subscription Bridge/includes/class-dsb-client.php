@@ -292,7 +292,8 @@ class DSB_Client {
     }
 
     public function user_toggle( array $identity, bool $enabled ): array {
-        $payload = array_merge( $identity, [ 'enabled' => $enabled ] );
+        $action  = $enabled ? 'enable' : 'disable';
+        $payload = array_merge( $identity, [ 'action' => $action ] );
         return $this->post_internal( '/internal/user/key/toggle', $payload );
     }
 
