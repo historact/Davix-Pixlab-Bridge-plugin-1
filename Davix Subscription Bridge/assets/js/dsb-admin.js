@@ -8,24 +8,25 @@
 
         function dsbSendLog(level, message, context){
             try {
-                if (!config || !config.debug) { return; }
-                if (!config.ajaxUrl || !config.nonce) { return; }
-                $.post(config.ajaxUrl, {
-                    action: 'dsb_js_log',
-                    nonce: config.nonce,
-                    level: level,
-                    message: message,
-                    context: JSON.stringify(context || {})
-                });
+                var cfg = window.DSB_ADMIN || {};
+                if (!cfg || !cfg.debug) { return; }
+                if (!cfg.ajaxUrl || !cfg.nonce) { return; }
+                var data = new FormData();
+                data.append('action','dsb_js_log');
+                data.append('nonce', cfg.nonce);
+                data.append('level', level);
+                data.append('message', message);
+                data.append('context', JSON.stringify(context || {}));
+                fetch(cfg.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: data });
             } catch (err) {
                 // fail silently
             }
         }
 
-        dsbSendLog('info', 'dsb-admin.js executed', { href: window.location.href, tab: config ? config.tab : undefined });
+        dsbSendLog('info', 'JS_EXECUTED', { href: window.location.href, tab: config ? config.tab : undefined });
 
         window.addEventListener('error', function(e){
-            dsbSendLog('error', 'window.error', { message: e.message, source: e.filename, line: e.lineno, col: e.colno });
+            dsbSendLog('error', 'window.error', { message: e.message, file: e.filename, line: e.lineno, col: e.colno });
         });
 
         window.addEventListener('unhandledrejection', function(e){
@@ -110,12 +111,12 @@
             var hasPicker = typeof $.fn.wpColorPicker === 'function';
             var colorCount = $('.dsb-color-field').length;
             console.log('[DSB] wpColorPicker exists?', hasPicker, 'fields', colorCount);
-            dsbSendLog('info', 'style init', { hasPicker: hasPicker, colorCount: colorCount });
+            dsbSendLog('info', 'STYLE_INIT', { hasPicker: hasPicker, fieldCount: colorCount });
             if (hasPicker && colorCount) {
                 $('.dsb-color-field').wpColorPicker();
-                dsbSendLog('info', 'wpColorPicker initialized', {});
+                dsbSendLog('info', 'WPCOLORPICKER_INIT_DONE', {});
             } else {
-                dsbSendLog('warn', 'wpColorPicker not initialized', { hasPicker: hasPicker, colorCount: colorCount });
+                dsbSendLog('warn', 'WPCOLORPICKER_INIT_SKIPPED', { hasPicker: hasPicker, fieldCount: colorCount });
             }
 
             function getModal(){
@@ -134,7 +135,7 @@
                 var $modal = getModal();
                 var found = $modal.length;
                 console.log('[DSB] Create Key clicked, modal found?', found);
-                dsbSendLog('info', 'create key click', { found: found });
+                dsbSendLog('info', 'CREATE_KEY_CLICK', { modalFound: found });
 
                 if (!found) {
                     return;

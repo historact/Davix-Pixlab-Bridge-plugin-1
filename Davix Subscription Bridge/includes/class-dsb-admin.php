@@ -74,11 +74,14 @@ class DSB_Admin {
         wp_enqueue_style( 'wp-color-picker' );
         wp_enqueue_script( 'wp-color-picker' );
 
+        $css_path = plugin_dir_path( __FILE__ ) . '../assets/css/dsb-admin.css';
+        $css_ver  = file_exists( $css_path ) ? filemtime( $css_path ) : DSB_VERSION;
+
         wp_register_style(
             'dsb-admin-styles',
             DSB_PLUGIN_URL . 'assets/css/dsb-admin.css',
             [ 'wp-color-picker' ],
-            DSB_VERSION
+            $css_ver
         );
         wp_enqueue_style( 'dsb-admin-styles' );
 
@@ -86,11 +89,14 @@ class DSB_Admin {
             wp_enqueue_style( 'woocommerce_admin_styles' );
         }
 
+        $js_path = plugin_dir_path( __FILE__ ) . '../assets/js/dsb-admin.js';
+        $js_ver  = file_exists( $js_path ) ? filemtime( $js_path ) : DSB_VERSION;
+
         wp_register_script(
             'dsb-admin',
             DSB_PLUGIN_URL . 'assets/js/dsb-admin.js',
             [ 'jquery', 'wp-color-picker' ],
-            DSB_VERSION,
+            $js_ver,
             true
         );
         wp_localize_script(
@@ -106,7 +112,11 @@ class DSB_Admin {
         );
         wp_enqueue_script( 'dsb-admin' );
 
-        wp_add_inline_script( 'dsb-admin', 'console.log("[DSB] inline after dsb-admin loaded"); window.DSB_INLINE_PROOF=true;', 'after' );
+        wp_add_inline_script(
+            'dsb-admin',
+            "(function(){\n  try {\n    if (!window.DSB_ADMIN) return;\n    if (!DSB_ADMIN.ajaxUrl || !DSB_ADMIN.nonce) return;\n    if (!DSB_ADMIN.debug) return;\n    var data = new FormData();\n    data.append('action','dsb_js_log');\n    data.append('nonce',DSB_ADMIN.nonce);\n    data.append('level','info');\n    data.append('message','INLINE_PROOF: dsb-admin handle printed');\n    data.append('context', JSON.stringify({href: location.href, tab: DSB_ADMIN.tab}));\n    fetch(DSB_ADMIN.ajaxUrl, {method:'POST', credentials:'same-origin', body:data});\n  } catch(e) {}\n})();",
+            'after'
+        );
 
         dsb_log( 'info', 'Enqueuing dsb-admin.js', [
             'handle'    => 'dsb-admin',
