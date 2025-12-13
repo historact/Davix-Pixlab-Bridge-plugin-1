@@ -29,12 +29,10 @@ class DSB_Dashboard {
 
         ob_start();
         ?>
-        <?php // Debug: surface resolved styles inline for validation during styling work. ?>
-        <?php if ( current_user_can( 'manage_options' ) ) : ?>
+        <?php if ( defined( 'WP_DEBUG' ) && WP_DEBUG && current_user_can( 'manage_options' ) ) : ?>
         <!-- DSB_STYLES_JSON: <?php echo esc_html( wp_json_encode( $styles ) ); ?> -->
         <!-- DSB_STYLE_ATTR: <?php echo esc_html( $style_attr ); ?> -->
         <?php endif; ?>
-        <!-- dsb-style-debug <?php echo esc_html( wp_json_encode( [ 'styles' => $styles, 'attr' => $style_attr ] ) ); ?> -->
         <div class="dsb-dashboard" style="<?php echo esc_attr( $style_attr ); ?>">
             <div class="dsb-dashboard__header">
                 <div>

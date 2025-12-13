@@ -73,13 +73,21 @@ class DSB_Admin {
             wp_enqueue_style( 'woocommerce_admin_styles' );
         }
 
-        wp_register_script( 'dsb-admin', DSB_PLUGIN_URL . 'assets/js/dsb-admin.js', [ 'jquery', 'wp-color-picker' ], DSB_VERSION, true );
+        wp_register_script(
+            'dsb-admin',
+            DSB_PLUGIN_URL . 'assets/js/dsb-admin.js',
+            [ 'jquery', 'wp-color-picker' ],
+            DSB_VERSION,
+            true
+        );
         wp_localize_script(
             'dsb-admin',
             'dsbAdminData',
             [
                 'ajaxUrl' => admin_url( 'admin-ajax.php' ),
                 'nonce'   => wp_create_nonce( 'dsb_admin_ajax' ),
+                'debug'   => defined( 'WP_DEBUG' ) && WP_DEBUG,
+                'hook'    => $hook,
             ]
         );
         wp_enqueue_script( 'dsb-admin' );

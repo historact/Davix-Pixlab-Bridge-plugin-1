@@ -69,22 +69,26 @@
     }
 
     $(function(){
-        console.log('[DSB] admin JS loaded', { page: location.href });
         window.DSB_ADMIN_LOADED = true;
+        console.log('[DSB] admin JS loaded', location.href);
 
         bindSelects();
 
+        var $fields = $('.dsb-color-field');
+        console.log('[DSB] color fields found:', $fields.length);
         console.log('[DSB] wpColorPicker exists', typeof $.fn.wpColorPicker);
-        console.log('[DSB] color fields count', $('.dsb-color-field').length);
-        if (typeof $.fn.wpColorPicker === 'function') {
-            $('.dsb-color-field').wpColorPicker();
+        if (typeof $.fn.wpColorPicker !== 'function') {
+            console.error('[DSB] wpColorPicker missing. Check enqueue.');
         } else {
-            console.warn('[DSB] wpColorPicker missing');
+            $fields.wpColorPicker();
         }
 
-        var $modal = $('[data-dsb-modal]').first();
+        function getModal(){
+            return $('[data-dsb-modal]').first();
+        }
 
         function closeModal(){
+            var $modal = getModal();
             if (!$modal.length) {
                 return;
             }
@@ -94,10 +98,12 @@
 
         $(document).on('click', '.dsb-open-key-modal', function(e){
             e.preventDefault();
+            var $modal = getModal();
             if (!$modal.length) {
+                console.error('[DSB] Create Key modal not found');
                 return;
             }
-            console.log('[DSB] Create Key clicked');
+            console.log('[DSB] Create Key clicked', { modalFound: $modal.length });
             $modal.addClass('is-open').attr('aria-hidden', 'false');
             $('body').addClass('dsb-modal-open');
         });
