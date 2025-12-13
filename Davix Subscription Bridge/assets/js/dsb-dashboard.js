@@ -3,6 +3,7 @@
     window.DSB_PIXLAB_DASHBOARD_INIT = true;
 
     const data = window.dsbDashboardData || {};
+    const labels = data.labels || {};
     const root = document.querySelector('.dsb-dashboard');
     if (!root || !data.ajaxUrl || !data.nonce) {
         return;
@@ -116,7 +117,8 @@
             els.keyDisplay.value = key.key_prefix || key.key_last4 ? state.maskedKey : data.strings.loading;
         }
         if (els.keyCreated) {
-            els.keyCreated.textContent = key.created_at ? `Created ${key.created_at}` : '';
+            const createdLabel = labels.label_created || 'Created';
+            els.keyCreated.textContent = key.created_at ? `${createdLabel} ${key.created_at}` : '';
         }
         updateToggleButton();
         setStatus(enabled ? 'Active' : 'Disabled', enabled ? 'success' : 'muted');
@@ -127,7 +129,8 @@
         if (els.planLimit) {
             const limit = plan.limit != null ? plan.limit : null;
             const period = plan.billing_period ? `${plan.billing_period} plan` : '';
-            els.planLimit.textContent = limit != null ? `${period ? period + ' · ' : ''}Monthly limit: ${limit}` : period || '';
+            const limitLabel = labels.label_usage_metered || 'Monthly limit';
+            els.planLimit.textContent = limit != null ? `${period ? period + ' · ' : ''}${limitLabel}: ${limit}` : period || '';
         }
         if (els.billing) {
             els.billing.textContent = validity;
@@ -142,9 +145,10 @@
         const percent = usage.percent != null ? usage.percent : limit ? Math.min(100, Math.round((used / limit) * 100)) : null;
 
         const hasLimit = limit !== null && limit !== undefined;
+        const usedLabel = labels.label_used_calls || 'Used Calls';
 
         if (els.usageCalls) {
-            els.usageCalls.textContent = hasLimit ? `Used Calls: ${used} / ${limit}` : `Used Calls: ${used}`;
+            els.usageCalls.textContent = hasLimit ? `${usedLabel}: ${used} / ${limit}` : `${usedLabel}: ${used}`;
         }
         if (els.usagePercent) {
             els.usagePercent.textContent = percent != null ? `${percent}%` : '';
@@ -157,6 +161,24 @@
         if (els.endpoint.image) els.endpoint.image.textContent = `${per.image_calls || 0} calls`;
         if (els.endpoint.pdf) els.endpoint.pdf.textContent = `${per.pdf_calls || 0} calls`;
         if (els.endpoint.tools) els.endpoint.tools.textContent = `${per.tools_calls || 0} calls`;
+    }
+
+    function formatBytes(bytes) {
+        if (bytes === null || bytes === undefined) return '—';
+        const value = Number(bytes);
+        if (Number.isNaN(value)) return '—';
+
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = value;
+        let unitIndex = 0;
+
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex += 1;
+        }
+
+        if (unitIndex === 0) return `${value} B`;
+        return `${size.toFixed(1)} ${units[unitIndex]}`;
     }
 
     function handleRotate() {
@@ -289,17 +311,45 @@
             rows.forEach((item) => {
                 const tr = document.createElement('tr');
 
+                const status = (item.status || '').toLowerCase();
+                const statusText =
+                    status === 'success' ? 'Success' : status === 'error' ? 'Error' : '—';
+
+                let errorText = '—';
+                if (status === 'error') {
+                    const message = displayValue(item.error_message);
+                    const combined = displayValue(item.error);
+                    const code = displayValue(item.error_code);
+                    errorText =
+                        message !== '—'
+                            ? message
+                            : combined !== '—'
+                            ? combined
+                            : code !== '—'
+                            ? code
+                            : 'Request failed.';
+                }
+
                 [
                     displayValue(item.timestamp),
                     displayValue(item.endpoint),
-                    displayValue(item.status),
                     displayValue(item.files),
-                    displayValue(item.bytes_in),
-                    displayValue(item.bytes_out),
-                    displayValue(item.error),
-                ].forEach((value) => {
+                    formatBytes(item.bytes_in),
+                    formatBytes(item.bytes_out),
+                    errorText,
+                    statusText,
+                ].forEach((value, index) => {
                     const td = document.createElement('td');
                     td.textContent = value;
+
+                    if (index === 6 && status) {
+                        td.classList.add(`is-${status}`);
+                    }
+
+                    if (index === 5 && status === 'error') {
+                        td.classList.add('dsb-error');
+                    }
+
                     tr.appendChild(td);
                 });
 
