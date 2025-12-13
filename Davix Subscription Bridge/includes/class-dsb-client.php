@@ -125,7 +125,7 @@ class DSB_Client {
         return substr( $token, 0, 3 ) . str_repeat( '*', $len - 6 ) . substr( $token, -3 );
     }
 
-    protected function request( string $path, string $method = 'GET', array $body = [], array $query = [] ) {
+    protected function request( string $path, string $method = 'GET', ?array $body = [], array $query = [] ) {
         $settings = $this->get_settings();
         $method   = strtoupper( $method );
 
@@ -320,6 +320,11 @@ class DSB_Client {
 
     public function fetch_plans() {
         return $this->request( '/internal/admin/plans', 'GET' );
+    }
+
+    public function fetch_request_log_diagnostics(): array {
+        $response = $this->request( '/internal/admin/diagnostics/request-log', 'GET', null );
+        return $this->prepare_response( $response );
     }
 
     public function sync_plan( array $payload ) {
