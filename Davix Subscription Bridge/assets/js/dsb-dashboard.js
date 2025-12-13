@@ -159,6 +159,24 @@
         if (els.endpoint.tools) els.endpoint.tools.textContent = `${per.tools_calls || 0} calls`;
     }
 
+    function formatBytes(bytes) {
+        if (bytes === null || bytes === undefined) return '—';
+        const value = Number(bytes);
+        if (Number.isNaN(value)) return '—';
+
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = value;
+        let unitIndex = 0;
+
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex += 1;
+        }
+
+        if (unitIndex === 0) return `${value} B`;
+        return `${size.toFixed(1)} ${units[unitIndex]}`;
+    }
+
     function handleRotate() {
         if (!window.confirm(data.strings.confirmRotate)) return;
         if (els.rotate) {
@@ -289,17 +307,41 @@
             rows.forEach((item) => {
                 const tr = document.createElement('tr');
 
+                const status = (item.status || '').toLowerCase();
+                const statusText =
+                    status === 'success' ? 'Success' : status === 'error' ? 'Error' : '—';
+
+                let errorText = '—';
+                if (status === 'error') {
+                    const message = displayValue(item.error_message);
+                    const combined = displayValue(item.error);
+                    const code = displayValue(item.error_code);
+                    errorText =
+                        message !== '—'
+                            ? message
+                            : combined !== '—'
+                            ? combined
+                            : code !== '—'
+                            ? code
+                            : 'Request failed.';
+                }
+
                 [
                     displayValue(item.timestamp),
                     displayValue(item.endpoint),
-                    displayValue(item.status),
+                    statusText,
                     displayValue(item.files),
-                    displayValue(item.bytes_in),
-                    displayValue(item.bytes_out),
-                    displayValue(item.error),
-                ].forEach((value) => {
+                    formatBytes(item.bytes_in),
+                    formatBytes(item.bytes_out),
+                    errorText,
+                ].forEach((value, index) => {
                     const td = document.createElement('td');
                     td.textContent = value;
+
+                    if (index === 2 && status) {
+                        td.classList.add(`is-${status}`);
+                    }
+
                     tr.appendChild(td);
                 });
 
