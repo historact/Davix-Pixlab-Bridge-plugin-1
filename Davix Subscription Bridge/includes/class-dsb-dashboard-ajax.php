@@ -84,6 +84,10 @@ class DSB_Dashboard_Ajax {
             $identity = $this->validate_request();
             $result   = $this->client->user_summary( $identity );
 
+            if ( ! is_wp_error( $result['response'] ) && 200 === $result['code'] && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
+                $result['decoded'] = $this->normalize_summary_payload( $result['decoded'] );
+            }
+
             $this->respond_from_result( $result, __( 'Unable to load summary.', 'davix-sub-bridge' ) );
         } catch ( \Throwable $e ) {
             $this->handle_exception( $e );
@@ -111,6 +115,20 @@ class DSB_Dashboard_Ajax {
                 $range,
                 [ 'window' => $window ]
             );
+
+            if ( ! is_wp_error( $result['response'] ) && 200 === $result['code'] && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
+                $result['decoded'] = [
+                    'status' => 'ok',
+                    'labels' => $result['decoded']['labels'] ?? [],
+                    'series' => $result['decoded']['series'] ?? [
+                        'h2i'   => [],
+                        'image' => [],
+                        'pdf'   => [],
+                        'tools' => [],
+                    ],
+                    'totals' => $result['decoded']['totals'] ?? [],
+                ];
+            }
             $this->respond_from_result( $result, __( 'Unable to load usage.', 'davix-sub-bridge' ) );
         } catch ( \Throwable $e ) {
             $this->handle_exception( $e );
@@ -274,6 +292,82 @@ class DSB_Dashboard_Ajax {
             'http'   => $result['code'] ?? 0,
             'body'   => $body_excerpt,
             'error'  => $message,
+        ];
+    }
+
+    private function fmt_date_ymd( $value ): string {
+        if ( empty( $value ) ) {
+            return '—';
+        }
+        try {
+            $dt = new \DateTime( is_string( $value ) ? $value : '' );
+            return $dt->setTimezone( new \DateTimeZone( 'UTC' ) )->format( 'Y/m/d' );
+        } catch ( \Throwable $e ) {
+            return '—';
+        }
+    }
+
+    private function compute_billing_end_from_start( ?string $startUtc ): string {
+        if ( empty( $startUtc ) ) {
+            return '—';
+        }
+        try {
+            $dt = new \DateTime( $startUtc, new \DateTimeZone( 'UTC' ) );
+            $dt->modify( '+1 month' );
+            return $dt->format( 'Y/m/d' );
+        } catch ( \Throwable $e ) {
+            return '—';
+        }
+    }
+
+    private function normalize_summary_payload( array $decoded ): array {
+        $plan   = $decoded['plan'] ?? [];
+        $key    = $decoded['key'] ?? [];
+        $usage  = $decoded['usage'] ?? [];
+        $usagePer = $usage['per_endpoint'] ?? [];
+
+        $limit = null;
+        if ( isset( $plan['monthly_call_limit'] ) && is_numeric( $plan['monthly_call_limit'] ) ) {
+            $limit = (int) $plan['monthly_call_limit'];
+        } elseif ( isset( $plan['monthly_quota_files'] ) && is_numeric( $plan['monthly_quota_files'] ) ) {
+            $limit = (int) $plan['monthly_quota_files'];
+        }
+
+        $used    = isset( $usage['total_calls'] ) ? (int) $usage['total_calls'] : 0;
+        $percent = ( $limit && $limit > 0 ) ? min( 100, (int) round( ( $used / $limit ) * 100 ) ) : 0;
+
+        $startUtc = $usage['billing_window']['start_utc'] ?? null;
+        $endUtc   = $usage['billing_window']['end_utc'] ?? null;
+
+        return [
+            'status' => 'ok',
+            'plan'   => [
+                'name'            => $plan['name'] ?? null,
+                'billing_period'  => $plan['billing_period'] ?? null,
+                'limit'           => $limit,
+            ],
+            'key'    => [
+                'key_prefix' => $key['key_prefix'] ?? null,
+                'key_last4'  => $key['key_last4'] ?? null,
+                'status'     => $key['status'] ?? null,
+                'created_at' => $this->fmt_date_ymd( $key['created_at'] ?? null ),
+            ],
+            'usage'  => [
+                'total_calls_used'  => $used,
+                'total_calls_limit' => $limit,
+                'percent'           => $percent,
+            ],
+            'per_endpoint' => [
+                'h2i_calls'   => (int) ( $usagePer['h2i_calls'] ?? 0 ),
+                'image_calls' => (int) ( $usagePer['image_calls'] ?? 0 ),
+                'pdf_calls'   => (int) ( $usagePer['pdf_calls'] ?? 0 ),
+                'tools_calls' => (int) ( $usagePer['tools_calls'] ?? 0 ),
+            ],
+            'billing' => [
+                'period' => $usage['period'] ?? gmdate( 'Y-m' ),
+                'start'  => $this->fmt_date_ymd( $startUtc ),
+                'end'    => ! empty( $endUtc ) ? $this->fmt_date_ymd( $endUtc ) : $this->compute_billing_end_from_start( $startUtc ),
+            ],
         ];
     }
 }
