@@ -51,6 +51,7 @@
         range: data.defaultRange || 'daily',
         maskedKey: '',
         keyEnabled: true,
+        lastSummary: null,
     };
 
     function formatMasked(prefix, last4) {
@@ -108,6 +109,8 @@
         const billing = res.billing || {};
         const per = res.per_endpoint || {};
 
+        state.lastSummary = res;
+
         const enabled = key.enabled !== false && (key.status || '').toLowerCase() !== 'disabled';
         state.keyEnabled = enabled;
         state.maskedKey = key.key_prefix || key.key_last4 ? formatMasked(key.key_prefix, key.key_last4) : data.strings.loading;
@@ -136,9 +139,6 @@
         }
 
         applyUsage(usage, billing, per);
-        if (res.history || res.labels || res.series) {
-            renderHistory(res.history || { labels: res.labels || [], series: res.series || {} });
-        }
     }
 
     function applyUsage(usage = {}, billing = {}, per = {}) {
@@ -211,6 +211,27 @@
                         },
                     },
                 },
+            },
+        });
+    }
+
+    function renderHistoryFromUsage(payload = {}) {
+        const labels = payload.labels || [];
+        const series = payload.series || {};
+
+        if (data.isAdmin) {
+            if (!payload.labels || !payload.series) {
+                console.warn('DSB usage payload missing labels/series', payload);
+            }
+        }
+
+        renderHistory({
+            labels,
+            series: {
+                h2i: series.h2i || [],
+                image: series.image || [],
+                pdf: series.pdf || [],
+                tools: series.tools || [],
             },
         });
     }
@@ -351,8 +372,7 @@
         post('dsb_dashboard_usage', { range })
             .then(handleResponse)
             .then((json) => {
-                applyUsage(json.usage || {}, json.billing || {}, json.per_endpoint || {});
-                renderHistory(json.history || { labels: json.labels || [], series: json.series || {} });
+                renderHistoryFromUsage(json.history || { labels: json.labels || [], series: json.series || {} });
             })
             .catch((err) => {
                 if (data.isAdmin) {
