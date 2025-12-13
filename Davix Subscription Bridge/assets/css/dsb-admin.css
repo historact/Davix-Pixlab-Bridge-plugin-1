@@ -1,0 +1,45 @@
+.dsb-admin-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    z-index: 100000;
+}
+
+.dsb-admin-modal.is-open {
+    display: flex;
+}
+
+.dsb-admin-modal__overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.dsb-admin-modal__dialog {
+    position: relative;
+    background: #fff;
+    padding: 24px;
+    width: min(640px, 95%);
+    max-height: 90vh;
+    overflow: auto;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
+    z-index: 1;
+}
+
+.dsb-admin-modal__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.dsb-admin-modal__close {
+    font-size: 20px;
+    line-height: 1;
+}
+
+body.dsb-modal-open {
+    overflow: hidden;
+}

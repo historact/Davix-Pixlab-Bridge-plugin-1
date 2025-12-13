@@ -44,7 +44,12 @@
         }
     }
 
-    $(function(){
+    function bindSelects(){
+        if (!($.fn.selectWoo || $.fn.select2)) {
+            console.warn('[DSB] select2/selectWoo missing');
+            return;
+        }
+
         $('.dsb-select-ajax').each(function(){
             initAjaxSelect($(this));
         });
@@ -61,19 +66,46 @@
                 $('#dsb-customer-email').val('');
             }
         });
+    }
 
-        if (typeof $.fn.wpColorPicker === 'function') {
-            $('.dsb-color-field').wpColorPicker();
+    $(function(){
+        window.DSB_ADMIN_LOADED = true;
+        console.log('[DSB] admin JS loaded', location.href);
+
+        bindSelects();
+
+        var $fields = $('.dsb-color-field');
+        console.log('[DSB] color fields:', $fields.length);
+        if (typeof $.fn.wpColorPicker !== 'function') {
+            console.error('[DSB] wpColorPicker missing - enqueue is broken');
+        } else {
+            console.log('[DSB] wpColorPicker available');
+            $fields.wpColorPicker();
         }
 
-        var $modal = $('[data-dsb-modal]');
+        function getModal(){
+            return $('[data-dsb-modal]').first();
+        }
+
         function closeModal(){
-            $modal.removeClass('is-open');
+            var $modal = getModal();
+            if (!$modal.length) {
+                return;
+            }
+            $modal.removeClass('is-open').attr('aria-hidden', 'true');
+            $('body').removeClass('dsb-modal-open');
         }
 
-        $('.dsb-open-key-modal').on('click', function(e){
+        $(document).on('click', '.dsb-open-key-modal', function(e){
             e.preventDefault();
-            $modal.addClass('is-open');
+            var $modal = getModal();
+            if (!$modal.length) {
+                console.error('[DSB] Create Key modal not found');
+                return;
+            }
+            console.log('[DSB] Create Key clicked', { modalFound: $modal.length });
+            $modal.addClass('is-open').attr('aria-hidden', 'false');
+            $('body').addClass('dsb-modal-open');
         });
 
         $(document).on('click', '[data-dsb-modal-close]', function(e){
@@ -87,7 +119,7 @@
             }
         });
 
-        $modal.on('click', function(e){
+        $(document).on('click', '[data-dsb-modal]', function(e){
             if ($(e.target).is('[data-dsb-modal]')) {
                 closeModal();
             }
