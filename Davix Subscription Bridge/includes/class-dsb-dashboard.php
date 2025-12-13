@@ -29,6 +29,8 @@ class DSB_Dashboard {
 
         ob_start();
         ?>
+        <?php // Debug: surface resolved styles inline for validation during styling work. ?>
+        <!-- dsb-style-debug <?php echo esc_html( wp_json_encode( [ 'styles' => $styles, 'attr' => $style_attr ] ) ); ?> -->
         <div class="dsb-dashboard" style="<?php echo esc_attr( $style_attr ); ?>">
             <div class="dsb-dashboard__header">
                 <div>
@@ -161,6 +163,8 @@ class DSB_Dashboard {
         if ( self::$enqueued ) {
             return;
         }
+
+        $labels = $this->client->get_label_settings();
 
         wp_register_style(
             'dsb-dashboard',

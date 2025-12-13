@@ -45,7 +45,8 @@ class DSB_Admin {
     }
 
     public function enqueue_assets( string $hook ): void {
-        if ( 'toplevel_page_davix-bridge' !== $hook ) {
+        $page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+        if ( 'davix-bridge' !== $page && 'toplevel_page_davix-bridge' !== $hook ) {
             return;
         }
 

@@ -112,10 +112,12 @@ class DSB_Client {
 
     public function get_style_settings(): array {
         $defaults = $this->get_style_defaults();
-        $settings = $this->get_settings();
+        $settings = get_option( self::OPTION_SETTINGS, [] );
+        $settings = is_array( $settings ) ? $settings : [];
         $resolved = [];
+
         foreach ( $defaults as $key => $default ) {
-            $value = isset( $settings[ $key ] ) ? (string) $settings[ $key ] : '';
+            $value = array_key_exists( $key, $settings ) ? (string) $settings[ $key ] : '';
             $resolved[ $key ] = '' === $value ? $default : $value;
         }
 

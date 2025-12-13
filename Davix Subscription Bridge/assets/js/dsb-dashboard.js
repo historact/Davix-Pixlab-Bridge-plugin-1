@@ -232,7 +232,9 @@
 
     function updateToggleButton() {
         if (!els.keyToggle) return;
-        els.keyToggle.textContent = state.keyEnabled ? data.strings.toggleOff : data.strings.toggleOn;
+        const toggleOff = (data.strings && data.strings.toggleOff) || 'Disable Key';
+        const toggleOn = (data.strings && data.strings.toggleOn) || 'Enable Key';
+        els.keyToggle.textContent = state.keyEnabled ? toggleOff : toggleOn;
     }
 
     function openKeyModal(key) {
