@@ -29,9 +29,9 @@ class DSB_Dashboard {
 
         ob_start();
         ?>
-        <?php if ( defined( 'WP_DEBUG' ) && WP_DEBUG && current_user_can( 'manage_options' ) ) : ?>
-        <!-- DSB_STYLES_JSON: <?php echo esc_html( wp_json_encode( $styles ) ); ?> -->
+        <?php if ( current_user_can( 'manage_options' ) ) : ?>
         <!-- DSB_STYLE_ATTR: <?php echo esc_html( $style_attr ); ?> -->
+        <!-- DSB_STYLES_JSON: <?php echo esc_html( wp_json_encode( $styles ) ); ?> -->
         <?php endif; ?>
         <div class="dsb-dashboard" style="<?php echo esc_attr( $style_attr ); ?>">
             <div class="dsb-dashboard__header">

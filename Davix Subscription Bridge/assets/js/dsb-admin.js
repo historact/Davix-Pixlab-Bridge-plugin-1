@@ -75,11 +75,11 @@
         bindSelects();
 
         var $fields = $('.dsb-color-field');
-        console.log('[DSB] color fields found:', $fields.length);
-        console.log('[DSB] wpColorPicker exists', typeof $.fn.wpColorPicker);
+        console.log('[DSB] color fields:', $fields.length);
         if (typeof $.fn.wpColorPicker !== 'function') {
-            console.error('[DSB] wpColorPicker missing. Check enqueue.');
+            console.error('[DSB] wpColorPicker missing - enqueue is broken');
         } else {
+            console.log('[DSB] wpColorPicker available');
             $fields.wpColorPicker();
         }
 
