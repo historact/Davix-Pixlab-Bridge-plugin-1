@@ -242,32 +242,27 @@ class DSB_Events {
             return [];
         }
 
-        $valid_from  = null;
+        $start_dt    = null;
         $valid_until = null;
 
         if ( 'renewed' === $event ) {
             $existing = $this->fetch_current_validity( $subscription_id, $customer_email );
-            if ( isset( $existing['valid_from'] ) ) {
-                $valid_from = $this->format_datetime_for_node( $existing['valid_from'] );
-            }
             if ( isset( $existing['valid_until'] ) ) {
                 $valid_until = $this->format_datetime_for_node( $existing['valid_until']->add( $interval ) );
             } elseif ( isset( $existing['valid_from'] ) ) {
-                $valid_until = $this->format_datetime_for_node( $existing['valid_from']->add( $interval ) );
+                $start_dt    = $existing['valid_from'];
+                $valid_until = $this->format_datetime_for_node( $start_dt->add( $interval ) );
             }
 
-            if ( ! $valid_from ) {
+            if ( ! $start_dt ) {
                 $activation = $this->determine_activation_time( $order );
                 if ( $activation ) {
-                    $valid_from = $this->format_datetime_for_node( $activation );
+                    $start_dt = $activation;
                 }
             }
 
-            if ( ! $valid_until && $valid_from ) {
-                $start_dt = $this->parse_datetime_string( $valid_from );
-                if ( $start_dt ) {
-                    $valid_until = $this->format_datetime_for_node( $start_dt->add( $interval ) );
-                }
+            if ( ! $valid_until && $start_dt ) {
+                $valid_until = $this->format_datetime_for_node( $start_dt->add( $interval ) );
             }
         } else {
             $activation = $this->determine_activation_time( $order );
@@ -277,9 +272,6 @@ class DSB_Events {
         }
 
         $payload = [];
-        if ( $valid_from ) {
-            $payload['valid_from'] = $valid_from;
-        }
         if ( $valid_until ) {
             $payload['valid_until'] = $valid_until;
         }
