@@ -156,6 +156,14 @@ class DSB_Dashboard_Ajax {
         }
     }
 
+    public function toggle_key(): void {
+        $identity = $this->validate_request();
+        $enabled  = isset( $_POST['enabled'] ) ? (bool) sanitize_text_field( wp_unslash( $_POST['enabled'] ) ) : true;
+
+        $result = $this->client->user_toggle( $identity, $enabled );
+        $this->respond_from_result( $result, __( 'Unable to update key.', 'davix-sub-bridge' ) );
+    }
+
     protected function validate_request(): array {
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( [ 'status' => 'error', 'code' => 'unauthorized', 'message' => __( 'Please log in.', 'davix-sub-bridge' ) ], 401 );
