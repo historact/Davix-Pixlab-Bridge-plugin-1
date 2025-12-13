@@ -21,6 +21,9 @@ class DSB_Client {
                 'node_base_url' => '',
                 'bridge_token'  => '',
                 'enable_logging'=> 1,
+                'debug_enabled' => 0,
+                'debug_level'   => 'info',
+                'debug_retention_days' => 7,
                 'delete_data'   => 0,
                 'allow_provision_without_refs' => 0,
             ],
@@ -176,9 +179,16 @@ class DSB_Client {
             'node_base_url' => esc_url_raw( $data['node_base_url'] ?? ( $existing['node_base_url'] ?? '' ) ),
             'bridge_token'  => sanitize_text_field( $data['bridge_token'] ?? ( $existing['bridge_token'] ?? '' ) ),
             'enable_logging'=> isset( $data['enable_logging'] ) ? 1 : ( $existing['enable_logging'] ?? 0 ),
+            'debug_enabled' => isset( $data['debug_enabled'] ) ? 1 : ( $existing['debug_enabled'] ?? 0 ),
+            'debug_level'   => isset( $data['debug_level'] ) ? sanitize_key( $data['debug_level'] ) : ( $existing['debug_level'] ?? 'info' ),
+            'debug_retention_days' => isset( $data['debug_retention_days'] ) ? max( 1, (int) $data['debug_retention_days'] ) : ( $existing['debug_retention_days'] ?? 7 ),
             'delete_data'   => isset( $data['delete_data'] ) ? 1 : ( $existing['delete_data'] ?? 0 ),
             'allow_provision_without_refs' => isset( $data['allow_provision_without_refs'] ) ? 1 : ( $existing['allow_provision_without_refs'] ?? 0 ),
         ];
+
+        $allowed_levels          = [ 'debug', 'info', 'warn', 'error' ];
+        $clean['debug_level']    = in_array( $clean['debug_level'], $allowed_levels, true ) ? $clean['debug_level'] : 'info';
+        $clean['debug_retention_days'] = max( 1, (int) $clean['debug_retention_days'] );
 
         $plan_slug_meta = isset( $data['dsb_plan_slug_meta'] ) && is_array( $data['dsb_plan_slug_meta'] ) ? $data['dsb_plan_slug_meta'] : [];
         $plan_products = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : $this->get_plan_products();

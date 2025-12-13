@@ -81,6 +81,8 @@ class DSB_Dashboard_Ajax {
     public function summary(): void {
         $this->start_response();
 
+        dsb_log( 'debug', 'Dashboard AJAX summary requested' );
+
         try {
             $identity = $this->validate_request();
             $result   = $this->client->user_summary( $identity );
@@ -89,7 +91,7 @@ class DSB_Dashboard_Ajax {
                 $result['decoded'] = $this->normalize_summary_payload( $result['decoded'] );
             }
 
-            $this->respond_from_result( $result, __( 'Unable to load summary.', 'davix-sub-bridge' ) );
+            $this->respond_from_result( $result, __( 'Unable to load summary.', 'davix-sub-bridge' ), 'summary' );
         } catch ( \Throwable $e ) {
             $this->handle_exception( $e );
         }
@@ -97,6 +99,8 @@ class DSB_Dashboard_Ajax {
 
     public function usage(): void {
         $this->start_response();
+
+        dsb_log( 'debug', 'Dashboard AJAX usage requested' );
 
         try {
             $identity = $this->validate_request();
@@ -130,7 +134,7 @@ class DSB_Dashboard_Ajax {
                     'totals' => $result['decoded']['totals'] ?? [],
                 ];
             }
-            $this->respond_from_result( $result, __( 'Unable to load usage.', 'davix-sub-bridge' ) );
+            $this->respond_from_result( $result, __( 'Unable to load usage.', 'davix-sub-bridge' ), 'usage' );
         } catch ( \Throwable $e ) {
             $this->handle_exception( $e );
         }
@@ -138,6 +142,8 @@ class DSB_Dashboard_Ajax {
 
     public function logs(): void {
         $this->start_response();
+
+        dsb_log( 'debug', 'Dashboard AJAX logs requested' );
 
         try {
             $identity = $this->validate_request();
@@ -161,7 +167,7 @@ class DSB_Dashboard_Ajax {
                 $result['decoded'] = $this->normalize_logs_payload( $result['decoded'], $page, $per_page );
             }
 
-            $this->respond_from_result( $result, __( 'Unable to load logs.', 'davix-sub-bridge' ) );
+            $this->respond_from_result( $result, __( 'Unable to load logs.', 'davix-sub-bridge' ), 'logs' );
         } catch ( \Throwable $e ) {
             $this->handle_exception( $e );
         }
@@ -169,6 +175,8 @@ class DSB_Dashboard_Ajax {
 
     public function rotate_key(): void {
         $this->start_response();
+
+        dsb_log( 'debug', 'Dashboard AJAX rotate requested' );
 
         try {
             $identity = $this->validate_request();
@@ -188,7 +196,7 @@ class DSB_Dashboard_Ajax {
                 update_user_meta( $user->ID, $metaKey, $now );
             }
 
-            $this->respond_from_result( $result, __( 'Unable to regenerate key.', 'davix-sub-bridge' ) );
+            $this->respond_from_result( $result, __( 'Unable to regenerate key.', 'davix-sub-bridge' ), 'rotate' );
         } catch ( \Throwable $e ) {
             $this->handle_exception( $e );
         }
@@ -197,12 +205,14 @@ class DSB_Dashboard_Ajax {
     public function toggle_key(): void {
         $this->start_response();
 
+        dsb_log( 'debug', 'Dashboard AJAX toggle requested' );
+
         try {
             $identity = $this->validate_request();
             $enabled  = isset( $_POST['enabled'] ) ? (bool) sanitize_text_field( wp_unslash( $_POST['enabled'] ) ) : true;
 
             $result = $this->client->user_toggle( $identity, $enabled );
-            $this->respond_from_result( $result, __( 'Unable to update key.', 'davix-sub-bridge' ) );
+            $this->respond_from_result( $result, __( 'Unable to update key.', 'davix-sub-bridge' ), 'toggle' );
         } catch ( \Throwable $e ) {
             $this->handle_exception( $e );
         }
@@ -222,7 +232,7 @@ class DSB_Dashboard_Ajax {
         return $identity;
     }
 
-    protected function respond_from_result( array $result, string $default_message ): void {
+    protected function respond_from_result( array $result, string $default_message, string $action = '' ): void {
         if ( is_wp_error( $result['response'] ) ) {
             $message = $result['response']->get_error_message();
             $payload = [ 'status' => 'error', 'message' => $message ];
@@ -231,7 +241,7 @@ class DSB_Dashboard_Ajax {
                 $payload['debug'] = $this->debug_payload_from_result( $result, $message );
             }
 
-            $this->log_error( $message, $result );
+            $this->log_error( $message, array_merge( $result, [ 'action' => $action ] ) );
             wp_send_json( $payload, 500 );
         }
 
@@ -244,9 +254,15 @@ class DSB_Dashboard_Ajax {
                 $payload['debug'] = $this->debug_payload_from_result( $result, $message );
             }
 
-            $this->log_error( $message, $result );
+            $this->log_error( $message, array_merge( $result, [ 'action' => $action ] ) );
             wp_send_json( $payload, max( 400, (int) $result['code'] ?: 500 ) );
         }
+
+        dsb_log( 'info', 'Dashboard AJAX success', [
+            'action' => $action ?: 'dashboard',
+            'code'   => $result['code'] ?? 0,
+            'status' => $decoded['status'] ?? '',
+        ] );
 
         wp_send_json( $decoded );
     }
@@ -293,23 +309,13 @@ class DSB_Dashboard_Ajax {
             $message = str_replace( $token, '***', $message );
         }
 
-        $context_str = '';
-        if ( ! empty( $context ) ) {
-            $clean = $context;
-            if ( is_array( $clean ) ) {
-                array_walk_recursive(
-                    $clean,
-                    function ( &$value ) use ( $token ) {
-                        if ( is_string( $value ) && $token ) {
-                            $value = str_replace( $token, '***', $value );
-                        }
-                    }
-                );
-            }
-            $context_str = wp_json_encode( $clean );
-        }
-
-        error_log( '[DSB_DASH] ' . $message . ( $context_str ? ' | ' . $context_str : '' ) );
+        $context = is_array( $context ) ? $context : [ 'context' => $context ];
+        dsb_log( 'error', 'Dashboard AJAX error', [
+            'message' => $message,
+            'code'    => $context['code'] ?? ( $context['response']['response']['code'] ?? null ),
+            'action'  => $context['action'] ?? null,
+            'error'   => is_wp_error( $context['response'] ?? null ) ? ( $context['response']->get_error_message() ) : null,
+        ] );
     }
 
     protected function debug_payload_from_result( array $result, string $message = '' ): array {
