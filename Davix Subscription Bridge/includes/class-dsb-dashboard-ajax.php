@@ -351,6 +351,8 @@ class DSB_Dashboard_Ajax {
                 'key_last4'  => $key['key_last4'] ?? null,
                 'status'     => $key['status'] ?? null,
                 'created_at' => $this->fmt_date_ymd( $key['created_at'] ?? null ),
+                'valid_from' => $this->fmt_date_ymd( $key['valid_from'] ?? null ),
+                'valid_until'=> $this->fmt_date_ymd( $key['valid_until'] ?? null ),
             ],
             'usage'  => [
                 'total_calls_used'  => $used,

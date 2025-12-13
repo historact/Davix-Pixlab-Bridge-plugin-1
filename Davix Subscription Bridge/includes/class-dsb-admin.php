@@ -333,6 +333,16 @@ class DSB_Admin {
             $plan_slug      = isset( $_POST['plan_slug'] ) ? sanitize_text_field( wp_unslash( $_POST['plan_slug'] ) ) : '';
             $subscriptionId = isset( $_POST['subscription_id'] ) ? sanitize_text_field( wp_unslash( $_POST['subscription_id'] ) ) : '';
             $order_id       = isset( $_POST['order_id'] ) ? sanitize_text_field( wp_unslash( $_POST['order_id'] ) ) : '';
+            $valid_from_raw = isset( $_POST['valid_from'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_from'] ) ) : '';
+            $valid_until_raw = isset( $_POST['valid_until'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_until'] ) ) : '';
+
+            $valid_from  = $this->parse_datetime_local( $valid_from_raw );
+            $valid_until = $this->parse_datetime_local( $valid_until_raw );
+
+            if ( $valid_from && $valid_until && strtotime( $valid_until ) < strtotime( $valid_from ) ) {
+                $this->add_notice( __( 'Valid Until must be after Valid From.', 'davix-sub-bridge' ), 'error' );
+                return;
+            }
 
             $settings = $this->client->get_settings();
 
@@ -362,6 +372,14 @@ class DSB_Admin {
 
             if ( '' !== $order_id ) {
                 $payload['order_id'] = $order_id;
+            }
+
+            if ( $valid_from ) {
+                $payload['valid_from'] = $valid_from;
+            }
+
+            if ( $valid_until ) {
+                $payload['valid_until'] = $valid_until;
             }
 
             $response = $this->client->provision_key( $payload );
@@ -817,6 +835,35 @@ class DSB_Admin {
         return $options;
     }
 
+    protected function format_admin_datetime( $value ): string {
+        if ( empty( $value ) ) {
+            return '—';
+        }
+
+        try {
+            $dt = new \DateTimeImmutable( is_string( $value ) ? $value : '' );
+            $timestamp = $dt->getTimestamp();
+            return wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $timestamp );
+        } catch ( \Throwable $e ) {
+            return '—';
+        }
+    }
+
+    protected function parse_datetime_local( string $value ): ?string {
+        if ( '' === $value ) {
+            return null;
+        }
+
+        try {
+            $tz  = wp_timezone();
+            $dt  = new \DateTimeImmutable( $value, $tz );
+            $utc = $dt->setTimezone( new \DateTimeZone( 'UTC' ) );
+            return $utc->format( DATE_ATOM );
+        } catch ( \Throwable $e ) {
+            return null;
+        }
+    }
+
     protected function find_subscription_email( int $subscription_id ): string {
         $email_keys = [ 'wps_sfw_customer_email', 'customer_email', 'billing_email', '_billing_email' ];
         foreach ( $email_keys as $email_key ) {
@@ -888,6 +935,8 @@ class DSB_Admin {
         $total    = 0;
         $per_page = 20;
         $plan_options = $this->get_plan_options();
+        $valid_from_value  = isset( $_POST['valid_from'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_from'] ) ) : '';
+        $valid_until_value = isset( $_POST['valid_until'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_until'] ) ) : '';
         if ( ! is_wp_error( $response ) ) {
             $code    = wp_remote_retrieve_response_code( $response );
             $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
@@ -912,10 +961,10 @@ class DSB_Admin {
             </p>
         </form>
         <table class="widefat">
-            <thead><tr><th><?php esc_html_e( 'Subscription ID', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Email', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Plan', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Status', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Key Prefix', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Key Last4', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Updated', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Actions', 'davix-sub-bridge' ); ?></th></tr></thead>
+            <thead><tr><th><?php esc_html_e( 'Subscription ID', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Email', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Plan', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Status', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Key Prefix', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Key Last4', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Valid From', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Valid Until', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Updated', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Actions', 'davix-sub-bridge' ); ?></th></tr></thead>
             <tbody>
             <?php if ( empty( $items ) ) : ?>
-                <tr><td colspan="8"><?php esc_html_e( 'No keys found.', 'davix-sub-bridge' ); ?></td></tr>
+                <tr><td colspan="10"><?php esc_html_e( 'No keys found.', 'davix-sub-bridge' ); ?></td></tr>
             <?php else : ?>
                 <?php foreach ( $items as $item ) : ?>
                     <tr>
@@ -925,7 +974,9 @@ class DSB_Admin {
                         <td><?php echo esc_html( $item['status'] ?? '' ); ?></td>
                         <td><?php echo esc_html( $item['key_prefix'] ?? '' ); ?></td>
                         <td><?php echo esc_html( $item['key_last4'] ?? '' ); ?></td>
-                        <td><?php echo esc_html( $item['updated_at'] ?? '' ); ?></td>
+                        <td><?php echo esc_html( $this->format_admin_datetime( $item['valid_from'] ?? '' ) ); ?></td>
+                        <td><?php echo esc_html( $this->format_admin_datetime( $item['valid_until'] ?? '' ) ); ?></td>
+                        <td><?php echo esc_html( $this->format_admin_datetime( $item['updated_at'] ?? '' ) ); ?></td>
                         <td>
                             <form method="post" style="display:inline;">
                                 <?php wp_nonce_field( 'dsb_key_action', 'dsb_key_action_nonce' ); ?>
@@ -995,6 +1046,20 @@ class DSB_Admin {
                                 <option value="<?php echo esc_attr( $slug ); ?>"><?php echo esc_html( $label ); ?></option>
                             <?php endforeach; ?>
                         </select>
+                    </td>
+                </tr>
+                <tr>
+                    <th><?php esc_html_e( 'Valid From', 'davix-sub-bridge' ); ?></th>
+                    <td>
+                        <input type="datetime-local" name="valid_from" value="<?php echo esc_attr( $valid_from_value ); ?>" />
+                        <p class="description"><?php esc_html_e( 'Optional start of validity window (WordPress timezone).', 'davix-sub-bridge' ); ?></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th><?php esc_html_e( 'Valid Until', 'davix-sub-bridge' ); ?></th>
+                    <td>
+                        <input type="datetime-local" name="valid_until" value="<?php echo esc_attr( $valid_until_value ); ?>" />
+                        <p class="description"><?php esc_html_e( 'Optional end/expiry of validity window (WordPress timezone).', 'davix-sub-bridge' ); ?></p>
                     </td>
                 </tr>
             </table>
