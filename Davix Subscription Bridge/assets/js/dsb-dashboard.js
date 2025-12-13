@@ -3,6 +3,7 @@
     window.DSB_PIXLAB_DASHBOARD_INIT = true;
 
     const data = window.dsbDashboardData || {};
+    const labels = data.labels || {};
     const root = document.querySelector('.dsb-dashboard');
     if (!root || !data.ajaxUrl || !data.nonce) {
         return;
@@ -116,7 +117,8 @@
             els.keyDisplay.value = key.key_prefix || key.key_last4 ? state.maskedKey : data.strings.loading;
         }
         if (els.keyCreated) {
-            els.keyCreated.textContent = key.created_at ? `Created ${key.created_at}` : '';
+            const createdLabel = labels.label_created || 'Created';
+            els.keyCreated.textContent = key.created_at ? `${createdLabel} ${key.created_at}` : '';
         }
         updateToggleButton();
         setStatus(enabled ? 'Active' : 'Disabled', enabled ? 'success' : 'muted');
@@ -127,7 +129,8 @@
         if (els.planLimit) {
             const limit = plan.limit != null ? plan.limit : null;
             const period = plan.billing_period ? `${plan.billing_period} plan` : '';
-            els.planLimit.textContent = limit != null ? `${period ? period + ' · ' : ''}Monthly limit: ${limit}` : period || '';
+            const limitLabel = labels.label_usage_metered || 'Monthly limit';
+            els.planLimit.textContent = limit != null ? `${period ? period + ' · ' : ''}${limitLabel}: ${limit}` : period || '';
         }
         if (els.billing) {
             els.billing.textContent = validity;
@@ -142,9 +145,10 @@
         const percent = usage.percent != null ? usage.percent : limit ? Math.min(100, Math.round((used / limit) * 100)) : null;
 
         const hasLimit = limit !== null && limit !== undefined;
+        const usedLabel = labels.label_used_calls || 'Used Calls';
 
         if (els.usageCalls) {
-            els.usageCalls.textContent = hasLimit ? `Used Calls: ${used} / ${limit}` : `Used Calls: ${used}`;
+            els.usageCalls.textContent = hasLimit ? `${usedLabel}: ${used} / ${limit}` : `${usedLabel}: ${used}`;
         }
         if (els.usagePercent) {
             els.usagePercent.textContent = percent != null ? `${percent}%` : '';
@@ -329,17 +333,21 @@
                 [
                     displayValue(item.timestamp),
                     displayValue(item.endpoint),
-                    statusText,
                     displayValue(item.files),
                     formatBytes(item.bytes_in),
                     formatBytes(item.bytes_out),
                     errorText,
+                    statusText,
                 ].forEach((value, index) => {
                     const td = document.createElement('td');
                     td.textContent = value;
 
-                    if (index === 2 && status) {
+                    if (index === 6 && status) {
                         td.classList.add(`is-${status}`);
+                    }
+
+                    if (index === 5 && status === 'error') {
+                        td.classList.add('dsb-error');
                     }
 
                     tr.appendChild(td);

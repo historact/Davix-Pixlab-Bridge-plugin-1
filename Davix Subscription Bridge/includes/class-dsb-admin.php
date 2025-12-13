@@ -57,6 +57,9 @@ class DSB_Admin {
             wp_enqueue_style( 'select2' );
         }
 
+        wp_enqueue_style( 'wp-color-picker' );
+        wp_enqueue_script( 'wp-color-picker' );
+
         if ( function_exists( 'wc' ) ) {
             wp_enqueue_style( 'woocommerce_admin_styles' );
         }
@@ -462,6 +465,7 @@ class DSB_Admin {
             'plan-mapping' => __( 'Plan Mapping', 'davix-sub-bridge' ),
             'keys'         => __( 'Keys', 'davix-sub-bridge' ),
             'logs'         => __( 'Logs', 'davix-sub-bridge' ),
+            'style'        => __( 'Style', 'davix-sub-bridge' ),
         ];
         foreach ( $tabs as $key => $label ) {
             $class = $tab === $key ? 'nav-tab nav-tab-active' : 'nav-tab';
@@ -479,6 +483,8 @@ class DSB_Admin {
             $this->render_keys_tab();
         } elseif ( 'logs' === $tab ) {
             $this->render_logs_tab();
+        } elseif ( 'style' === $tab ) {
+            $this->render_style_tab();
         } else {
             $this->render_settings_tab();
         }
@@ -588,6 +594,191 @@ class DSB_Admin {
                 <?php endif; ?>
             </div>
         <?php endif; ?>
+        <?php
+    }
+
+    protected function render_style_tab(): void {
+        $styles = $this->client->get_style_settings();
+        $labels = $this->client->get_label_settings();
+        ?>
+        <form method="post" class="dsb-style-form">
+            <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'Dashboard Layout', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Control the global dashboard canvas behind every card and section of the [PIXLAB_DASHBOARD] shortcode.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_color_input_field( 'style_dashboard_bg', __( 'Dashboard Background Color', 'davix-sub-bridge' ), $styles['style_dashboard_bg'], __( 'Background behind all dashboard sections in the [PIXLAB_DASHBOARD] shortcode.', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'Cards & Sections', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Style the cards and containers that hold API key, usage, endpoints, and history content.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_color_input_field( 'style_card_bg', __( 'Card Background Color', 'davix-sub-bridge' ), $styles['style_card_bg'], __( 'Controls the fill color of all dashboard cards.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_card_border', __( 'Card Border Color', 'davix-sub-bridge' ), $styles['style_card_border'], __( 'Sets the border color around each card and table.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_card_shadow', __( 'Card Shadow Color', 'davix-sub-bridge' ), $styles['style_card_shadow'], __( 'Defines the drop shadow color behind cards (if shadows are enabled).', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'Typography & Text', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Tune heading, body, and helper text colors used throughout the dashboard.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_color_input_field( 'style_text_primary', __( 'Primary Text Color', 'davix-sub-bridge' ), $styles['style_text_primary'], __( 'Affects headings and key labels in the [PIXLAB_DASHBOARD] shortcode.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_text_secondary', __( 'Secondary Text Color', 'davix-sub-bridge' ), $styles['style_text_secondary'], __( 'Applies to description text such as plan limits and billing periods.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_text_muted', __( 'Muted Text Color', 'davix-sub-bridge' ), $styles['style_text_muted'], __( 'Used for helper labels, small captions, and placeholder hints across the dashboard.', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'Buttons', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Customize all primary dashboard buttons including Rotate Key and pagination controls.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_color_input_field( 'style_button_bg', __( 'Primary Button Background Color', 'davix-sub-bridge' ), $styles['style_button_bg'], __( 'Background color for main dashboard buttons such as Regenerate Key.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_button_text', __( 'Primary Button Text Color', 'davix-sub-bridge' ), $styles['style_button_text'], __( 'Text color for main dashboard buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_button_border', __( 'Primary Button Border Color', 'davix-sub-bridge' ), $styles['style_button_border'], __( 'Border color for main dashboard buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_button_hover_bg', __( 'Primary Button Hover Background Color', 'davix-sub-bridge' ), $styles['style_button_hover_bg'], __( 'Background color when hovering over main dashboard buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_button_hover_border', __( 'Primary Button Hover Border Color', 'davix-sub-bridge' ), $styles['style_button_hover_border'], __( 'Border color when hovering over main dashboard buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_button_active_bg', __( 'Primary Button Active Background Color', 'davix-sub-bridge' ), $styles['style_button_active_bg'], __( 'Background color when pressing a main dashboard button.', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'API Key Field', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Full visual control of the API key input, allowing light or dark themes.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_color_input_field( 'style_input_bg', __( 'API Key Input Background Color', 'davix-sub-bridge' ), $styles['style_input_bg'], __( 'Background of the API key display field in the dashboard.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_input_text', __( 'API Key Input Text Color', 'davix-sub-bridge' ), $styles['style_input_text'], __( 'Text color of the API key display field.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_input_border', __( 'API Key Input Border Color', 'davix-sub-bridge' ), $styles['style_input_border'], __( 'Border color surrounding the API key display field.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_input_focus_border', __( 'API Key Input Focus Border Color', 'davix-sub-bridge' ), $styles['style_input_focus_border'], __( 'Border color shown when the API key field is focused for copying.', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'Status Badges', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Customize Active and Disabled badge colors shown next to the API key state.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_color_input_field( 'style_badge_active_bg', __( 'Active Badge Background Color', 'davix-sub-bridge' ), $styles['style_badge_active_bg'], __( 'Background color of the Active badge shown for enabled keys.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_badge_active_border', __( 'Active Badge Border Color', 'davix-sub-bridge' ), $styles['style_badge_active_border'], __( 'Border color of the Active badge.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_badge_active_text', __( 'Active Badge Text Color', 'davix-sub-bridge' ), $styles['style_badge_active_text'], __( 'Text color of the Active badge.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_badge_disabled_bg', __( 'Disabled Badge Background Color', 'davix-sub-bridge' ), $styles['style_badge_disabled_bg'], __( 'Background color of the Disabled badge when the key is off.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_badge_disabled_border', __( 'Disabled Badge Border Color', 'davix-sub-bridge' ), $styles['style_badge_disabled_border'], __( 'Border color of the Disabled badge.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_badge_disabled_text', __( 'Disabled Badge Text Color', 'davix-sub-bridge' ), $styles['style_badge_disabled_text'], __( 'Text color of the Disabled badge.', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'Usage Progress Bar', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Adjust the usage bar colors for metered call counts.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_color_input_field( 'style_progress_track', __( 'Progress Bar Track Color', 'davix-sub-bridge' ), $styles['style_progress_track'], __( 'Background color behind the usage progress bar.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_progress_fill', __( 'Progress Bar Fill Color', 'davix-sub-bridge' ), $styles['style_progress_fill'], __( 'Fill color of the usage progress bar (currently green).', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_progress_text', __( 'Progress Bar Text Color', 'davix-sub-bridge' ), $styles['style_progress_text'], __( 'Text color for usage labels displayed next to the bar.', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'History Table', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Color controls for the request history table including headers, rows, and statuses.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_color_input_field( 'style_table_bg', __( 'Table Background Color', 'davix-sub-bridge' ), $styles['style_table_bg'], __( 'Base background behind the history table rows.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_table_header_bg', __( 'Table Header Background Color', 'davix-sub-bridge' ), $styles['style_table_header_bg'], __( 'Background for the history table header row.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_table_header_text', __( 'Table Header Text Color', 'davix-sub-bridge' ), $styles['style_table_header_text'], __( 'Text color for history table headers.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_table_border', __( 'Table Border Color', 'davix-sub-bridge' ), $styles['style_table_border'], __( 'Border color separating table cells and rows.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_table_row_bg', __( 'Table Row Background Color', 'davix-sub-bridge' ), $styles['style_table_row_bg'], __( 'Stripe background color for alternating history rows.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_table_row_hover_bg', __( 'Table Row Hover Background Color', 'davix-sub-bridge' ), $styles['style_table_row_hover_bg'], __( 'Background color when hovering over a history row.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_table_error_text', __( 'Error Text Color', 'davix-sub-bridge' ), $styles['style_table_error_text'], __( 'Text color for error messages inside the Error column.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_status_success_text', __( 'Status “Success” Text Color', 'davix-sub-bridge' ), $styles['style_status_success_text'], __( 'Text color used for Success statuses in the history table.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_status_error_text', __( 'Status “Error” Text Color', 'davix-sub-bridge' ), $styles['style_status_error_text'], __( 'Text color used for Error statuses in the history table.', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'Labels (Text Customization)', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Override any static label shown in the dashboard or Keys tab without changing dynamic data values.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_text_input_field( 'label_current_plan', __( '“Current Plan” Label', 'davix-sub-bridge' ), $labels['label_current_plan'], __( 'Appears above the plan name in the [PIXLAB_DASHBOARD] shortcode.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_usage_metered', __( '“Usage metered” Label', 'davix-sub-bridge' ), $labels['label_usage_metered'], __( 'Prefix text for the plan limit line in the dashboard header.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_api_key', __( '“API Key” Heading', 'davix-sub-bridge' ), $labels['label_api_key'], __( 'Heading for the API Key card in the shortcode output.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_key', __( '“Key” Label', 'davix-sub-bridge' ), $labels['label_key'], __( 'Label next to the read-only API key field.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_created', __( '“Created” Label', 'davix-sub-bridge' ), $labels['label_created'], __( 'Prefix before the API key creation date.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_disable_key', __( '“Disable Key” Label', 'davix-sub-bridge' ), $labels['label_disable_key'], __( 'Text used for the toggle key button when disabling access.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_enable_key', __( '“Enable Key” Label', 'davix-sub-bridge' ), $labels['label_enable_key'], __( 'Text used for the toggle key button when enabling access.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_regenerate_key', __( '“Regenerate Key” Label', 'davix-sub-bridge' ), $labels['label_regenerate_key'], __( 'Label for the regenerate key action button.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_usage_this_period', __( '“Usage this period” Heading', 'davix-sub-bridge' ), $labels['label_usage_this_period'], __( 'Heading above the usage progress bar.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_used_calls', __( '“Used Calls” Label', 'davix-sub-bridge' ), $labels['label_used_calls'], __( 'Prefix text for the total calls count near the progress bar.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_history', __( '“History” Heading', 'davix-sub-bridge' ), $labels['label_history'], __( 'Title of the request history card.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_h2i', __( '“H2I” Label', 'davix-sub-bridge' ), $labels['label_h2i'], __( 'Label above the H2I endpoint usage summary.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_image', __( '“IMAGE” Label', 'davix-sub-bridge' ), $labels['label_image'], __( 'Label above the Image endpoint usage summary.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_pdf', __( '“PDF” Label', 'davix-sub-bridge' ), $labels['label_pdf'], __( 'Label above the PDF endpoint usage summary.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_tools', __( '“TOOLS” Label', 'davix-sub-bridge' ), $labels['label_tools'], __( 'Label above the Tools endpoint usage summary.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_date_time', __( 'Table Header: “Date / Time”', 'davix-sub-bridge' ), $labels['label_date_time'], __( 'Header label for the Date/Time column in history.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_endpoint', __( 'Table Header: “Endpoint”', 'davix-sub-bridge' ), $labels['label_endpoint'], __( 'Header label for the Endpoint column in history.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_files', __( 'Table Header: “Files”', 'davix-sub-bridge' ), $labels['label_files'], __( 'Header label for the Files column in history.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_bytes_in', __( 'Table Header: “Bytes In”', 'davix-sub-bridge' ), $labels['label_bytes_in'], __( 'Header label for the Bytes In column in history.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_bytes_out', __( 'Table Header: “Bytes Out”', 'davix-sub-bridge' ), $labels['label_bytes_out'], __( 'Header label for the Bytes Out column in history.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_error', __( 'Table Header: “Error”', 'davix-sub-bridge' ), $labels['label_error'], __( 'Header label for the Error column in history.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_status', __( 'Table Header: “Status”', 'davix-sub-bridge' ), $labels['label_status'], __( 'Header label for the Status column in history.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_create_key', __( '“Create Key” Button Label', 'davix-sub-bridge' ), $labels['label_create_key'], __( 'Button text that opens the manual provisioning modal in the Keys tab.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_create_api_key_title', __( 'Modal Title: “Create API Key”', 'davix-sub-bridge' ), $labels['label_create_api_key_title'], __( 'Heading displayed at the top of the Create API Key modal.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_create_api_key_submit', __( 'Modal Submit Button Label', 'davix-sub-bridge' ), $labels['label_create_api_key_submit'], __( 'Text shown on the Create API Key modal submit button.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_login_required', __( 'Login Prompt', 'davix-sub-bridge' ), $labels['label_login_required'], __( 'Message displayed when logged-out visitors view the dashboard shortcode.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_loading', __( 'Loading Text', 'davix-sub-bridge' ), $labels['label_loading'], __( 'Placeholder text shown while dashboard data is loading.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_no_requests', __( 'Empty History Text', 'davix-sub-bridge' ), $labels['label_no_requests'], __( 'Message displayed when the request history has no rows.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_pagination_previous', __( 'Pagination “Previous” Label', 'davix-sub-bridge' ), $labels['label_pagination_previous'], __( 'Text for the Previous button beneath the history table.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_pagination_next', __( 'Pagination “Next” Label', 'davix-sub-bridge' ), $labels['label_pagination_next'], __( 'Text for the Next button beneath the history table.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_modal_title', __( 'Key Modal Title', 'davix-sub-bridge' ), $labels['label_modal_title'], __( 'Heading at the top of the key reveal modal after regeneration.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_modal_hint', __( 'Key Modal Hint', 'davix-sub-bridge' ), $labels['label_modal_hint'], __( 'Helper text explaining that the regenerated key is shown once.', 'davix-sub-bridge' ) );
+                    $this->render_text_input_field( 'label_modal_close', __( 'Modal Close Button Label', 'davix-sub-bridge' ), $labels['label_modal_close'], __( 'Text displayed on the close button inside the key modal.', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <?php submit_button(); ?>
+        </form>
+        <?php
+    }
+
+    protected function render_color_input_field( string $id, string $label, string $value, string $description ): void {
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr( $id ); ?>"><?php echo esc_html( $label ); ?></label></th>
+            <td>
+                <input type="text" class="dsb-color-field" id="<?php echo esc_attr( $id ); ?>" name="<?php echo esc_attr( $id ); ?>" value="<?php echo esc_attr( $value ); ?>" data-default-color="<?php echo esc_attr( $value ); ?>" />
+                <p class="description"><?php echo esc_html( $description ); ?></p>
+            </td>
+        </tr>
+        <?php
+    }
+
+    protected function render_text_input_field( string $id, string $label, string $value, string $description ): void {
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr( $id ); ?>"><?php echo esc_html( $label ); ?></label></th>
+            <td>
+                <input type="text" class="regular-text" id="<?php echo esc_attr( $id ); ?>" name="<?php echo esc_attr( $id ); ?>" value="<?php echo esc_attr( $value ); ?>" />
+                <p class="description"><?php echo esc_html( $description ); ?></p>
+            </td>
+        </tr>
         <?php
     }
 
@@ -945,6 +1136,7 @@ class DSB_Admin {
     protected function render_keys_tab(): void {
         $page   = isset( $_GET['paged'] ) ? absint( $_GET['paged'] ) : 1;
         $search = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
+        $labels = $this->client->get_label_settings();
         $response = $this->client->fetch_keys( $page, 20, $search );
         $items    = [];
         $total    = 0;
@@ -975,6 +1167,9 @@ class DSB_Admin {
                 <?php submit_button( __( 'Search', 'davix-sub-bridge' ), '', '', false ); ?>
             </p>
         </form>
+        <p>
+            <button type="button" class="button button-primary dsb-open-key-modal"><?php echo esc_html( $labels['label_create_key'] ); ?></button>
+        </p>
         <table class="widefat">
             <thead><tr><th><?php esc_html_e( 'Subscription ID', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Email', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Plan', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Status', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Key Prefix', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Key Last4', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Valid From', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Valid Until', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Updated', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Actions', 'davix-sub-bridge' ); ?></th></tr></thead>
             <tbody>
@@ -1030,56 +1225,76 @@ class DSB_Admin {
             echo '<div class="tablenav"><div class="tablenav-pages">' . wp_kses_post( $page_links ) . '</div></div>';
         }
         ?>
-        <h3><?php esc_html_e( 'Manual Provisioning', 'davix-sub-bridge' ); ?></h3>
-        <form method="post">
-            <?php wp_nonce_field( 'dsb_manual_key', 'dsb_manual_nonce' ); ?>
-            <table class="form-table" role="presentation">
-                <tr>
-                    <th><?php esc_html_e( 'Customer', 'davix-sub-bridge' ); ?></th>
-                    <td>
-                        <select id="dsb-customer" name="customer_user_id" class="dsb-select-ajax" data-action="dsb_search_users" data-placeholder="<?php esc_attr_e( 'Search by email', 'davix-sub-bridge' ); ?>" style="width:300px"></select>
-                        <input type="hidden" name="customer_email" id="dsb-customer-email" />
-                    </td>
-                </tr>
-                <tr>
-                    <th><?php esc_html_e( 'Subscription', 'davix-sub-bridge' ); ?></th>
-                    <td><select id="dsb-subscription" name="subscription_id" class="dsb-select-ajax" data-action="dsb_search_subscriptions" data-placeholder="<?php esc_attr_e( 'Search subscriptions', 'davix-sub-bridge' ); ?>" style="width:300px"></select></td>
-                </tr>
-                <tr>
-                    <th><?php esc_html_e( 'Order', 'davix-sub-bridge' ); ?></th>
-                    <td>
-                        <select id="dsb-order" name="order_id" class="dsb-select-ajax" data-action="dsb_search_orders" data-placeholder="<?php esc_attr_e( 'Search orders by ID/email', 'davix-sub-bridge' ); ?>" style="width:300px"></select>
-                        <p class="description"><?php esc_html_e( 'Optional, helps Node associate orders.', 'davix-sub-bridge' ); ?></p>
-                    </td>
-                </tr>
-                <tr>
-                    <th><?php esc_html_e( 'Plan', 'davix-sub-bridge' ); ?></th>
-                    <td>
-                        <select id="dsb-plan" name="plan_slug" style="width:300px" required>
-                            <option value=""><?php esc_html_e( 'Select plan', 'davix-sub-bridge' ); ?></option>
-                            <?php foreach ( $plan_options as $slug => $label ) : ?>
-                                <option value="<?php echo esc_attr( $slug ); ?>"><?php echo esc_html( $label ); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </td>
-                </tr>
-                <tr>
-                    <th><?php esc_html_e( 'Valid From', 'davix-sub-bridge' ); ?></th>
-                    <td>
-                        <input type="datetime-local" name="valid_from" value="<?php echo esc_attr( $valid_from_value ); ?>" />
-                        <p class="description"><?php esc_html_e( 'Optional start of validity window (WordPress timezone).', 'davix-sub-bridge' ); ?></p>
-                    </td>
-                </tr>
-                <tr>
-                    <th><?php esc_html_e( 'Valid Until', 'davix-sub-bridge' ); ?></th>
-                    <td>
-                        <input type="datetime-local" name="valid_until" value="<?php echo esc_attr( $valid_until_value ); ?>" />
-                        <p class="description"><?php esc_html_e( 'Optional end/expiry of validity window (WordPress timezone).', 'davix-sub-bridge' ); ?></p>
-                    </td>
-                </tr>
-            </table>
-            <?php submit_button( __( 'Provision Key', 'davix-sub-bridge' ) ); ?>
-        </form>
+        <style>
+            .dsb-admin-modal { display: none; position: fixed; inset: 0; align-items: center; justify-content: center; z-index: 100000; }
+            .dsb-admin-modal.is-open { display: flex; }
+            .dsb-admin-modal__overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
+            .dsb-admin-modal__dialog { position: relative; background: #fff; padding: 24px; width: min(640px, 95%); max-height: 90vh; overflow: auto; box-shadow: 0 12px 24px rgba(0,0,0,0.2); z-index: 1; }
+            .dsb-admin-modal__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+            .dsb-admin-modal__close { font-size: 20px; line-height: 1; }
+        </style>
+        <div class="dsb-admin-modal" data-dsb-modal>
+            <div class="dsb-admin-modal__overlay" data-dsb-modal-close></div>
+            <div class="dsb-admin-modal__dialog" role="dialog" aria-modal="true" aria-label="<?php echo esc_attr( $labels['label_create_api_key_title'] ); ?>">
+                <div class="dsb-admin-modal__header">
+                    <h3><?php echo esc_html( $labels['label_create_api_key_title'] ); ?></h3>
+                    <button type="button" class="button-link dsb-admin-modal__close" data-dsb-modal-close aria-label="<?php esc_attr_e( 'Close modal', 'davix-sub-bridge' ); ?>">&times;</button>
+                </div>
+                <form method="post">
+                    <?php wp_nonce_field( 'dsb_manual_key', 'dsb_manual_nonce' ); ?>
+                    <table class="form-table" role="presentation">
+                        <tr>
+                            <th><?php esc_html_e( 'Customer', 'davix-sub-bridge' ); ?></th>
+                            <td>
+                                <select id="dsb-customer" name="customer_user_id" class="dsb-select-ajax" data-action="dsb_search_users" data-placeholder="<?php esc_attr_e( 'Search by email', 'davix-sub-bridge' ); ?>" style="width:300px"></select>
+                                <input type="hidden" name="customer_email" id="dsb-customer-email" />
+                                <p class="description"><?php esc_html_e( 'Select the customer who will own the API key.', 'davix-sub-bridge' ); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Subscription', 'davix-sub-bridge' ); ?></th>
+                            <td><select id="dsb-subscription" name="subscription_id" class="dsb-select-ajax" data-action="dsb_search_subscriptions" data-placeholder="<?php esc_attr_e( 'Search subscriptions', 'davix-sub-bridge' ); ?>" style="width:300px"></select>
+                                <p class="description"><?php esc_html_e( 'Link the key to an existing subscription (recommended).', 'davix-sub-bridge' ); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Order', 'davix-sub-bridge' ); ?></th>
+                            <td>
+                                <select id="dsb-order" name="order_id" class="dsb-select-ajax" data-action="dsb_search_orders" data-placeholder="<?php esc_attr_e( 'Search orders by ID/email', 'davix-sub-bridge' ); ?>" style="width:300px"></select>
+                                <p class="description"><?php esc_html_e( 'Optional: helps Node associate the key with a WooCommerce order.', 'davix-sub-bridge' ); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Plan', 'davix-sub-bridge' ); ?></th>
+                            <td>
+                                <select id="dsb-plan" name="plan_slug" style="width:300px" required>
+                                    <option value=""><?php esc_html_e( 'Select plan', 'davix-sub-bridge' ); ?></option>
+                                    <?php foreach ( $plan_options as $slug => $label ) : ?>
+                                        <option value="<?php echo esc_attr( $slug ); ?>"><?php echo esc_html( $label ); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <p class="description"><?php esc_html_e( 'Choose which Davix plan the API key should use.', 'davix-sub-bridge' ); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Valid From', 'davix-sub-bridge' ); ?></th>
+                            <td>
+                                <input type="datetime-local" name="valid_from" value="<?php echo esc_attr( $valid_from_value ); ?>" />
+                                <p class="description"><?php esc_html_e( 'Optional start of the validity window (WordPress timezone).', 'davix-sub-bridge' ); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Valid Until', 'davix-sub-bridge' ); ?></th>
+                            <td>
+                                <input type="datetime-local" name="valid_until" value="<?php echo esc_attr( $valid_until_value ); ?>" />
+                                <p class="description"><?php esc_html_e( 'Optional end/expiry of the validity window (WordPress timezone).', 'davix-sub-bridge' ); ?></p>
+                            </td>
+                        </tr>
+                    </table>
+                    <?php submit_button( $labels['label_create_api_key_submit'] ); ?>
+                </form>
+            </div>
+        </div>
         <?php
     }
 
