@@ -274,6 +274,12 @@
         const total = payload.total || rows.length;
         const totalPages = Math.max(1, Math.ceil(total / perPage));
 
+        const displayValue = (value) => {
+            if (value === null || value === undefined) return '—';
+            if (typeof value === 'string' && value.trim() === '') return '—';
+            return value;
+        };
+
         if (els.logs.loading) {
             els.logs.loading.style.display = 'none';
         }
@@ -282,15 +288,21 @@
             els.logs.rows.innerHTML = '';
             rows.forEach((item) => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${item.timestamp || ''}</td>
-                    <td>${item.endpoint || ''}</td>
-                    <td>${item.status || ''}</td>
-                    <td>${item.files || ''}</td>
-                    <td>${item.bytes_in || ''}</td>
-                    <td>${item.bytes_out || ''}</td>
-                    <td>${item.error || ''}</td>
-                `;
+
+                [
+                    displayValue(item.timestamp),
+                    displayValue(item.endpoint),
+                    displayValue(item.status),
+                    displayValue(item.files),
+                    displayValue(item.bytes_in),
+                    displayValue(item.bytes_out),
+                    displayValue(item.error),
+                ].forEach((value) => {
+                    const td = document.createElement('td');
+                    td.textContent = value;
+                    tr.appendChild(td);
+                });
+
                 els.logs.rows.appendChild(tr);
             });
         }
