@@ -73,10 +73,9 @@ class DSB_DB {
         dsb_log( 'debug', 'dbDelta result for davix_bridge_keys', [ 'last_error' => $this->wpdb->last_error ] );
     }
 
-    public function migrate(): void {
-        $this->create_tables();
-    }
-
+    /**
+     * Run plugin database migrations (create/update tables once).
+     */
     public function migrate(): void {
         $this->create_tables();
     }
