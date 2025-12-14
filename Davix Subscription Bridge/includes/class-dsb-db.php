@@ -147,4 +147,17 @@ class DSB_DB {
         $row = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_keys} WHERE subscription_id = %s", $subscription_id ), ARRAY_A );
         return $row ?: null;
     }
+
+    public function get_key_by_subscription_id( string $subscription_id ): ?array {
+        return $this->find_key( $subscription_id );
+    }
 }
+
+/*
+ * Test checklist:
+ * 1) Place subscription, confirm initial activated send.
+ * 2) Confirm filter capture log appears at least once when viewing subscriptions list OR when WPS calculates expiry.
+ * 3) Confirm _dsb_wps_valid_until meta is set on subscription.
+ * 4) Confirm second “activated” send is allowed only if key.valid_until is NULL and payload has valid_until.
+ * 5) Confirm davix_bridge_keys.valid_until becomes non-NULL.
+ */
