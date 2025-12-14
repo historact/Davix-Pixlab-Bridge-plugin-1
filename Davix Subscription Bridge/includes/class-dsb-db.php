@@ -58,13 +58,23 @@ class DSB_DB {
             last_error text DEFAULT NULL,
             created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
             UNIQUE KEY subscription_id (subscription_id),
             UNIQUE KEY wp_user_id (wp_user_id),
             KEY customer_email (customer_email)
         ) $charset_collate;";
 
+        dsb_log( 'debug', 'Running dbDelta for davix_bridge_logs', [ 'sql' => $sql_logs ] );
         dbDelta( $sql_logs );
+        dsb_log( 'debug', 'dbDelta result for davix_bridge_logs', [ 'last_error' => $this->wpdb->last_error ] );
+
+        dsb_log( 'debug', 'Running dbDelta for davix_bridge_keys', [ 'sql' => $sql_keys ] );
         dbDelta( $sql_keys );
+        dsb_log( 'debug', 'dbDelta result for davix_bridge_keys', [ 'last_error' => $this->wpdb->last_error ] );
+    }
+
+    public function migrate(): void {
+        $this->create_tables();
     }
 
     public function migrate(): void {
