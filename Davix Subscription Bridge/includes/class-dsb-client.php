@@ -347,6 +347,11 @@ class DSB_Client {
             $this->db->log_event( $log );
         }
 
+        $subscription_identifier = sanitize_text_field( $payload['subscription_id'] ?? '' );
+        if ( ! $subscription_identifier && isset( $payload['external_subscription_id'] ) ) {
+            $subscription_identifier = sanitize_text_field( $payload['external_subscription_id'] );
+        }
+
         if ( $decoded && 'ok' === ( $decoded['status'] ?? '' ) ) {
             $valid_from  = $this->normalize_mysql_datetime(
                 $decoded['key']['valid_from']
@@ -366,7 +371,7 @@ class DSB_Client {
             );
             $this->db->upsert_key(
                 [
-                    'subscription_id' => sanitize_text_field( $payload['subscription_id'] ?? '' ),
+                    'subscription_id' => $subscription_identifier,
                     'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
                     'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : null,
                     'customer_name'   => isset( $payload['customer_name'] ) ? sanitize_text_field( $payload['customer_name'] ) : null,
@@ -386,7 +391,7 @@ class DSB_Client {
         } elseif ( $settings['enable_logging'] ) {
             $this->db->upsert_key(
                 [
-                    'subscription_id' => sanitize_text_field( $payload['subscription_id'] ?? '' ),
+                    'subscription_id' => $subscription_identifier,
                     'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
                     'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : null,
                     'customer_name'   => isset( $payload['customer_name'] ) ? sanitize_text_field( $payload['customer_name'] ) : null,

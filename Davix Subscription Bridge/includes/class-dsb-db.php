@@ -5,6 +5,8 @@ defined( 'ABSPATH' ) || exit;
 
 class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
+    const OPTION_DB_VERSION          = 'dsb_db_version';
+    const DB_VERSION                 = '1.1.0';
 
     /** @var \wpdb */
     protected $wpdb;
@@ -77,7 +79,14 @@ class DSB_DB {
      * Run plugin database migrations (create/update tables once).
      */
     public function migrate(): void {
+        $stored_version = get_option( self::OPTION_DB_VERSION );
+
+        if ( self::DB_VERSION === $stored_version ) {
+            return;
+        }
+
         $this->create_tables();
+        update_option( self::OPTION_DB_VERSION, self::DB_VERSION );
     }
 
     public function drop_tables(): void {
