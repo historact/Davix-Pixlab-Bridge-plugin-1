@@ -43,6 +43,9 @@ class DSB_DB {
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             subscription_id varchar(190) NOT NULL,
             customer_email varchar(190) NOT NULL,
+            wp_user_id BIGINT UNSIGNED DEFAULT NULL,
+            customer_name varchar(255) DEFAULT NULL,
+            subscription_status varchar(50) DEFAULT NULL,
             plan_slug varchar(190) NOT NULL,
             status varchar(60) NOT NULL,
             key_prefix varchar(20) DEFAULT NULL,
@@ -55,12 +58,23 @@ class DSB_DB {
             last_error text DEFAULT NULL,
             created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
             UNIQUE KEY subscription_id (subscription_id),
+            UNIQUE KEY wp_user_id (wp_user_id),
             KEY customer_email (customer_email)
         ) $charset_collate;";
 
+        dsb_log( 'debug', 'Running dbDelta for davix_bridge_logs', [ 'sql' => $sql_logs ] );
         dbDelta( $sql_logs );
+        dsb_log( 'debug', 'dbDelta result for davix_bridge_logs', [ 'last_error' => $this->wpdb->last_error ] );
+
+        dsb_log( 'debug', 'Running dbDelta for davix_bridge_keys', [ 'sql' => $sql_keys ] );
         dbDelta( $sql_keys );
+        dsb_log( 'debug', 'dbDelta result for davix_bridge_keys', [ 'last_error' => $this->wpdb->last_error ] );
+    }
+
+    public function migrate(): void {
+        $this->create_tables();
     }
 
     public function drop_tables(): void {
@@ -114,6 +128,9 @@ class DSB_DB {
         $defaults = [
             'subscription_id' => '',
             'customer_email'  => '',
+            'wp_user_id'      => null,
+            'customer_name'   => null,
+            'subscription_status' => null,
             'plan_slug'       => '',
             'status'          => 'unknown',
             'key_prefix'      => null,
@@ -127,19 +144,63 @@ class DSB_DB {
         ];
         $data     = wp_parse_args( $data, $defaults );
 
-        $existing = $this->wpdb->get_var( $this->wpdb->prepare( "SELECT id FROM {$this->table_keys} WHERE subscription_id = %s", $data['subscription_id'] ) );
+        $data['subscription_id']     = sanitize_text_field( $data['subscription_id'] );
+        $data['customer_email']      = sanitize_email( $data['customer_email'] );
+        $data['wp_user_id']          = $data['wp_user_id'] ? absint( $data['wp_user_id'] ) : null;
+        $data['customer_name']       = $data['customer_name'] ? sanitize_text_field( $data['customer_name'] ) : null;
+        $data['subscription_status'] = $data['subscription_status'] ? sanitize_text_field( $data['subscription_status'] ) : null;
+        $data['plan_slug']           = sanitize_text_field( $data['plan_slug'] );
+        $data['status']              = sanitize_text_field( $data['status'] );
+        $data['key_prefix']          = $data['key_prefix'] ? sanitize_text_field( $data['key_prefix'] ) : null;
+        $data['key_last4']           = $data['key_last4'] ? sanitize_text_field( $data['key_last4'] ) : null;
+        $data['node_plan_id']        = $data['node_plan_id'] ? sanitize_text_field( (string) $data['node_plan_id'] ) : null;
+        $data['last_action']         = $data['last_action'] ? sanitize_text_field( $data['last_action'] ) : null;
+        $data['last_http_code']      = $data['last_http_code'] ? absint( $data['last_http_code'] ) : null;
+        $data['last_error']          = $data['last_error'] ? wp_strip_all_tags( (string) $data['last_error'] ) : null;
+
+        $identity  = 'subscription_id';
+        $existing  = null;
+        $identity_value = $data['subscription_id'];
+
+        if ( $data['wp_user_id'] ) {
+            $existing       = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_keys} WHERE wp_user_id = %d", $data['wp_user_id'] ), ARRAY_A );
+            $identity       = 'wp_user_id';
+            $identity_value = $data['wp_user_id'];
+        }
+
+        if ( ! $existing && $data['customer_email'] ) {
+            $existing       = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_keys} WHERE customer_email = %s", $data['customer_email'] ), ARRAY_A );
+            $identity       = 'customer_email';
+            $identity_value = $data['customer_email'];
+        }
+
+        if ( ! $existing && $data['subscription_id'] ) {
+            $existing       = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_keys} WHERE subscription_id = %s", $data['subscription_id'] ), ARRAY_A );
+            $identity       = 'subscription_id';
+            $identity_value = $data['subscription_id'];
+        }
 
         if ( $existing ) {
-            if ( null === $data['valid_until'] ) {
-                $current_valid_until = $this->wpdb->get_var( $this->wpdb->prepare( "SELECT valid_until FROM {$this->table_keys} WHERE subscription_id = %s", $data['subscription_id'] ) );
-                if ( null !== $current_valid_until ) {
-                    $data['valid_until'] = $current_valid_until;
-                    dsb_log( 'debug', 'Retaining existing valid_until on upsert', [ 'subscription_id' => $data['subscription_id'] ] );
+            if ( null === $data['valid_until'] && null !== $existing['valid_until'] ) {
+                $data['valid_until'] = $existing['valid_until'];
+                dsb_log( 'debug', 'Retaining existing valid_until on upsert', [ 'subscription_id' => $existing['subscription_id'] ] );
+            }
+
+            if ( empty( $data['subscription_id'] ) ) {
+                $data['subscription_id'] = $existing['subscription_id'];
+            }
+
+            foreach ( [ 'customer_email', 'customer_name', 'subscription_status', 'plan_slug' ] as $field ) {
+                if ( empty( $data[ $field ] ) && ! empty( $existing[ $field ] ) ) {
+                    $data[ $field ] = $existing[ $field ];
                 }
             }
-            $this->wpdb->update( $this->table_keys, $data, [ 'subscription_id' => $data['subscription_id'] ] );
+
+            $this->wpdb->update( $this->table_keys, $data, [ 'id' => $existing['id'] ] );
+            dsb_log( 'info', 'Updated key record via identity match', [ 'identity' => $identity, 'value' => $identity_value, 'id' => $existing['id'] ] );
         } else {
             $this->wpdb->insert( $this->table_keys, $data );
+            dsb_log( 'info', 'Inserted key record', [ 'identity' => $identity, 'value' => $identity_value ] );
         }
     }
 

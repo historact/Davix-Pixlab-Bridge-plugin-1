@@ -442,8 +442,14 @@ class DSB_Events {
             $key_row          = $this->db->get_key_by_subscription_id( (string) $subscription_id );
             $key_valid_until  = $key_row['valid_until'] ?? null;
             $backfill_request = ! empty( $payload['_dsb_validity_backfill'] );
+            $needs_identity_update = ! $key_row || (
+                ( empty( $key_row['wp_user_id'] ) && ! empty( $payload['wp_user_id'] ) ) ||
+                ( empty( $key_row['customer_name'] ) && ! empty( $payload['customer_name'] ) ) ||
+                ( empty( $key_row['subscription_status'] ) && ! empty( $payload['subscription_status'] ) ) ||
+                ( empty( $key_row['customer_email'] ) && ! empty( $payload['customer_email'] ) )
+            );
 
-            if ( $already_sent && ! ( $backfill_request && $valid_until ) ) {
+            if ( $already_sent && ! ( $backfill_request && $valid_until ) && ! $needs_identity_update ) {
                 if ( $valid_until && $key_row && empty( $key_valid_until ) && ! $backfill_meta ) {
                     dsb_log(
                         'info',
@@ -467,6 +473,7 @@ class DSB_Events {
                             'valid_until_in_payload' => (bool) $valid_until,
                             'backfill_meta_set'      => $backfill_meta,
                             'key_valid_until_empty'  => $key_row ? empty( $key_valid_until ) : null,
+                            'needs_identity_update'  => $needs_identity_update,
                         ]
                     );
                     $this->clear_retry_state( $order );
@@ -659,6 +666,43 @@ class DSB_Events {
         $order->save();
     }
 
+    protected function resolve_subscription_status( string $subscription_id, ?\WC_Order $order = null ): string {
+        $candidates = [];
+
+        if ( $order instanceof \WC_Order ) {
+            $candidates[] = $order->get_status();
+        }
+
+        if ( $subscription_id ) {
+            $subscription_order = wc_get_order( (int) $subscription_id );
+            if ( $subscription_order instanceof \WC_Order ) {
+                $candidates[] = $subscription_order->get_status();
+            }
+
+            $meta_keys = [ 'wps_sfw_subscription_status', '_wps_sfw_subscription_status', 'subscription_status' ];
+            foreach ( $meta_keys as $meta_key ) {
+                $meta_value = get_post_meta( $subscription_id, $meta_key, true );
+                if ( $meta_value ) {
+                    $candidates[] = $meta_value;
+                    break;
+                }
+            }
+
+            $post_status = get_post_status( $subscription_id );
+            if ( $post_status ) {
+                $candidates[] = $post_status;
+            }
+        }
+
+        foreach ( $candidates as $status ) {
+            if ( is_string( $status ) && '' !== $status ) {
+                return strtolower( $status );
+            }
+        }
+
+        return '';
+    }
+
     protected function order_contains_mapped_product( \WC_Order $order ): bool {
         $plans = $this->client->get_product_plans();
         foreach ( $order->get_items() as $item ) {
@@ -683,6 +727,9 @@ class DSB_Events {
         $customer_email = '';
         $order_id = '';
         $product_id = 0;
+        $wp_user_id = 0;
+        $customer_name = '';
+        $subscription_status = '';
 
         if ( '' === $subscription_id ) {
             $this->db->log_event(
@@ -698,20 +745,36 @@ class DSB_Events {
         if ( $order ) {
             $customer_email = $order->get_billing_email();
             $order_id       = $order->get_id();
+            $wp_user_id     = (int) $order->get_user_id();
+            $customer_name  = trim( $order->get_formatted_billing_full_name() ?: $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() );
             foreach ( $order->get_items() as $item ) {
                 $product_id = $item->get_variation_id() ?: $item->get_product_id();
                 break;
             }
         }
 
-        if ( ! $customer_email && $subscription_id ) {
-            $user_id = get_post_meta( $subscription_id, 'user_id', true );
-            if ( $user_id ) {
-                $user = get_user_by( 'id', (int) $user_id );
-                if ( $user ) {
+        if ( ! $wp_user_id && $subscription_id ) {
+            $user_id_meta = (int) get_post_meta( $subscription_id, 'user_id', true );
+            if ( $user_id_meta > 0 ) {
+                $wp_user_id = $user_id_meta;
+            }
+        }
+
+        if ( $wp_user_id ) {
+            $user = get_user_by( 'id', $wp_user_id );
+            if ( $user ) {
+                if ( ! $customer_email ) {
                     $customer_email = $user->user_email;
                 }
+                if ( ! $customer_name ) {
+                    $display_name  = $user->display_name ?: trim( $user->first_name . ' ' . $user->last_name );
+                    $customer_name = trim( $display_name );
+                }
             }
+        }
+
+        if ( ! $customer_name && $order ) {
+            $customer_name = trim( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() );
         }
 
         $plans = $this->client->get_product_plans();
@@ -751,9 +814,26 @@ class DSB_Events {
             return null;
         }
 
+        $subscription_status = $this->resolve_subscription_status( $subscription_id, $order );
+
+        dsb_log(
+            'debug',
+            'Payload identity resolved',
+            [
+                'subscription_id'     => $subscription_id,
+                'wp_user_id'          => $wp_user_id ?: null,
+                'customer_email_set'  => (bool) $customer_email,
+                'customer_name_set'   => (bool) $customer_name,
+                'subscription_status' => $subscription_status ?: null,
+            ]
+        );
+
         $payload = [
             'event'           => $event,
             'customer_email'  => $customer_email,
+            'customer_name'   => $customer_name,
+            'wp_user_id'      => $wp_user_id,
+            'subscription_status' => $subscription_status,
             'plan_slug'       => $plan_slug,
             'subscription_id' => $subscription_id,
             'order_id'        => $order_id,
