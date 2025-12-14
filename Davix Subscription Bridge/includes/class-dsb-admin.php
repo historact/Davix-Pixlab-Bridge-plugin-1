@@ -23,9 +23,12 @@ class DSB_Admin {
         add_action( 'admin_menu', [ $this, 'register_menu' ] );
         add_action( 'admin_init', [ $this, 'handle_actions' ] );
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
+        add_action( 'admin_post_dsb_download_log', [ $this, 'handle_download_log' ] );
+        add_action( 'admin_post_dsb_clear_log', [ $this, 'handle_clear_log' ] );
         add_action( 'wp_ajax_dsb_search_users', [ $this, 'ajax_search_users' ] );
         add_action( 'wp_ajax_dsb_search_subscriptions', [ $this, 'ajax_search_subscriptions' ] );
         add_action( 'wp_ajax_dsb_search_orders', [ $this, 'ajax_search_orders' ] );
+        add_action( 'wp_ajax_dsb_js_log', __NAMESPACE__ . '\\dsb_handle_js_log' );
         add_filter( 'woocommerce_product_data_tabs', [ $this, 'add_plan_limits_tab' ] );
         add_action( 'woocommerce_product_data_panels', [ $this, 'render_plan_limits_panel' ] );
         add_action( 'woocommerce_admin_process_product_object', [ $this, 'save_plan_limits_meta' ] );
@@ -46,7 +49,17 @@ class DSB_Admin {
 
     public function enqueue_assets( string $hook ): void {
         $page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+        $tab  = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+        $settings = $this->client->get_settings();
+
+        dsb_log( 'debug', 'Admin enqueue called', [
+            'hook' => $hook,
+            'page' => $page,
+            'tab'  => $tab,
+        ] );
+
         if ( ! isset( $_GET['page'] ) || 'davix-bridge' !== $page ) {
+            dsb_log( 'debug', 'Admin enqueue skipped: not Davix Bridge page', [ 'hook' => $hook, 'page' => $page ] );
             return;
         }
 
@@ -61,11 +74,14 @@ class DSB_Admin {
         wp_enqueue_style( 'wp-color-picker' );
         wp_enqueue_script( 'wp-color-picker' );
 
+        $css_path = plugin_dir_path( __FILE__ ) . '../assets/css/dsb-admin.css';
+        $css_ver  = file_exists( $css_path ) ? filemtime( $css_path ) : DSB_VERSION;
+
         wp_register_style(
             'dsb-admin-styles',
             DSB_PLUGIN_URL . 'assets/css/dsb-admin.css',
             [ 'wp-color-picker' ],
-            DSB_VERSION
+            $css_ver
         );
         wp_enqueue_style( 'dsb-admin-styles' );
 
@@ -73,24 +89,43 @@ class DSB_Admin {
             wp_enqueue_style( 'woocommerce_admin_styles' );
         }
 
+        $js_path = plugin_dir_path( __FILE__ ) . '../assets/js/dsb-admin.js';
+        $js_ver  = file_exists( $js_path ) ? filemtime( $js_path ) : DSB_VERSION;
+
         wp_register_script(
             'dsb-admin',
             DSB_PLUGIN_URL . 'assets/js/dsb-admin.js',
             [ 'jquery', 'wp-color-picker' ],
-            DSB_VERSION,
+            $js_ver,
             true
         );
         wp_localize_script(
             'dsb-admin',
-            'dsbAdminData',
+            'DSB_ADMIN',
             [
                 'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-                'nonce'   => wp_create_nonce( 'dsb_admin_ajax' ),
-                'debug'   => defined( 'WP_DEBUG' ) && WP_DEBUG,
-                'hook'    => $hook,
+                'nonce'   => wp_create_nonce( 'dsb_js_log' ),
+                'page'    => $page,
+                'tab'     => $tab,
+                'debug'   => ! empty( $settings['debug_enabled'] ),
             ]
         );
         wp_enqueue_script( 'dsb-admin' );
+
+        if ( ! empty( $settings['debug_enabled'] ) && in_array( $tab, [ 'keys', 'style' ], true ) ) {
+            wp_add_inline_script(
+                'dsb-admin',
+                "(function(){\n  try {\n    if (window.DSB_INLINE_PROOF_SENT) return;\n    if (!window.DSB_ADMIN) return;\n    if (!DSB_ADMIN.ajaxUrl || !DSB_ADMIN.nonce) return;\n    if (!DSB_ADMIN.debug) return;\n    if (['keys','style'].indexOf(DSB_ADMIN.tab) === -1) return;\n    window.DSB_INLINE_PROOF_SENT = true;\n    var data = new FormData();\n    data.append('action','dsb_js_log');\n    data.append('nonce',DSB_ADMIN.nonce);\n    data.append('level','debug');\n    data.append('message','INLINE_PROOF: dsb-admin handle printed');\n    data.append('context', JSON.stringify({href: location.href, tab: DSB_ADMIN.tab}));\n    fetch(DSB_ADMIN.ajaxUrl, {method:'POST', credentials:'same-origin', body:data});\n  } catch(e) {}\n})();",
+                'after'
+            );
+        }
+
+        dsb_log( 'debug', 'Enqueuing dsb-admin.js', [
+            'handle'    => 'dsb-admin',
+            'src'       => DSB_PLUGIN_URL . 'assets/js/dsb-admin.js',
+            'deps'      => [ 'jquery', 'wp-color-picker' ],
+            'in_footer' => true,
+        ] );
     }
 
     public function add_plan_limits_tab( array $tabs ): array {
@@ -274,19 +309,51 @@ class DSB_Admin {
         }
 
         $tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'settings';
+        $previous_settings = $this->client->get_settings();
+
+        if ( isset( $_GET['dsb_log_action'] ) ) {
+            $action = sanitize_key( wp_unslash( $_GET['dsb_log_action'] ) );
+            if ( 'cleared' === $action ) {
+                $this->add_notice( __( 'Debug log cleared.', 'davix-sub-bridge' ) );
+            } elseif ( 'error' === $action ) {
+                $this->add_notice( __( 'Debug log action failed.', 'davix-sub-bridge' ), 'error' );
+            }
+        }
 
         if ( 'POST' === $_SERVER['REQUEST_METHOD'] && isset( $_POST['dsb_settings_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_settings_nonce'] ) ), 'dsb_save_settings' ) ) {
-            $this->client->save_settings( wp_unslash( $_POST ) );
-            if ( isset( $_POST['dsb_plan_slug_meta'] ) && is_array( $_POST['dsb_plan_slug_meta'] ) ) {
-                foreach ( $_POST['dsb_plan_slug_meta'] as $product_id => $slug ) {
-                    $pid = absint( $product_id );
-                    if ( $pid > 0 ) {
-                        update_post_meta( $pid, '_dsb_plan_slug', sanitize_text_field( wp_unslash( $slug ) ) );
+            if ( 'style' === $tab ) {
+                $style_keys = array_keys( $this->client->get_style_defaults() );
+                $received   = [];
+                foreach ( $style_keys as $style_key ) {
+                    if ( isset( $_POST[ $style_key ] ) ) {
+                        $received[] = $style_key;
                     }
                 }
+                dsb_log( 'info', 'Saving style settings', [ 'keys' => $received ] );
             }
-            $this->add_notice( __( 'Settings saved.', 'davix-sub-bridge' ) );
-        }
+
+                $this->client->save_settings( wp_unslash( $_POST ) );
+                if ( isset( $_POST['dsb_plan_slug_meta'] ) && is_array( $_POST['dsb_plan_slug_meta'] ) ) {
+                    foreach ( $_POST['dsb_plan_slug_meta'] as $product_id => $slug ) {
+                        $pid = absint( $product_id );
+                        if ( $pid > 0 ) {
+                        update_post_meta( $pid, '_dsb_plan_slug', sanitize_text_field( wp_unslash( $slug ) ) );
+                    }
+                    }
+                }
+                $updated_settings = $this->client->get_settings();
+
+                if ( ! empty( $previous_settings['debug_enabled'] ) && empty( $updated_settings['debug_enabled'] ) ) {
+                    dsb_delete_all_logs();
+                    $this->add_notice( __( 'Debug disabled. Logs deleted.', 'davix-sub-bridge' ) );
+                } elseif ( empty( $previous_settings['debug_enabled'] ) && ! empty( $updated_settings['debug_enabled'] ) ) {
+                    dsb_ensure_log_dir();
+                    dsb_log( 'info', 'Debug enabled' );
+                }
+
+                dsb_log( 'info', 'Settings saved', [ 'tab' => $tab, 'posted_keys' => array_keys( $_POST ) ] );
+                $this->add_notice( __( 'Settings saved.', 'davix-sub-bridge' ) );
+            }
 
         if ( isset( $_POST['dsb_test_connection'] ) && check_admin_referer( 'dsb_test_connection' ) ) {
             $result = $this->client->test_connection();
@@ -483,6 +550,7 @@ class DSB_Admin {
             'keys'         => __( 'Keys', 'davix-sub-bridge' ),
             'logs'         => __( 'Logs', 'davix-sub-bridge' ),
             'style'        => __( 'Style', 'davix-sub-bridge' ),
+            'debug'        => __( 'Debug', 'davix-sub-bridge' ),
         ];
         foreach ( $tabs as $key => $label ) {
             $class = $tab === $key ? 'nav-tab nav-tab-active' : 'nav-tab';
@@ -502,6 +570,8 @@ class DSB_Admin {
             $this->render_logs_tab();
         } elseif ( 'style' === $tab ) {
             $this->render_style_tab();
+        } elseif ( 'debug' === $tab ) {
+            $this->render_debug_tab();
         } else {
             $this->render_settings_tab();
         }
@@ -1342,6 +1412,61 @@ class DSB_Admin {
         <?php
     }
 
+    protected function render_debug_tab(): void {
+        $settings = $this->client->get_settings();
+        $levels   = [ 'debug', 'info', 'warn', 'error' ];
+        $tail     = dsb_get_log_tail( 200 );
+        $log_path = dsb_get_latest_log_file();
+        ?>
+        <h2><?php esc_html_e( 'Debug Logging', 'davix-sub-bridge' ); ?></h2>
+        <p class="description"><?php esc_html_e( 'Writes structured debug entries to wp-content/uploads/davix-bridge-logs/. Avoid storing secrets; sensitive tokens are masked automatically.', 'davix-sub-bridge' ); ?></p>
+        <form method="post">
+            <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Enable debug logging', 'davix-sub-bridge' ); ?></th>
+                    <td><label><input type="checkbox" name="debug_enabled" value="1" <?php checked( $settings['debug_enabled'], 1 ); ?> /> <?php esc_html_e( 'Turn on file-based debug logging', 'davix-sub-bridge' ); ?></label></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Minimum level', 'davix-sub-bridge' ); ?></th>
+                    <td>
+                        <select name="debug_level">
+                            <?php foreach ( $levels as $level ) : ?>
+                                <option value="<?php echo esc_attr( $level ); ?>" <?php selected( $settings['debug_level'], $level ); ?>><?php echo esc_html( ucfirst( $level ) ); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="description"><?php esc_html_e( 'Only messages at or above this level will be stored.', 'davix-sub-bridge' ); ?></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Retention (days)', 'davix-sub-bridge' ); ?></th>
+                    <td>
+                        <input type="number" name="debug_retention_days" min="1" value="<?php echo esc_attr( $settings['debug_retention_days'] ); ?>" />
+                        <p class="description"><?php esc_html_e( 'Older log files are pruned automatically.', 'davix-sub-bridge' ); ?></p>
+                    </td>
+                </tr>
+            </table>
+            <?php submit_button( __( 'Save Debug Settings', 'davix-sub-bridge' ) ); ?>
+        </form>
+
+        <h3><?php esc_html_e( 'Log preview (last 200 lines)', 'davix-sub-bridge' ); ?></h3>
+        <p class="description"><?php esc_html_e( 'Sensitive values are masked. Use download for the complete file.', 'davix-sub-bridge' ); ?></p>
+        <textarea class="large-text code" rows="12" readonly><?php echo esc_textarea( $tail ); ?></textarea>
+        <p class="description"><?php echo esc_html( $log_path ? sprintf( __( 'Current file: %s', 'davix-sub-bridge' ), $log_path ) : __( 'No log file yet.', 'davix-sub-bridge' ) ); ?></p>
+
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:8px;">
+            <?php wp_nonce_field( 'dsb_download_log', 'dsb_download_log_nonce' ); ?>
+            <input type="hidden" name="action" value="dsb_download_log" />
+            <?php submit_button( __( 'Download log', 'davix-sub-bridge' ), 'secondary', 'submit', false ); ?>
+        </form>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+            <?php wp_nonce_field( 'dsb_clear_log', 'dsb_clear_log_nonce' ); ?>
+            <input type="hidden" name="action" value="dsb_clear_log" />
+            <?php submit_button( __( 'Clear log', 'davix-sub-bridge' ), 'delete', 'submit', false, [ 'onclick' => "return confirm('" . esc_js( __( 'Are you sure you want to clear the debug log?', 'davix-sub-bridge' ) ) . "');" ] ); ?>
+        </form>
+        <?php
+    }
+
     protected function run_request_log_diagnostics(): array {
         $result   = $this->client->fetch_request_log_diagnostics();
         $response = $result['response'] ?? null;
@@ -1373,6 +1498,47 @@ class DSB_Admin {
             'code' => $result['code'] ?? 0,
             'body' => (string) $body,
         ];
+    }
+
+    public function handle_download_log(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'davix-sub-bridge' ) );
+        }
+
+        if ( ! isset( $_POST['dsb_download_log_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_download_log_nonce'] ) ), 'dsb_download_log' ) ) {
+            wp_die( esc_html__( 'Invalid nonce.', 'davix-sub-bridge' ) );
+        }
+
+        $file = dsb_get_latest_log_file();
+        if ( ! $file || ! file_exists( $file ) ) {
+            dsb_log( 'warn', 'Download requested but log file missing' );
+            wp_safe_redirect( add_query_arg( [ 'page' => 'davix-bridge', 'tab' => 'debug', 'dsb_log_action' => 'error' ], admin_url( 'admin.php' ) ) );
+            exit;
+        }
+
+        dsb_log( 'info', 'Debug log download initiated', [ 'file' => basename( $file ) ] );
+
+        nocache_headers();
+        header( 'Content-Type: text/plain' );
+        header( 'Content-Disposition: attachment; filename="' . basename( $file ) . '"' );
+        readfile( $file );
+        exit;
+    }
+
+    public function handle_clear_log(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'davix-sub-bridge' ) );
+        }
+
+        if ( ! isset( $_POST['dsb_clear_log_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_clear_log_nonce'] ) ), 'dsb_clear_log' ) ) {
+            wp_die( esc_html__( 'Invalid nonce.', 'davix-sub-bridge' ) );
+        }
+
+        dsb_clear_logs();
+        dsb_log( 'info', 'Debug log cleared by admin' );
+
+        wp_safe_redirect( add_query_arg( [ 'page' => 'davix-bridge', 'tab' => 'debug', 'dsb_log_action' => 'cleared' ], admin_url( 'admin.php' ) ) );
+        exit;
     }
 
     protected function mask_sensitive_fields( $data ) {
