@@ -72,6 +72,8 @@ class DSB_Events {
             ]
         );
 
+        $this->maybe_backfill_valid_until_now( (string) $subscription_id );
+
         return $expiry;
     }
 
@@ -302,6 +304,18 @@ class DSB_Events {
 
         $order->save();
 
+        update_post_meta( $order->get_id(), self::ORDER_META_SUBSCRIPTION_ID, (string) $subscription_id );
+        update_post_meta( (int) $subscription_id, '_dsb_parent_order_id', (string) $order->get_id() );
+
+        dsb_log(
+            'debug',
+            'Stored subscription↔order mapping',
+            [
+                'order_id'        => $order->get_id(),
+                'subscription_id' => $subscription_id,
+            ]
+        );
+
         dsb_log( 'info', 'Subscription ID stored on order', [ 'order_id' => $order->get_id(), 'subscription_id' => $subscription_id ] );
     }
 
@@ -427,8 +441,9 @@ class DSB_Events {
             $backfill_meta    = (bool) $order->get_meta( self::ORDER_META_VALID_UNTIL_BACKFILLED );
             $key_row          = $this->db->get_key_by_subscription_id( (string) $subscription_id );
             $key_valid_until  = $key_row['valid_until'] ?? null;
+            $backfill_request = ! empty( $payload['_dsb_validity_backfill'] );
 
-            if ( $already_sent ) {
+            if ( $already_sent && ! ( $backfill_request && $valid_until ) ) {
                 if ( $valid_until && $key_row && empty( $key_valid_until ) && ! $backfill_meta ) {
                     dsb_log(
                         'info',
@@ -471,6 +486,15 @@ class DSB_Events {
     public function backfill_valid_until_for_subscription( $subscription_id, $order_id = 0 ): void {
         $subscription_id = (string) $subscription_id;
         $order           = $order_id ? wc_get_order( (int) $order_id ) : null;
+
+        dsb_log(
+            'debug',
+            'Backfill cron running',
+            [
+                'subscription_id' => $subscription_id,
+                'order_id'        => $order instanceof \WC_Order ? $order->get_id() : $order_id,
+            ]
+        );
 
         if ( $order instanceof \WC_Order && $subscription_id ) {
             $this->set_subscription_id_on_order( $order, $subscription_id );
@@ -515,6 +539,108 @@ class DSB_Events {
                 'result_status'   => $result['decoded']['status'] ?? null,
             ]
         );
+    }
+
+    private function maybe_backfill_valid_until_now( string $subscription_id ): void {
+        $valid_until_meta = get_post_meta( $subscription_id, '_dsb_wps_valid_until', true );
+        if ( ! $valid_until_meta ) {
+            return;
+        }
+
+        $backfilled_meta = (bool) get_post_meta( $subscription_id, '_dsb_valid_until_backfilled', true );
+        if ( $backfilled_meta ) {
+            dsb_log(
+                'debug',
+                'Validity backfill skipped: already done',
+                [ 'subscription_id' => $subscription_id ]
+            );
+            return;
+        }
+
+        $key_row = $this->db->get_key_by_subscription_id( $subscription_id );
+        if ( $key_row && ! empty( $key_row['valid_until'] ) ) {
+            return;
+        }
+
+        $order_id = (int) get_post_meta( $subscription_id, '_dsb_parent_order_id', true );
+        if ( $order_id <= 0 ) {
+            $found_orders = wc_get_orders(
+                [
+                    'limit'      => 1,
+                    'return'     => 'ids',
+                    'meta_query' => [
+                        [
+                            'key'   => self::ORDER_META_SUBSCRIPTION_ID,
+                            'value' => $subscription_id,
+                        ],
+                    ],
+                ]
+            );
+
+            if ( ! empty( $found_orders ) && is_array( $found_orders ) ) {
+                $order_id = (int) $found_orders[0];
+            }
+        }
+
+        if ( $order_id <= 0 ) {
+            dsb_log(
+                'warning',
+                'Validity backfill proceeding without order context',
+                [ 'subscription_id' => $subscription_id ]
+            );
+        }
+
+        $order = $order_id > 0 ? wc_get_order( $order_id ) : null;
+        if ( $order instanceof \WC_Order ) {
+            $this->set_subscription_id_on_order( $order, $subscription_id );
+        }
+
+        $payload = $this->build_payload( $subscription_id, 'activated', $order instanceof \WC_Order ? $order : null );
+
+        if ( ! $payload ) {
+            $dt = $this->parse_expiry_value( $valid_until_meta );
+            if ( $dt instanceof \DateTimeInterface ) {
+                $payload = [
+                    'event'           => 'activated',
+                    'subscription_id' => $subscription_id,
+                    'valid_until'     => $this->format_datetime_for_node( $dt ),
+                    'order_id'        => $order instanceof \WC_Order ? $order->get_id() : $order_id,
+                    'customer_email'  => $key_row['customer_email'] ?? '',
+                    'plan_slug'       => $key_row['plan_slug'] ?? '',
+                ];
+            }
+        }
+
+        if ( empty( $payload ) || empty( $payload['valid_until'] ) ) {
+            return;
+        }
+
+        $payload['_dsb_validity_backfill'] = 1;
+
+        dsb_log(
+            'debug',
+            'Validity backfill triggered from expiry capture',
+            [
+                'subscription_id' => $subscription_id,
+                'order_id'        => $order instanceof \WC_Order ? $order->get_id() : $order_id,
+                'valid_until'     => $payload['valid_until'],
+            ]
+        );
+
+        $result = $this->maybe_send( $payload );
+
+        if ( $result && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
+            update_post_meta( $subscription_id, '_dsb_valid_until_backfilled', 1 );
+            dsb_log(
+                'info',
+                'Validity backfill sent',
+                [
+                    'subscription_id' => $subscription_id,
+                    'order_id'        => $order instanceof \WC_Order ? $order->get_id() : $order_id,
+                    'result_status'   => $result['decoded']['status'] ?? null,
+                ]
+            );
+        }
     }
 
     protected function clear_retry_state( \WC_Order $order ): void {
