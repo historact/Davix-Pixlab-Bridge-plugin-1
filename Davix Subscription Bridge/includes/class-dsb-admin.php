@@ -320,6 +320,15 @@ class DSB_Admin {
             }
         }
 
+        if ( isset( $_GET['dsb_log_action'] ) ) {
+            $action = sanitize_key( wp_unslash( $_GET['dsb_log_action'] ) );
+            if ( 'cleared' === $action ) {
+                $this->add_notice( __( 'Debug log cleared.', 'davix-sub-bridge' ) );
+            } elseif ( 'error' === $action ) {
+                $this->add_notice( __( 'Debug log action failed.', 'davix-sub-bridge' ), 'error' );
+            }
+        }
+
         if ( 'POST' === $_SERVER['REQUEST_METHOD'] && isset( $_POST['dsb_settings_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_settings_nonce'] ) ), 'dsb_save_settings' ) ) {
             if ( 'style' === $tab ) {
                 $style_keys = array_keys( $this->client->get_style_defaults() );
