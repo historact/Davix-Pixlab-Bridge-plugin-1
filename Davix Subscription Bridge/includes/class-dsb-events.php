@@ -8,9 +8,11 @@ class DSB_Events {
     const ORDER_META_RETRY_COUNT     = '_dsb_subid_retry_count';
     const ORDER_META_RETRY_LOCK      = '_dsb_subid_retry_lock';
     const ORDER_META_LAST_SENT_EVENT = '_dsb_last_sent_event';
+    const ORDER_META_VALID_UNTIL_BACKFILLED = '_dsb_valid_until_backfilled';
     const MAX_RETRY_ATTEMPTS         = 5;
     protected $client;
     protected $db;
+    private $last_valid_until_source = '';
 
     public function __construct( DSB_Client $client, DSB_DB $db ) {
         $this->client = $client;
@@ -30,6 +32,49 @@ class DSB_Events {
         add_action( 'woocommerce_order_status_changed', [ $this, 'handle_order_status_change' ], 10, 4 );
 
         add_action( 'dsb_retry_provision_order', [ $this, 'retry_provision_order' ], 10, 2 );
+        add_action( 'dsb_backfill_valid_until_for_subscription', [ $this, 'backfill_valid_until_for_subscription' ], 10, 2 );
+
+        add_filter( 'wps_sfw_susbcription_end_date', [ $this, 'dsb_capture_wps_expiry' ], 9999, 2 );
+    }
+
+    public function dsb_capture_wps_expiry( $expiry, $subscription_id ) {
+        $subscription_id = (int) $subscription_id;
+        if ( $subscription_id <= 0 ) {
+            return $expiry;
+        }
+
+        $normalized = $this->normalize_mysql_datetime( $expiry );
+        if ( ! $normalized ) {
+            return $expiry;
+        }
+
+        update_post_meta( $subscription_id, '_dsb_wps_valid_until', $normalized );
+        update_post_meta( $subscription_id, '_dsb_wps_valid_until_source', 'wps_sfw_susbcription_end_date_filter' );
+        update_post_meta( $subscription_id, '_dsb_wps_valid_until_captured_at', current_time( 'mysql', true ) );
+
+        $parent_id = 0;
+        $subscription_order = wc_get_order( $subscription_id );
+        if ( $subscription_order && method_exists( $subscription_order, 'get_parent_id' ) ) {
+            $parent_id = (int) $subscription_order->get_parent_id();
+            if ( $parent_id > 0 ) {
+                update_post_meta( $parent_id, '_dsb_wps_valid_until', $normalized );
+            }
+        }
+
+        dsb_log(
+            'debug',
+            'Captured WPS expiry via filter',
+            [
+                'subscription_id' => $subscription_id,
+                'parent_id'       => $parent_id,
+                'raw_expiry'      => is_string( $expiry ) ? substr( $expiry, 0, 64 ) : $expiry,
+                'normalized'      => $normalized,
+            ]
+        );
+
+        $this->maybe_backfill_valid_until_now( (string) $subscription_id );
+
+        return $expiry;
     }
 
     public function handle_wps_renewal( $subscription_id, $order_id = null ): void {
@@ -259,6 +304,18 @@ class DSB_Events {
 
         $order->save();
 
+        update_post_meta( $order->get_id(), self::ORDER_META_SUBSCRIPTION_ID, (string) $subscription_id );
+        update_post_meta( (int) $subscription_id, '_dsb_parent_order_id', (string) $order->get_id() );
+
+        dsb_log(
+            'debug',
+            'Stored subscription↔order mapping',
+            [
+                'order_id'        => $order->get_id(),
+                'subscription_id' => $subscription_id,
+            ]
+        );
+
         dsb_log( 'info', 'Subscription ID stored on order', [ 'order_id' => $order->get_id(), 'subscription_id' => $subscription_id ] );
     }
 
@@ -324,6 +381,30 @@ class DSB_Events {
         return $delays[ $attempt ] ?? end( $delays );
     }
 
+    protected function schedule_valid_until_backfill( string $subscription_id, ?\WC_Order $order ): void {
+        if ( '' === $subscription_id ) {
+            return;
+        }
+
+        $order_id = $order instanceof \WC_Order ? $order->get_id() : 0;
+        if ( wp_next_scheduled( 'dsb_backfill_valid_until_for_subscription', [ $subscription_id, $order_id ] ) ) {
+            return;
+        }
+
+        $timestamp = time() + 60;
+        wp_schedule_single_event( $timestamp, 'dsb_backfill_valid_until_for_subscription', [ $subscription_id, $order_id ] );
+
+        dsb_log(
+            'debug',
+            'Scheduled valid_until backfill',
+            [
+                'subscription_id' => $subscription_id,
+                'order_id'        => $order_id,
+                'run_at'          => $timestamp,
+            ]
+        );
+    }
+
     public function retry_provision_order( $order_id, $event_name = 'activated' ): void {
         $order = wc_get_order( (int) $order_id );
         if ( ! $order instanceof \WC_Order ) {
@@ -349,20 +430,216 @@ class DSB_Events {
         $this->set_subscription_id_on_order( $order, (string) $subscription_id );
 
         if ( $this->order_contains_mapped_product( $order ) ) {
-            $last_sent = $order->get_meta( self::ORDER_META_LAST_SENT_EVENT );
-            if ( $last_sent && $last_sent === $event_name ) {
-                dsb_log( 'info', 'Provisioning event already sent; skipping duplicate', [ 'order_id' => $order->get_id(), 'event' => $event_name ] );
-                $this->clear_retry_state( $order );
+            $payload = $this->build_payload( (string) $subscription_id, $event_name, $order );
+            if ( ! $payload ) {
                 return;
             }
 
-            $payload = $this->build_payload( (string) $subscription_id, $event_name, $order );
-            $result  = $this->maybe_send( $payload );
+            $last_sent        = $order->get_meta( self::ORDER_META_LAST_SENT_EVENT );
+            $already_sent     = $last_sent && $last_sent === $event_name;
+            $valid_until      = $payload['valid_until'] ?? '';
+            $backfill_meta    = (bool) $order->get_meta( self::ORDER_META_VALID_UNTIL_BACKFILLED );
+            $key_row          = $this->db->get_key_by_subscription_id( (string) $subscription_id );
+            $key_valid_until  = $key_row['valid_until'] ?? null;
+            $backfill_request = ! empty( $payload['_dsb_validity_backfill'] );
+
+            if ( $already_sent && ! ( $backfill_request && $valid_until ) ) {
+                if ( $valid_until && $key_row && empty( $key_valid_until ) && ! $backfill_meta ) {
+                    dsb_log(
+                        'info',
+                        'Duplicate event allowed to backfill valid_until',
+                        [
+                            'order_id'        => $order->get_id(),
+                            'subscription_id' => $subscription_id,
+                            'event'           => $event_name,
+                            'valid_until'     => $valid_until,
+                        ]
+                    );
+                    $order->update_meta_data( self::ORDER_META_VALID_UNTIL_BACKFILLED, 1 );
+                    $order->save();
+                } else {
+                    dsb_log(
+                        'info',
+                        'Provisioning event already sent; skipping duplicate',
+                        [
+                            'order_id'               => $order->get_id(),
+                            'event'                  => $event_name,
+                            'valid_until_in_payload' => (bool) $valid_until,
+                            'backfill_meta_set'      => $backfill_meta,
+                            'key_valid_until_empty'  => $key_row ? empty( $key_valid_until ) : null,
+                        ]
+                    );
+                    $this->clear_retry_state( $order );
+                    return;
+                }
+            }
+
+            $result = $this->maybe_send( $payload );
 
             if ( $result && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
                 $this->mark_event_sent( $order, $event_name );
                 $this->clear_retry_state( $order );
             }
+        }
+    }
+
+    public function backfill_valid_until_for_subscription( $subscription_id, $order_id = 0 ): void {
+        $subscription_id = (string) $subscription_id;
+        $order           = $order_id ? wc_get_order( (int) $order_id ) : null;
+
+        dsb_log(
+            'debug',
+            'Backfill cron running',
+            [
+                'subscription_id' => $subscription_id,
+                'order_id'        => $order instanceof \WC_Order ? $order->get_id() : $order_id,
+            ]
+        );
+
+        if ( $order instanceof \WC_Order && $subscription_id ) {
+            $this->set_subscription_id_on_order( $order, $subscription_id );
+        }
+
+        $key_row = $subscription_id ? $this->db->get_key_by_subscription_id( $subscription_id ) : null;
+        if ( $key_row && ! empty( $key_row['valid_until'] ) ) {
+            dsb_log(
+                'debug',
+                'Backfill cron skipped; valid_until already set',
+                [
+                    'subscription_id' => $subscription_id,
+                    'order_id'        => $order instanceof \WC_Order ? $order->get_id() : $order_id,
+                ]
+            );
+            return;
+        }
+
+        $payload = $this->build_payload( $subscription_id, 'activated', $order instanceof \WC_Order ? $order : null );
+
+        if ( ! $payload || empty( $payload['valid_until'] ) ) {
+            dsb_log(
+                'debug',
+                'Backfill cron attempted without valid_until',
+                [
+                    'subscription_id' => $subscription_id,
+                    'order_id'        => $order instanceof \WC_Order ? $order->get_id() : $order_id,
+                ]
+            );
+            return;
+        }
+
+        $result = $this->maybe_send( $payload );
+
+        dsb_log(
+            'info',
+            'Backfill cron attempted',
+            [
+                'subscription_id' => $subscription_id,
+                'order_id'        => $order instanceof \WC_Order ? $order->get_id() : $order_id,
+                'valid_until'     => $payload['valid_until'],
+                'result_status'   => $result['decoded']['status'] ?? null,
+            ]
+        );
+    }
+
+    private function maybe_backfill_valid_until_now( string $subscription_id ): void {
+        $valid_until_meta = get_post_meta( $subscription_id, '_dsb_wps_valid_until', true );
+        if ( ! $valid_until_meta ) {
+            return;
+        }
+
+        $backfilled_meta = (bool) get_post_meta( $subscription_id, '_dsb_valid_until_backfilled', true );
+        if ( $backfilled_meta ) {
+            dsb_log(
+                'debug',
+                'Validity backfill skipped: already done',
+                [ 'subscription_id' => $subscription_id ]
+            );
+            return;
+        }
+
+        $key_row = $this->db->get_key_by_subscription_id( $subscription_id );
+        if ( $key_row && ! empty( $key_row['valid_until'] ) ) {
+            return;
+        }
+
+        $order_id = (int) get_post_meta( $subscription_id, '_dsb_parent_order_id', true );
+        if ( $order_id <= 0 ) {
+            $found_orders = wc_get_orders(
+                [
+                    'limit'      => 1,
+                    'return'     => 'ids',
+                    'meta_query' => [
+                        [
+                            'key'   => self::ORDER_META_SUBSCRIPTION_ID,
+                            'value' => $subscription_id,
+                        ],
+                    ],
+                ]
+            );
+
+            if ( ! empty( $found_orders ) && is_array( $found_orders ) ) {
+                $order_id = (int) $found_orders[0];
+            }
+        }
+
+        if ( $order_id <= 0 ) {
+            dsb_log(
+                'warning',
+                'Validity backfill proceeding without order context',
+                [ 'subscription_id' => $subscription_id ]
+            );
+        }
+
+        $order = $order_id > 0 ? wc_get_order( $order_id ) : null;
+        if ( $order instanceof \WC_Order ) {
+            $this->set_subscription_id_on_order( $order, $subscription_id );
+        }
+
+        $payload = $this->build_payload( $subscription_id, 'activated', $order instanceof \WC_Order ? $order : null );
+
+        if ( ! $payload ) {
+            $dt = $this->parse_expiry_value( $valid_until_meta );
+            if ( $dt instanceof \DateTimeInterface ) {
+                $payload = [
+                    'event'           => 'activated',
+                    'subscription_id' => $subscription_id,
+                    'valid_until'     => $this->format_datetime_for_node( $dt ),
+                    'order_id'        => $order instanceof \WC_Order ? $order->get_id() : $order_id,
+                    'customer_email'  => $key_row['customer_email'] ?? '',
+                    'plan_slug'       => $key_row['plan_slug'] ?? '',
+                ];
+            }
+        }
+
+        if ( empty( $payload ) || empty( $payload['valid_until'] ) ) {
+            return;
+        }
+
+        $payload['_dsb_validity_backfill'] = 1;
+
+        dsb_log(
+            'debug',
+            'Validity backfill triggered from expiry capture',
+            [
+                'subscription_id' => $subscription_id,
+                'order_id'        => $order instanceof \WC_Order ? $order->get_id() : $order_id,
+                'valid_until'     => $payload['valid_until'],
+            ]
+        );
+
+        $result = $this->maybe_send( $payload );
+
+        if ( $result && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
+            update_post_meta( $subscription_id, '_dsb_valid_until_backfilled', 1 );
+            dsb_log(
+                'info',
+                'Validity backfill sent',
+                [
+                    'subscription_id' => $subscription_id,
+                    'order_id'        => $order instanceof \WC_Order ? $order->get_id() : $order_id,
+                    'result_status'   => $result['decoded']['status'] ?? null,
+                ]
+            );
         }
     }
 
@@ -474,13 +751,19 @@ class DSB_Events {
             return null;
         }
 
-        return [
+        $payload = [
             'event'           => $event,
             'customer_email'  => $customer_email,
             'plan_slug'       => $plan_slug,
             'subscription_id' => $subscription_id,
             'order_id'        => $order_id,
         ] + $this->maybe_add_validity_window( $event, $product_id, $order, $subscription_id, $customer_email, $plan_slug );
+
+        if ( 'activated' === $event && empty( $payload['valid_until'] ) ) {
+            $this->schedule_valid_until_backfill( $subscription_id, $order );
+        }
+
+        return $payload;
     }
 
     protected function maybe_add_validity_window( string $event, int $product_id, ?\WC_Order $order, string $subscription_id, string $customer_email, string $plan_slug ): array {
@@ -511,11 +794,14 @@ class DSB_Events {
 
                 dsb_log(
                     'info',
-                    'valid_until branch: wps_expiry',
+                    'valid_until resolved',
                     [
-                        'subscription_id' => $subscription_id,
-                        'order_id'        => $order ? $order->get_id() : null,
-                        'valid_from_set'  => isset( $payload['valid_from'] ),
+                        'subscription_id'          => $subscription_id,
+                        'order_id'                 => $order ? $order->get_id() : null,
+                        'valid_from_set'           => isset( $payload['valid_from'] ),
+                        'valid_until_source'       => $this->last_valid_until_source ?: 'unknown',
+                        'valid_until_value'        => $wps_expiry,
+                        'cached_valid_until_meta'  => (bool) get_post_meta( $subscription_id, '_dsb_wps_valid_until', true ),
                     ]
                 );
 
@@ -581,11 +867,42 @@ class DSB_Events {
             return null;
         }
 
-        $expiry = apply_filters( 'wps_sfw_susbcription_end_date', '', $subscription_id );
-        $dt     = $this->parse_expiry_value( $expiry );
+        $this->last_valid_until_source = '';
+        $cached                        = get_post_meta( $subscription_id, '_dsb_wps_valid_until', true );
+        $filter_empty                  = null;
+
+        if ( $cached ) {
+            $dt = $this->parse_expiry_value( $cached );
+            if ( $dt instanceof \DateTimeInterface ) {
+                $this->last_valid_until_source = 'dsb_cache';
+                dsb_log(
+                    'info',
+                    'valid_until_source = dsb_cache',
+                    [
+                        'subscription_id' => $subscription_id,
+                        'meta_present'    => true,
+                        'filter_empty'    => null,
+                    ]
+                );
+                return $this->format_datetime_for_node( $dt );
+            }
+        }
+
+        $expiry       = apply_filters( 'wps_sfw_susbcription_end_date', '', $subscription_id );
+        $filter_empty = ( '' === $expiry || null === $expiry );
+        $dt           = $this->parse_expiry_value( $expiry );
 
         if ( $dt instanceof \DateTimeInterface ) {
-            dsb_log( 'info', 'valid_until_source = wps_filter', [ 'subscription_id' => $subscription_id ] );
+            $this->last_valid_until_source = 'wps_filter_live';
+            dsb_log(
+                'info',
+                'valid_until_source = wps_filter',
+                [
+                    'subscription_id' => $subscription_id,
+                    'meta_present'    => (bool) $cached,
+                    'filter_empty'    => $filter_empty,
+                ]
+            );
             return $this->format_datetime_for_node( $dt );
         }
 
@@ -599,7 +916,17 @@ class DSB_Events {
                         $value = is_array( $values ) ? reset( $values ) : $values;
                         $dt    = $this->parse_expiry_value( $value );
                         if ( $dt instanceof \DateTimeInterface ) {
-                            dsb_log( 'info', 'valid_until_source = wps_meta', [ 'subscription_id' => $subscription_id, 'meta_key' => $meta_key ] );
+                            $this->last_valid_until_source = 'meta_scan';
+                            dsb_log(
+                                'info',
+                                'valid_until_source = wps_meta',
+                                [
+                                    'subscription_id' => $subscription_id,
+                                    'meta_key'        => $meta_key,
+                                    'meta_present'    => (bool) $cached,
+                                    'filter_empty'    => $filter_empty,
+                                ]
+                            );
                             return $this->format_datetime_for_node( $dt );
                         }
                         break;
@@ -608,7 +935,17 @@ class DSB_Events {
             }
         }
 
-        dsb_log( 'debug', 'valid_until_source = none', [ 'subscription_id' => $subscription_id ] );
+        $this->last_valid_until_source = '';
+        dsb_log(
+            'debug',
+            'valid_until_source = none',
+            [
+                'subscription_id'         => $subscription_id,
+                'meta_present'            => (bool) $cached,
+                'filter_empty'            => $filter_empty,
+                'cached_meta_value_empty' => empty( $cached ),
+            ]
+        );
 
         return null;
     }
@@ -637,6 +974,19 @@ class DSB_Events {
         }
 
         return null;
+    }
+
+    private function normalize_mysql_datetime( $value ): ?string {
+        $dt = $this->parse_expiry_value( $value );
+        if ( ! $dt ) {
+            return null;
+        }
+
+        try {
+            return $dt->setTimezone( new \DateTimeZone( 'UTC' ) )->format( 'Y-m-d H:i:s' );
+        } catch ( \Throwable $e ) {
+            return null;
+        }
     }
 
     protected function get_product_expiry_interval( int $product_id ): ?\DateInterval {
@@ -826,3 +1176,12 @@ class DSB_Events {
         return $payload;
     }
 }
+
+/*
+ * Test checklist:
+ * 1) Place subscription, confirm initial activated send.
+ * 2) Confirm filter capture log appears at least once when viewing subscriptions list OR when WPS calculates expiry.
+ * 3) Confirm _dsb_wps_valid_until meta is set on subscription.
+ * 4) Confirm second “activated” send is allowed only if key.valid_until is NULL and payload has valid_until.
+ * 5) Confirm davix_bridge_keys.valid_until becomes non-NULL.
+ */
