@@ -489,8 +489,43 @@ class DSB_Events {
             return [];
         }
 
+        $payload = [];
+
+        if ( $subscription_id ) {
+            $wps_expiry = $this->get_wps_expiry_datetime_for_subscription( $subscription_id );
+            if ( $wps_expiry ) {
+                $activation = $this->determine_activation_time( $order );
+                if ( ! $activation ) {
+                    try {
+                        $activation = new \DateTimeImmutable( 'now', wp_timezone() );
+                    } catch ( \Throwable $e ) {
+                        $activation = null;
+                    }
+                }
+
+                if ( $activation ) {
+                    $payload['valid_from'] = $this->format_datetime_for_node( $activation );
+                }
+
+                $payload['valid_until'] = $wps_expiry;
+
+                dsb_log(
+                    'info',
+                    'valid_until branch: wps_expiry',
+                    [
+                        'subscription_id' => $subscription_id,
+                        'order_id'        => $order ? $order->get_id() : null,
+                        'valid_from_set'  => isset( $payload['valid_from'] ),
+                    ]
+                );
+
+                return $payload;
+            }
+        }
+
         $interval = $this->get_product_expiry_interval( $product_id );
         if ( ! $interval ) {
+            dsb_log( 'debug', 'valid_until branch: none', [ 'subscription_id' => $subscription_id, 'order_id' => $order ? $order->get_id() : null ] );
             return [];
         }
 
@@ -526,9 +561,82 @@ class DSB_Events {
         $payload = [];
         if ( $valid_until ) {
             $payload['valid_until'] = $valid_until;
+            dsb_log(
+                'info',
+                'valid_until branch: interval',
+                [
+                    'subscription_id' => $subscription_id,
+                    'order_id'        => $order ? $order->get_id() : null,
+                    'event'           => $event,
+                ]
+            );
         }
 
         return $payload;
+    }
+
+    private function get_wps_expiry_datetime_for_subscription( $subscription_id ): ?string {
+        $subscription_id = (int) $subscription_id;
+        if ( $subscription_id <= 0 ) {
+            return null;
+        }
+
+        $expiry = apply_filters( 'wps_sfw_susbcription_end_date', '', $subscription_id );
+        $dt     = $this->parse_expiry_value( $expiry );
+
+        if ( $dt instanceof \DateTimeInterface ) {
+            dsb_log( 'info', 'valid_until_source = wps_filter', [ 'subscription_id' => $subscription_id ] );
+            return $this->format_datetime_for_node( $dt );
+        }
+
+        $all_meta = get_post_meta( $subscription_id );
+        if ( is_array( $all_meta ) ) {
+            $patterns = [ 'expiry', 'expire', 'end', 'until', 'valid', 'next_payment', 'trial_end' ];
+
+            foreach ( $all_meta as $meta_key => $values ) {
+                foreach ( $patterns as $pattern ) {
+                    if ( false !== stripos( (string) $meta_key, $pattern ) ) {
+                        $value = is_array( $values ) ? reset( $values ) : $values;
+                        $dt    = $this->parse_expiry_value( $value );
+                        if ( $dt instanceof \DateTimeInterface ) {
+                            dsb_log( 'info', 'valid_until_source = wps_meta', [ 'subscription_id' => $subscription_id, 'meta_key' => $meta_key ] );
+                            return $this->format_datetime_for_node( $dt );
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        dsb_log( 'debug', 'valid_until_source = none', [ 'subscription_id' => $subscription_id ] );
+
+        return null;
+    }
+
+    private function parse_expiry_value( $value ): ?\DateTimeImmutable {
+        if ( empty( $value ) && '0' !== $value ) {
+            return null;
+        }
+
+        try {
+            if ( is_numeric( $value ) ) {
+                $dt = new \DateTimeImmutable( '@' . (int) $value );
+                return $dt->setTimezone( wp_timezone() );
+            }
+
+            if ( is_array( $value ) ) {
+                $value = reset( $value );
+            }
+
+            if ( is_string( $value ) ) {
+                $dt = new \DateTimeImmutable( $value );
+                return $dt;
+            }
+        } catch ( \Throwable $e ) {
+            return null;
+        }
+
+        return null;
     }
 
     protected function get_product_expiry_interval( int $product_id ): ?\DateInterval {

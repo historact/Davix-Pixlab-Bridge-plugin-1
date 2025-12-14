@@ -130,6 +130,13 @@ class DSB_DB {
         $existing = $this->wpdb->get_var( $this->wpdb->prepare( "SELECT id FROM {$this->table_keys} WHERE subscription_id = %s", $data['subscription_id'] ) );
 
         if ( $existing ) {
+            if ( null === $data['valid_until'] ) {
+                $current_valid_until = $this->wpdb->get_var( $this->wpdb->prepare( "SELECT valid_until FROM {$this->table_keys} WHERE subscription_id = %s", $data['subscription_id'] ) );
+                if ( null !== $current_valid_until ) {
+                    $data['valid_until'] = $current_valid_until;
+                    dsb_log( 'debug', 'Retaining existing valid_until on upsert', [ 'subscription_id' => $data['subscription_id'] ] );
+                }
+            }
             $this->wpdb->update( $this->table_keys, $data, [ 'subscription_id' => $data['subscription_id'] ] );
         } else {
             $this->wpdb->insert( $this->table_keys, $data );
