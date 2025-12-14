@@ -348,8 +348,22 @@ class DSB_Client {
         }
 
         if ( $decoded && 'ok' === ( $decoded['status'] ?? '' ) ) {
-            $valid_from  = $this->normalize_mysql_datetime( $decoded['key']['valid_from'] ?? $decoded['valid_from'] ?? ( $payload['valid_from'] ?? null ) );
-            $valid_until = $this->normalize_mysql_datetime( $decoded['key']['valid_until'] ?? $decoded['valid_until'] ?? ( $payload['valid_until'] ?? null ) );
+            $valid_from  = $this->normalize_mysql_datetime(
+                $decoded['key']['valid_from']
+                    ?? $decoded['valid_from']
+                    ?? ( $payload['valid_from'] ?? null )
+            );
+            $valid_until = $this->normalize_mysql_datetime(
+                $decoded['key']['valid_until']
+                    ?? $decoded['key']['valid_to']
+                    ?? $decoded['key']['expires_at']
+                    ?? $decoded['key']['expires_on']
+                    ?? $decoded['valid_until']
+                    ?? $decoded['valid_to']
+                    ?? $decoded['expires_at']
+                    ?? $decoded['expires_on']
+                    ?? ( $payload['valid_until'] ?? null )
+            );
             $this->db->upsert_key(
                 [
                     'subscription_id' => sanitize_text_field( $payload['subscription_id'] ?? '' ),
@@ -503,11 +517,20 @@ class DSB_Client {
     }
 
     protected function normalize_mysql_datetime( $value ): ?string {
-        if ( empty( $value ) ) {
+        if ( null === $value || '' === $value ) {
             return null;
         }
 
         try {
+            if ( is_numeric( $value ) ) {
+                $dt = new \DateTimeImmutable( '@' . (int) $value );
+                return $dt->setTimezone( wp_timezone() )->format( 'Y-m-d H:i:s' );
+            }
+
+            if ( is_array( $value ) ) {
+                $value = reset( $value );
+            }
+
             $dt = new \DateTimeImmutable( is_string( $value ) ? $value : '' );
             return $dt->format( 'Y-m-d H:i:s' );
         } catch ( \Throwable $e ) {

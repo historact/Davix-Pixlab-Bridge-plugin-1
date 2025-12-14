@@ -40,7 +40,7 @@ if ( ! function_exists( __NAMESPACE__ . '\\dsb_pixlab_get_identity' ) ) {
                 $order    = $orders[0];
                 $order_id = (string) $order->get_id();
 
-                $meta_keys = [ 'wps_sfw_subscription_id', 'subscription_id', '_subscription_id' ];
+                $meta_keys = [ DSB_Events::ORDER_META_SUBSCRIPTION_ID, 'wps_sfw_subscription_id', 'subscription_id', '_subscription_id' ];
                 foreach ( $meta_keys as $meta_key ) {
                     $value = $order->get_meta( $meta_key, true );
                     if ( $value ) {
