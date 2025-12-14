@@ -1434,7 +1434,10 @@ class DSB_Admin {
             <table class="form-table" role="presentation">
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Enable debug logging', 'davix-sub-bridge' ); ?></th>
-                    <td><label><input type="checkbox" name="debug_enabled" value="1" <?php checked( $settings['debug_enabled'], 1 ); ?> /> <?php esc_html_e( 'Turn on file-based debug logging', 'davix-sub-bridge' ); ?></label></td>
+                    <td>
+                        <input type="hidden" name="debug_enabled" value="0" />
+                        <label><input type="checkbox" name="debug_enabled" value="1" <?php checked( $settings['debug_enabled'], 1 ); ?> /> <?php esc_html_e( 'Turn on file-based debug logging', 'davix-sub-bridge' ); ?></label>
+                    </td>
                 </tr>
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Minimum level', 'davix-sub-bridge' ); ?></th>

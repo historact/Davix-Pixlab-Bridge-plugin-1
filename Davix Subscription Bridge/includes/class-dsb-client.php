@@ -175,11 +175,18 @@ class DSB_Client {
 
     public function save_settings( array $data ): void {
         $existing = $this->get_settings();
+
+        $debug_enabled = 0;
+        if ( isset( $data['debug_enabled'] ) ) {
+            $debug_value   = is_array( $data['debug_enabled'] ) ? end( $data['debug_enabled'] ) : $data['debug_enabled'];
+            $debug_enabled = (int) ( '1' === (string) $debug_value );
+        }
+
         $clean = [
             'node_base_url' => esc_url_raw( $data['node_base_url'] ?? ( $existing['node_base_url'] ?? '' ) ),
             'bridge_token'  => sanitize_text_field( $data['bridge_token'] ?? ( $existing['bridge_token'] ?? '' ) ),
             'enable_logging'=> isset( $data['enable_logging'] ) ? 1 : ( $existing['enable_logging'] ?? 0 ),
-            'debug_enabled' => isset( $data['debug_enabled'] ) ? 1 : ( $existing['debug_enabled'] ?? 0 ),
+            'debug_enabled' => $debug_enabled,
             'debug_level'   => isset( $data['debug_level'] ) ? sanitize_key( $data['debug_level'] ) : ( $existing['debug_level'] ?? 'info' ),
             'debug_retention_days' => isset( $data['debug_retention_days'] ) ? max( 1, (int) $data['debug_retention_days'] ) : ( $existing['debug_retention_days'] ?? 7 ),
             'delete_data'   => isset( $data['delete_data'] ) ? 1 : ( $existing['delete_data'] ?? 0 ),
