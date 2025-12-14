@@ -9,7 +9,7 @@ class DSB_Events {
     const ORDER_META_RETRY_LOCK      = '_dsb_subid_retry_lock';
     const ORDER_META_LAST_SENT_EVENT = '_dsb_last_sent_event';
     const ORDER_META_VALID_UNTIL_BACKFILLED = '_dsb_valid_until_backfilled';
-    const MAX_RETRY_ATTEMPTS         = 5;
+    const MAX_RETRY_ATTEMPTS         = 10;
     protected $client;
     protected $db;
     private $last_valid_until_source = '';
@@ -80,17 +80,17 @@ class DSB_Events {
     public function handle_wps_renewal( $subscription_id, $order_id = null ): void {
         $order = $order_id ? wc_get_order( $order_id ) : null;
         $payload = $this->build_payload( (string) $subscription_id, 'renewed', $order );
-        $this->maybe_send( $payload );
+        $this->maybe_send( $payload, $order instanceof \WC_Order ? $order : null, 'renewed' );
     }
 
     public function handle_wps_expire( $subscription_id ): void {
         $payload = $this->build_payload( (string) $subscription_id, 'expired' );
-        $this->maybe_send( $payload );
+        $this->maybe_send( $payload, null, 'expired' );
     }
 
     public function handle_wps_cancel( $subscription_id ): void {
         $payload = $this->build_payload( (string) $subscription_id, 'cancelled' );
-        $this->maybe_send( $payload );
+        $this->maybe_send( $payload, null, 'cancelled' );
     }
 
     public function handle_wps_subscription_created( $subscription_id, $order_id ): void {
@@ -110,7 +110,7 @@ class DSB_Events {
 
         if ( $this->order_contains_mapped_product( $order ) ) {
             $payload = $this->build_payload( (string) $subscription_id, $event, $order );
-            $result  = $this->maybe_send( $payload );
+            $result  = $this->maybe_send( $payload, $order, $event );
 
             if ( $result && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
                 $this->mark_event_sent( $order, $event );
@@ -132,7 +132,7 @@ class DSB_Events {
             if ( is_numeric( $order_id ) ) {
                 $order = wc_get_order( (int) $order_id );
                 if ( $order instanceof \WC_Order ) {
-                    $this->schedule_retry_if_needed( $order, 'activated' );
+                    $this->schedule_retry_if_needed( $order, 'activated', 'subscription_missing' );
                 }
             }
             return;
@@ -147,7 +147,7 @@ class DSB_Events {
 
         if ( $this->order_contains_mapped_product( $order ) ) {
             $payload = $this->build_payload( (string) $subscription_id, 'activated', $order );
-            $result  = $this->maybe_send( $payload );
+            $result  = $this->maybe_send( $payload, $order, 'activated' );
 
             if ( $result && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
                 $this->mark_event_sent( $order, 'activated' );
@@ -165,19 +165,21 @@ class DSB_Events {
         if ( $order instanceof \WC_Order ) {
             if ( $subscription_id ) {
                 $this->set_subscription_id_on_order( $order, (string) $subscription_id );
-            } else {
-                $this->schedule_retry_if_needed( $order, 'activated' );
             }
         }
 
-        if ( $subscription_id && $order instanceof \WC_Order && $this->order_contains_mapped_product( $order ) ) {
-            $payload = $this->build_payload( (string) $subscription_id, 'activated', $order );
-            $result  = $this->maybe_send( $payload );
+        if ( $order instanceof \WC_Order && $this->order_contains_mapped_product( $order ) ) {
+            $payload = $this->build_payload( $subscription_id ? (string) $subscription_id : '', 'activated', $order );
+            $result  = $this->maybe_send( $payload, $order, 'activated' );
 
-            if ( $result && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
+            if ( $result && ( $result['decoded']['status'] ?? '' ) === 'ok' && $subscription_id ) {
                 $this->mark_event_sent( $order, 'activated' );
                 $this->clear_retry_state( $order );
             }
+        }
+
+        if ( $order instanceof \WC_Order && ! $subscription_id ) {
+            $this->schedule_retry_if_needed( $order, 'activated', 'subscription_missing' );
         }
     }
 
@@ -186,12 +188,14 @@ class DSB_Events {
             return;
         }
         $subscription_id = $this->find_subscription_id_for_order( $order );
-        if ( ! $subscription_id ) {
-            $this->schedule_retry_if_needed( $order, 'activated' );
-        }
-        $payload = $this->build_payload( $subscription_id ? (string) $subscription_id : '', $subscription_id ? 'activated' : 'activated_pending_subscription_id', $order );
+        $event   = 'activated';
+        $payload = $this->build_payload( $subscription_id ? (string) $subscription_id : '', $event, $order );
         if ( $payload && $this->order_contains_mapped_product( $order ) ) {
-            $this->maybe_send( $payload );
+            $this->maybe_send( $payload, $order, $event );
+        }
+
+        if ( ! $subscription_id ) {
+            $this->schedule_retry_if_needed( $order, 'activated', 'subscription_missing' );
         }
     }
 
@@ -205,34 +209,44 @@ class DSB_Events {
                 [
                     'event'         => 'subscription_missing',
                     'order_id'      => $order->get_id(),
-                    'error_excerpt' => __( 'Subscription ID missing; event skipped.', 'davix-sub-bridge' ),
+                    'error_excerpt' => __( 'Subscription ID missing; sending with external reference.', 'davix-sub-bridge' ),
                 ]
             );
-            $this->schedule_retry_if_needed( $order, $this->map_status_to_event( $new_status ) ?: 'activated' );
-            return;
         }
         $event = $this->map_status_to_event( $new_status );
         if ( ! $event ) {
             return;
         }
-        $payload = $this->build_payload( (string) $subscription_id, $event, $order );
-        $this->maybe_send( $payload );
+        $payload = $this->build_payload( $subscription_id ? (string) $subscription_id : '', $event, $order );
+        $this->maybe_send( $payload, $order, $event );
+
+        if ( ! $subscription_id ) {
+            $this->schedule_retry_if_needed( $order, $event, 'subscription_missing' );
+        }
     }
 
-    protected function maybe_send( ?array $payload ): ?array {
+    protected function maybe_send( ?array $payload, ?\WC_Order $order = null, string $event_name = '' ): ?array {
         if ( ! $payload ) {
             return null;
         }
-        $plans    = $this->client->get_product_plans();
+
+        $plans = $this->client->get_product_plans();
         if ( empty( $payload['plan_slug'] ) || ! $this->plan_exists( $payload['plan_slug'], $plans ) ) {
+            $product_id = $payload['product_id'] ?? '';
+            $order_id   = $payload['order_id'] ?? '';
             $this->db->log_event(
                 [
-                    'event'         => 'plan_missing',
-                    'customer_email'=> $payload['customer_email'] ?? '',
-                    'order_id'      => $payload['order_id'] ?? '',
-                    'subscription_id'=> $payload['subscription_id'] ?? '',
-                    'plan_slug'     => $payload['plan_slug'] ?? '',
-                    'error_excerpt' => __( 'Plan mapping missing; event skipped.', 'davix-sub-bridge' ),
+                    'event'           => 'plan_missing',
+                    'customer_email'  => $payload['customer_email'] ?? '',
+                    'order_id'        => $order_id,
+                    'subscription_id' => $payload['subscription_id'] ?? '',
+                    'plan_slug'       => $payload['plan_slug'] ?? '',
+                    'error_excerpt'   => sprintf(
+                        /* translators: 1: product ID, 2: order ID */
+                        __( 'Plan mapping missing; product %1$s (order %2$s).', 'davix-sub-bridge' ),
+                        $product_id ?: '?',
+                        $order_id ?: '?'
+                    ),
                 ]
             );
             add_action( 'admin_notices', static function () {
@@ -240,7 +254,43 @@ class DSB_Events {
             } );
             return null;
         }
-        return $this->client->send_event( $payload );
+
+        $attempt = $order instanceof \WC_Order ? $this->current_attempt_number( $order ) : 1;
+        $result  = $this->client->send_event( $payload );
+        $success = $result && ( $result['decoded']['status'] ?? '' ) === 'ok';
+
+        if ( $order instanceof \WC_Order ) {
+            $event_label = $event_name ?: ( $payload['event'] ?? '' );
+            $context     = [
+                'order_id'                => $order->get_id(),
+                'event'                   => $event_label,
+                'attempt'                 => $attempt,
+                'subscription_id'         => $payload['subscription_id'] ?? '',
+                'external_subscription_id'=> $payload['external_subscription_id'] ?? '',
+                'plan_slug'               => $payload['plan_slug'] ?? '',
+                'http_code'               => $result['code'] ?? null,
+                'response_status'         => $result['decoded']['status'] ?? null,
+            ];
+
+            if ( $success ) {
+                dsb_log( 'info', 'Provisioning request succeeded', $context );
+                $this->clear_retry_state( $order );
+            } else {
+                $error_excerpt = '';
+                if ( is_array( $result ) && isset( $result['response'] ) && is_wp_error( $result['response'] ) ) {
+                    $error_excerpt = $result['response']->get_error_message();
+                } elseif ( is_array( $result ) && isset( $result['decoded']['status'] ) ) {
+                    $error_excerpt = (string) $result['decoded']['status'];
+                } elseif ( is_array( $result ) && isset( $result['code'] ) ) {
+                    $error_excerpt = (string) $result['code'];
+                }
+
+                dsb_log( 'warning', 'Provisioning request failed', $context + [ 'error_excerpt' => $error_excerpt ] );
+                $this->schedule_retry_if_needed( $order, $event_label ?: 'activated', 'dispatch_failed' );
+            }
+        }
+
+        return $result;
     }
 
     protected function plan_exists( string $plan_slug, array $plans ): bool {
@@ -349,14 +399,19 @@ class DSB_Events {
         return '';
     }
 
-    protected function schedule_retry_if_needed( \WC_Order $order, string $event_name ): void {
+    protected function current_attempt_number( \WC_Order $order ): int {
+        $attempt = (int) $order->get_meta( self::ORDER_META_RETRY_COUNT );
+        return max( 1, $attempt + 1 );
+    }
+
+    protected function schedule_retry_if_needed( \WC_Order $order, string $event_name, string $reason = '' ): void {
         if ( $this->order_in_terminal_state( $order ) ) {
             return;
         }
 
-        $attempt = (int) $order->get_meta( self::ORDER_META_RETRY_COUNT );
-        if ( $attempt >= self::MAX_RETRY_ATTEMPTS ) {
-            dsb_log( 'warning', 'Max retry attempts reached for subscription ID lookup', [ 'order_id' => $order->get_id() ] );
+        $attempt = $this->current_attempt_number( $order );
+        if ( $attempt > self::MAX_RETRY_ATTEMPTS ) {
+            dsb_log( 'warning', 'Max retry attempts reached for provisioning', [ 'order_id' => $order->get_id(), 'event' => $event_name, 'reason' => $reason ] );
             return;
         }
 
@@ -373,12 +428,14 @@ class DSB_Events {
         $order->update_meta_data( self::ORDER_META_RETRY_COUNT, $attempt );
         $order->save();
 
-        dsb_log( 'info', 'Retry scheduled for subscription ID', [ 'order_id' => $order->get_id(), 'attempt' => $attempt + 1, 'run_at' => $timestamp, 'event' => $event_name ] );
+        dsb_log( 'info', 'Retry scheduled for provisioning', [ 'order_id' => $order->get_id(), 'attempt' => $attempt, 'run_at' => $timestamp, 'event' => $event_name, 'reason' => $reason ] );
     }
 
     protected function get_retry_delay_seconds( int $attempt ): int {
-        $delays = [ 30, 60, 120, 240, 480 ];
-        return $delays[ $attempt ] ?? end( $delays );
+        $attempt = max( 1, $attempt );
+        $base    = 60;
+        $delay   = $base * ( 2 ** ( $attempt - 1 ) );
+        return (int) min( 3600, $delay );
     }
 
     protected function schedule_valid_until_backfill( string $subscription_id, ?\WC_Order $order ): void {
@@ -412,34 +469,24 @@ class DSB_Events {
         }
 
         $subscription_id = $this->find_subscription_id_for_order( $order );
-        if ( ! $subscription_id ) {
-            $attempt = (int) $order->get_meta( self::ORDER_META_RETRY_COUNT );
-            $attempt++;
-            $order->update_meta_data( self::ORDER_META_RETRY_COUNT, $attempt );
-            $order->delete_meta_data( self::ORDER_META_RETRY_LOCK );
-            $order->save();
-
-            if ( $attempt < self::MAX_RETRY_ATTEMPTS && ! $this->order_in_terminal_state( $order ) ) {
-                $this->schedule_retry_if_needed( $order, $event_name );
-            } else {
-                dsb_log( 'warning', 'Subscription ID still missing after retries', [ 'order_id' => $order->get_id() ] );
+        $payload = $this->build_payload( $subscription_id ? (string) $subscription_id : '', $event_name, $order );
+        if ( ! $payload ) {
+            if ( ! $subscription_id ) {
+                $this->schedule_retry_if_needed( $order, $event_name, 'subscription_missing' );
             }
             return;
         }
 
-        $this->set_subscription_id_on_order( $order, (string) $subscription_id );
+        if ( $subscription_id ) {
+            $this->set_subscription_id_on_order( $order, (string) $subscription_id );
+        }
 
         if ( $this->order_contains_mapped_product( $order ) ) {
-            $payload = $this->build_payload( (string) $subscription_id, $event_name, $order );
-            if ( ! $payload ) {
-                return;
-            }
-
             $last_sent        = $order->get_meta( self::ORDER_META_LAST_SENT_EVENT );
-            $already_sent     = $last_sent && $last_sent === $event_name;
+            $already_sent     = $subscription_id && $last_sent && $last_sent === $event_name;
             $valid_until      = $payload['valid_until'] ?? '';
             $backfill_meta    = (bool) $order->get_meta( self::ORDER_META_VALID_UNTIL_BACKFILLED );
-            $key_row          = $this->db->get_key_by_subscription_id( (string) $subscription_id );
+            $key_row          = $subscription_id ? $this->db->get_key_by_subscription_id( (string) $subscription_id ) : null;
             $key_valid_until  = $key_row['valid_until'] ?? null;
             $backfill_request = ! empty( $payload['_dsb_validity_backfill'] );
             $needs_identity_update = ! $key_row || (
@@ -481,11 +528,17 @@ class DSB_Events {
                 }
             }
 
-            $result = $this->maybe_send( $payload );
+            $result = $this->maybe_send( $payload, $order, $event_name );
 
             if ( $result && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
-                $this->mark_event_sent( $order, $event_name );
-                $this->clear_retry_state( $order );
+                if ( $subscription_id ) {
+                    $this->mark_event_sent( $order, $event_name );
+                    $this->clear_retry_state( $order );
+                } else {
+                    $this->schedule_retry_if_needed( $order, $event_name, 'subscription_missing' );
+                }
+            } elseif ( ! $subscription_id ) {
+                $this->schedule_retry_if_needed( $order, $event_name, 'subscription_missing' );
             }
         }
     }
@@ -534,7 +587,7 @@ class DSB_Events {
             return;
         }
 
-        $result = $this->maybe_send( $payload );
+        $result = $this->maybe_send( $payload, $order instanceof \WC_Order ? $order : null, 'activated' );
 
         dsb_log(
             'info',
@@ -634,7 +687,7 @@ class DSB_Events {
             ]
         );
 
-        $result = $this->maybe_send( $payload );
+        $result = $this->maybe_send( $payload, $order instanceof \WC_Order ? $order : null, 'activated' );
 
         if ( $result && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
             update_post_meta( $subscription_id, '_dsb_valid_until_backfilled', 1 );
@@ -723,24 +776,14 @@ class DSB_Events {
     }
 
     public function build_payload( string $subscription_id, string $event, ?\WC_Order $order = null ): ?array {
-        $plan_slug = '';
-        $customer_email = '';
-        $order_id = '';
-        $product_id = 0;
-        $wp_user_id = 0;
-        $customer_name = '';
-        $subscription_status = '';
-
-        if ( '' === $subscription_id ) {
-            $this->db->log_event(
-                [
-                    'event'         => 'subscription_missing',
-                    'order_id'      => $order ? $order->get_id() : '',
-                    'error_excerpt' => __( 'Subscription ID missing; event skipped.', 'davix-sub-bridge' ),
-                ]
-            );
-            return null;
-        }
+        $plan_slug            = '';
+        $customer_email       = '';
+        $order_id             = '';
+        $product_id           = 0;
+        $wp_user_id           = 0;
+        $customer_name        = '';
+        $subscription_status  = '';
+        $external_subscription_id = '';
 
         if ( $order ) {
             $customer_email = $order->get_billing_email();
@@ -782,6 +825,10 @@ class DSB_Events {
             $plan_slug = $plans[ $product_id ];
         }
 
+        if ( ! $plan_slug ) {
+            $plan_slug = $order ? (string) $order->get_meta( '_dsb_plan_slug', true ) : '';
+        }
+
         if ( ! $plan_slug && $subscription_id ) {
             $plan_slug = get_post_meta( $subscription_id, '_dsb_plan_slug', true );
             if ( ! $plan_slug ) {
@@ -796,22 +843,41 @@ class DSB_Events {
                     'order_id'        => $order_id,
                     'subscription_id' => $subscription_id,
                     'customer_email'  => $customer_email,
-                    'error_excerpt'   => __( 'No plan mapping found for product.', 'davix-sub-bridge' ),
+                    'error_excerpt'   => sprintf(
+                        /* translators: 1: product ID */
+                        __( 'No plan mapping found for product %s.', 'davix-sub-bridge' ),
+                        $product_id
+                    ),
                 ]
             );
             return null;
         }
 
+        if ( ! $customer_email && $wp_user_id ) {
+            $user = get_user_by( 'id', $wp_user_id );
+            if ( $user && $user->user_email ) {
+                $customer_email = $user->user_email;
+            }
+        }
+
+        if ( ! $customer_email && $order ) {
+            $customer_email = $order->get_billing_email();
+        }
+
         if ( ! $customer_email ) {
-            $this->db->log_event(
+            dsb_log(
+                'warning',
+                'Customer email still missing; proceeding with wp_user_id only',
                 [
-                    'event'           => 'customer_missing',
                     'order_id'        => $order_id,
                     'subscription_id' => $subscription_id,
-                    'error_excerpt'   => __( 'Customer email missing; event skipped.', 'davix-sub-bridge' ),
+                    'wp_user_id'      => $wp_user_id ?: null,
                 ]
             );
-            return null;
+        }
+
+        if ( ! $subscription_id && $order_id ) {
+            $external_subscription_id = 'order:' . $order_id;
         }
 
         $subscription_status = $this->resolve_subscription_status( $subscription_id, $order );
@@ -821,6 +887,7 @@ class DSB_Events {
             'Payload identity resolved',
             [
                 'subscription_id'     => $subscription_id,
+                'external_subscription_id' => $external_subscription_id,
                 'wp_user_id'          => $wp_user_id ?: null,
                 'customer_email_set'  => (bool) $customer_email,
                 'customer_name_set'   => (bool) $customer_name,
@@ -829,17 +896,19 @@ class DSB_Events {
         );
 
         $payload = [
-            'event'           => $event,
-            'customer_email'  => $customer_email,
-            'customer_name'   => $customer_name,
-            'wp_user_id'      => $wp_user_id,
-            'subscription_status' => $subscription_status,
-            'plan_slug'       => $plan_slug,
-            'subscription_id' => $subscription_id,
-            'order_id'        => $order_id,
+            'event'                   => $event,
+            'customer_email'          => $customer_email,
+            'customer_name'           => $customer_name,
+            'wp_user_id'              => $wp_user_id,
+            'subscription_status'     => $subscription_status,
+            'plan_slug'               => $plan_slug,
+            'subscription_id'         => $subscription_id,
+            'external_subscription_id'=> $external_subscription_id,
+            'order_id'                => $order_id,
+            'product_id'              => $product_id,
         ] + $this->maybe_add_validity_window( $event, $product_id, $order, $subscription_id, $customer_email, $plan_slug );
 
-        if ( 'activated' === $event && empty( $payload['valid_until'] ) ) {
+        if ( 'activated' === $event && $subscription_id && empty( $payload['valid_until'] ) ) {
             $this->schedule_valid_until_backfill( $subscription_id, $order );
         }
 
@@ -847,7 +916,7 @@ class DSB_Events {
     }
 
     protected function maybe_add_validity_window( string $event, int $product_id, ?\WC_Order $order, string $subscription_id, string $customer_email, string $plan_slug ): array {
-        $eligible_events = [ 'activated', 'activated_pending_subscription_id', 'renewed' ];
+        $eligible_events = [ 'activated', 'renewed' ];
         if ( ! in_array( $event, $eligible_events, true ) ) {
             return [];
         }

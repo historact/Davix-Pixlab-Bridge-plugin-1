@@ -25,7 +25,7 @@ class DSB_Plugin {
             wp_die( esc_html__( 'Davix Subscription Bridge requires WooCommerce and Subscriptions for WooCommerce.', 'davix-sub-bridge' ) );
         }
         $db = new DSB_DB( $GLOBALS['wpdb'] );
-        $db->create_tables();
+        $db->migrate();
     }
 
     public static function uninstall(): void {
@@ -33,6 +33,7 @@ class DSB_Plugin {
             $db = new DSB_DB( $GLOBALS['wpdb'] );
             $db->drop_tables();
             delete_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL );
+            delete_option( DSB_DB::OPTION_DB_VERSION );
             delete_option( DSB_Client::OPTION_SETTINGS );
             delete_option( DSB_Client::OPTION_PRODUCT_PLANS );
             delete_option( DSB_Client::OPTION_PLAN_PRODUCTS );
