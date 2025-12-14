@@ -112,13 +112,15 @@ class DSB_Admin {
         );
         wp_enqueue_script( 'dsb-admin' );
 
-        wp_add_inline_script(
-            'dsb-admin',
-            "(function(){\n  try {\n    if (!window.DSB_ADMIN) return;\n    if (!DSB_ADMIN.ajaxUrl || !DSB_ADMIN.nonce) return;\n    if (!DSB_ADMIN.debug) return;\n    var data = new FormData();\n    data.append('action','dsb_js_log');\n    data.append('nonce',DSB_ADMIN.nonce);\n    data.append('level','info');\n    data.append('message','INLINE_PROOF: dsb-admin handle printed');\n    data.append('context', JSON.stringify({href: location.href, tab: DSB_ADMIN.tab}));\n    fetch(DSB_ADMIN.ajaxUrl, {method:'POST', credentials:'same-origin', body:data});\n  } catch(e) {}\n})();",
-            'after'
-        );
+        if ( ! empty( $settings['debug_enabled'] ) && in_array( $tab, [ 'keys', 'style' ], true ) ) {
+            wp_add_inline_script(
+                'dsb-admin',
+                "(function(){\n  try {\n    if (window.DSB_INLINE_PROOF_SENT) return;\n    if (!window.DSB_ADMIN) return;\n    if (!DSB_ADMIN.ajaxUrl || !DSB_ADMIN.nonce) return;\n    if (!DSB_ADMIN.debug) return;\n    if (['keys','style'].indexOf(DSB_ADMIN.tab) === -1) return;\n    window.DSB_INLINE_PROOF_SENT = true;\n    var data = new FormData();\n    data.append('action','dsb_js_log');\n    data.append('nonce',DSB_ADMIN.nonce);\n    data.append('level','debug');\n    data.append('message','INLINE_PROOF: dsb-admin handle printed');\n    data.append('context', JSON.stringify({href: location.href, tab: DSB_ADMIN.tab}));\n    fetch(DSB_ADMIN.ajaxUrl, {method:'POST', credentials:'same-origin', body:data});\n  } catch(e) {}\n})();",
+                'after'
+            );
+        }
 
-        dsb_log( 'info', 'Enqueuing dsb-admin.js', [
+        dsb_log( 'debug', 'Enqueuing dsb-admin.js', [
             'handle'    => 'dsb-admin',
             'src'       => DSB_PLUGIN_URL . 'assets/js/dsb-admin.js',
             'deps'      => [ 'jquery', 'wp-color-picker' ],
@@ -307,6 +309,16 @@ class DSB_Admin {
         }
 
         $tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'settings';
+        $previous_settings = $this->client->get_settings();
+
+        if ( isset( $_GET['dsb_log_action'] ) ) {
+            $action = sanitize_key( wp_unslash( $_GET['dsb_log_action'] ) );
+            if ( 'cleared' === $action ) {
+                $this->add_notice( __( 'Debug log cleared.', 'davix-sub-bridge' ) );
+            } elseif ( 'error' === $action ) {
+                $this->add_notice( __( 'Debug log action failed.', 'davix-sub-bridge' ), 'error' );
+            }
+        }
 
         if ( isset( $_GET['dsb_log_action'] ) ) {
             $action = sanitize_key( wp_unslash( $_GET['dsb_log_action'] ) );
@@ -329,18 +341,28 @@ class DSB_Admin {
                 dsb_log( 'info', 'Saving style settings', [ 'keys' => $received ] );
             }
 
-            $this->client->save_settings( wp_unslash( $_POST ) );
-            if ( isset( $_POST['dsb_plan_slug_meta'] ) && is_array( $_POST['dsb_plan_slug_meta'] ) ) {
-                foreach ( $_POST['dsb_plan_slug_meta'] as $product_id => $slug ) {
-                    $pid = absint( $product_id );
-                    if ( $pid > 0 ) {
+                $this->client->save_settings( wp_unslash( $_POST ) );
+                if ( isset( $_POST['dsb_plan_slug_meta'] ) && is_array( $_POST['dsb_plan_slug_meta'] ) ) {
+                    foreach ( $_POST['dsb_plan_slug_meta'] as $product_id => $slug ) {
+                        $pid = absint( $product_id );
+                        if ( $pid > 0 ) {
                         update_post_meta( $pid, '_dsb_plan_slug', sanitize_text_field( wp_unslash( $slug ) ) );
                     }
+                    }
                 }
+                $updated_settings = $this->client->get_settings();
+
+                if ( ! empty( $previous_settings['debug_enabled'] ) && empty( $updated_settings['debug_enabled'] ) ) {
+                    dsb_delete_all_logs();
+                    $this->add_notice( __( 'Debug disabled. Logs deleted.', 'davix-sub-bridge' ) );
+                } elseif ( empty( $previous_settings['debug_enabled'] ) && ! empty( $updated_settings['debug_enabled'] ) ) {
+                    dsb_ensure_log_dir();
+                    dsb_log( 'info', 'Debug enabled' );
+                }
+
+                dsb_log( 'info', 'Settings saved', [ 'tab' => $tab, 'posted_keys' => array_keys( $_POST ) ] );
+                $this->add_notice( __( 'Settings saved.', 'davix-sub-bridge' ) );
             }
-            dsb_log( 'info', 'Settings saved', [ 'tab' => $tab, 'posted_keys' => array_keys( $_POST ) ] );
-            $this->add_notice( __( 'Settings saved.', 'davix-sub-bridge' ) );
-        }
 
         if ( isset( $_POST['dsb_test_connection'] ) && check_admin_referer( 'dsb_test_connection' ) ) {
             $result = $this->client->test_connection();

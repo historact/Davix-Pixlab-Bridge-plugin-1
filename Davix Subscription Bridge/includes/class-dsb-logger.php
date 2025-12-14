@@ -17,6 +17,11 @@ function dsb_get_log_settings(): array {
     ];
 }
 
+function dsb_debug_is_enabled(): bool {
+    $settings = dsb_get_log_settings();
+    return ! empty( $settings['enabled'] );
+}
+
 function dsb_get_log_dir(): string {
     $uploads = wp_upload_dir();
     return trailingslashit( $uploads['basedir'] ) . 'davix-bridge-logs/';
@@ -117,20 +122,21 @@ function dsb_mask_secrets( $context ) {
 }
 
 function dsb_should_log( string $level ): bool {
-    $settings = dsb_get_log_settings();
-    if ( ! $settings['enabled'] ) {
+    if ( ! dsb_debug_is_enabled() ) {
         return false;
     }
 
+    $settings = dsb_get_log_settings();
+
     $map = [
-        'debug' => 0,
-        'info'  => 1,
-        'warn'  => 2,
-        'error' => 3,
+        'debug' => 10,
+        'info'  => 20,
+        'warn'  => 30,
+        'error' => 40,
     ];
 
-    $threshold = $map[ $settings['level'] ] ?? 1;
-    $incoming  = $map[ strtolower( $level ) ] ?? 3;
+    $threshold = $map[ $settings['level'] ] ?? 20;
+    $incoming  = $map[ strtolower( $level ) ] ?? 40;
 
     return $incoming >= $threshold;
 }
@@ -151,6 +157,9 @@ function dsb_prune_logs( int $retention_days ): void {
 
 function dsb_log( $level, $message, array $context = [] ): void {
     $level = strtolower( (string) $level );
+    if ( ! dsb_debug_is_enabled() ) {
+        return;
+    }
     if ( ! dsb_should_log( $level ) ) {
         return;
     }
@@ -216,6 +225,10 @@ function dsb_get_log_tail( int $lines = 200 ): string {
 }
 
 function dsb_clear_logs(): void {
+    dsb_delete_all_logs();
+}
+
+function dsb_delete_all_logs(): void {
     $dir = dsb_get_log_dir();
     if ( ! is_dir( $dir ) ) {
         return;
@@ -229,9 +242,27 @@ function dsb_clear_logs(): void {
     if ( file_exists( $legacy ) ) {
         @unlink( $legacy );
     }
+
+    $index    = trailingslashit( $dir ) . 'index.php';
+    $htaccess = trailingslashit( $dir ) . '.htaccess';
+
+    if ( file_exists( $index ) && is_file( $index ) && count( glob( $dir . '*', GLOB_NOSORT ) ) === 1 ) {
+        @unlink( $index );
+    }
+    if ( file_exists( $htaccess ) && is_file( $htaccess ) ) {
+        @unlink( $htaccess );
+    }
+
+    $remaining = glob( $dir . '*', GLOB_NOSORT );
+    if ( empty( $remaining ) ) {
+        @rmdir( $dir );
+    }
 }
 
 function dsb_handle_js_log(): void {
+    if ( ! dsb_debug_is_enabled() ) {
+        wp_send_json_error( [ 'message' => 'debug_disabled' ], 403 );
+    }
     if ( ! current_user_can( 'manage_options' ) ) {
         wp_send_json_error( [ 'message' => 'forbidden' ], 403 );
     }

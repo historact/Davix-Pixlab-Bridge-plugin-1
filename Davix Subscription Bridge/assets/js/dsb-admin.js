@@ -1,4 +1,8 @@
 (function($){
+    if (window.DSB_ADMIN_INIT_DONE) {
+        return;
+    }
+    window.DSB_ADMIN_INIT_DONE = true;
     try {
         var config = window.DSB_ADMIN || {};
         window.DSB_ADMIN = config;
@@ -110,13 +114,13 @@
 
             var hasPicker = typeof $.fn.wpColorPicker === 'function';
             var colorCount = $('.dsb-color-field').length;
-            console.log('[DSB] wpColorPicker exists?', hasPicker, 'fields', colorCount);
-            dsbSendLog('info', 'STYLE_INIT', { hasPicker: hasPicker, fieldCount: colorCount });
-            if (hasPicker && colorCount) {
-                $('.dsb-color-field').wpColorPicker();
-                dsbSendLog('info', 'WPCOLORPICKER_INIT_DONE', {});
-            } else {
-                dsbSendLog('warn', 'WPCOLORPICKER_INIT_SKIPPED', { hasPicker: hasPicker, fieldCount: colorCount });
+            if (config && config.tab === 'style' && (hasPicker || colorCount)) {
+                console.log('[DSB] wpColorPicker exists?', hasPicker, 'fields', colorCount);
+                dsbSendLog('info', 'STYLE_INIT', { hasPicker: hasPicker, fieldCount: colorCount });
+                if (hasPicker && colorCount) {
+                    $('.dsb-color-field').wpColorPicker();
+                    dsbSendLog('info', 'WPCOLORPICKER_INIT_DONE', {});
+                }
             }
 
             function getModal(){
