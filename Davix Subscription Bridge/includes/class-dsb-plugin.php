@@ -62,6 +62,7 @@ class DSB_Plugin {
 
     public function init(): void {
         load_plugin_textdomain( 'davix-sub-bridge', false, dirname( plugin_basename( DSB_PLUGIN_FILE ) ) . '/languages' );
+        $this->db->migrate();
         $this->admin->init();
         $this->events->init();
         $this->dashboard->init();
