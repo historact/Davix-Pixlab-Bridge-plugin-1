@@ -368,6 +368,9 @@ class DSB_Client {
                 [
                     'subscription_id' => sanitize_text_field( $payload['subscription_id'] ?? '' ),
                     'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
+                    'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : null,
+                    'customer_name'   => isset( $payload['customer_name'] ) ? sanitize_text_field( $payload['customer_name'] ) : null,
+                    'subscription_status' => isset( $payload['subscription_status'] ) ? sanitize_text_field( $payload['subscription_status'] ) : null,
                     'plan_slug'       => sanitize_text_field( $payload['plan_slug'] ?? '' ),
                     'status'          => isset( $payload['event'] ) && in_array( $payload['event'], [ 'cancelled', 'disabled' ], true ) ? 'disabled' : 'active',
                     'key_prefix'      => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], 0, 10 ) : ( $decoded['key_prefix'] ?? null ),
@@ -385,6 +388,9 @@ class DSB_Client {
                 [
                     'subscription_id' => sanitize_text_field( $payload['subscription_id'] ?? '' ),
                     'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
+                    'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : null,
+                    'customer_name'   => isset( $payload['customer_name'] ) ? sanitize_text_field( $payload['customer_name'] ) : null,
+                    'subscription_status' => isset( $payload['subscription_status'] ) ? sanitize_text_field( $payload['subscription_status'] ) : null,
                     'plan_slug'       => sanitize_text_field( $payload['plan_slug'] ?? '' ),
                     'status'          => 'error',
                     'last_action'     => $payload['event'] ?? '',
