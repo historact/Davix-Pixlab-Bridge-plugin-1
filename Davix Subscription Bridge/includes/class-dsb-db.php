@@ -193,9 +193,27 @@ class DSB_DB {
         }
 
         if ( $existing ) {
-            if ( null === $data['valid_until'] && ! empty( $existing['valid_until'] ) ) {
+            if ( ( null === $data['valid_until'] || '' === $data['valid_until'] ) && ! empty( $existing['valid_until'] ) ) {
+                dsb_log(
+                    'debug',
+                    'Key valid_until retained',
+                    [
+                        'subscription_id' => $existing['subscription_id'],
+                        'old_valid_until' => $existing['valid_until'],
+                        'new_valid_until' => $data['valid_until'],
+                    ]
+                );
                 $data['valid_until'] = $existing['valid_until'];
-                dsb_log( 'debug', 'Retaining existing valid_until on upsert', [ 'subscription_id' => $existing['subscription_id'] ] );
+            } elseif ( empty( $existing['valid_until'] ) && ! empty( $data['valid_until'] ) ) {
+                dsb_log(
+                    'info',
+                    'Key valid_until updated',
+                    [
+                        'subscription_id' => $existing['subscription_id'],
+                        'old_valid_until' => $existing['valid_until'],
+                        'new_valid_until' => $data['valid_until'],
+                    ]
+                );
             }
 
             if ( empty( $data['subscription_id'] ) ) {
