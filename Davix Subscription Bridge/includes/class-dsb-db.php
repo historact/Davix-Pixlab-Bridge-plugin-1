@@ -161,7 +161,7 @@ class DSB_DB {
         $data['wp_user_id']          = $data['wp_user_id'] ? absint( $data['wp_user_id'] ) : null;
         $data['customer_name']       = $data['customer_name'] ? sanitize_text_field( $data['customer_name'] ) : null;
         $data['subscription_status'] = $data['subscription_status'] ? sanitize_text_field( $data['subscription_status'] ) : null;
-        $data['plan_slug']           = sanitize_text_field( $data['plan_slug'] );
+        $data['plan_slug']           = sanitize_text_field( dsb_normalize_plan_slug( $data['plan_slug'] ) );
         $data['status']              = sanitize_text_field( $data['status'] );
         $data['key_prefix']          = $data['key_prefix'] ? sanitize_text_field( $data['key_prefix'] ) : null;
         $data['key_last4']           = $data['key_last4'] ? sanitize_text_field( $data['key_last4'] ) : null;
@@ -193,9 +193,27 @@ class DSB_DB {
         }
 
         if ( $existing ) {
-            if ( null === $data['valid_until'] && null !== $existing['valid_until'] ) {
+            if ( ( null === $data['valid_until'] || '' === $data['valid_until'] ) && ! empty( $existing['valid_until'] ) ) {
+                dsb_log(
+                    'debug',
+                    'Key valid_until retained',
+                    [
+                        'subscription_id' => $existing['subscription_id'],
+                        'old_valid_until' => $existing['valid_until'],
+                        'new_valid_until' => $data['valid_until'],
+                    ]
+                );
                 $data['valid_until'] = $existing['valid_until'];
-                dsb_log( 'debug', 'Retaining existing valid_until on upsert', [ 'subscription_id' => $existing['subscription_id'] ] );
+            } elseif ( empty( $existing['valid_until'] ) && ! empty( $data['valid_until'] ) ) {
+                dsb_log(
+                    'info',
+                    'Key valid_until updated',
+                    [
+                        'subscription_id' => $existing['subscription_id'],
+                        'old_valid_until' => $existing['valid_until'],
+                        'new_valid_until' => $data['valid_until'],
+                    ]
+                );
             }
 
             if ( empty( $data['subscription_id'] ) ) {
