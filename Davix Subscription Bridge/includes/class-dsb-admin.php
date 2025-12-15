@@ -105,6 +105,7 @@ class DSB_Admin {
             [
                 'ajaxUrl' => admin_url( 'admin-ajax.php' ),
                 'nonce'   => wp_create_nonce( 'dsb_js_log' ),
+                'ajax_nonce' => wp_create_nonce( 'dsb_admin_ajax' ),
                 'page'    => $page,
                 'tab'     => $tab,
                 'debug'   => ! empty( $settings['debug_enabled'] ),
