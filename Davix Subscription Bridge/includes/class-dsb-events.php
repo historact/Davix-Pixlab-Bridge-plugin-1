@@ -260,13 +260,12 @@ class DSB_Events {
         $success = $result && ( $result['decoded']['status'] ?? '' ) === 'ok';
 
         if ( $order instanceof \WC_Order ) {
-            $event_label = $event_name ?: ( $payload['event'] ?? '' );
+            $event_label = $payload['event'] ?? ( $event_name ?: '' );
             $context     = [
                 'order_id'                => $order->get_id(),
                 'event'                   => $event_label,
                 'attempt'                 => $attempt,
                 'subscription_id'         => $payload['subscription_id'] ?? '',
-                'external_subscription_id'=> $payload['external_subscription_id'] ?? '',
                 'plan_slug'               => $payload['plan_slug'] ?? '',
                 'http_code'               => $result['code'] ?? null,
                 'response_status'         => $result['decoded']['status'] ?? null,
@@ -783,7 +782,6 @@ class DSB_Events {
         $wp_user_id           = 0;
         $customer_name        = '';
         $subscription_status  = '';
-        $external_subscription_id = '';
 
         if ( $order ) {
             $customer_email = $order->get_billing_email();
@@ -876,10 +874,6 @@ class DSB_Events {
             );
         }
 
-        if ( ! $subscription_id && $order_id ) {
-            $external_subscription_id = 'order:' . $order_id;
-        }
-
         $subscription_status = $this->resolve_subscription_status( $subscription_id, $order );
 
         dsb_log(
@@ -887,7 +881,6 @@ class DSB_Events {
             'Payload identity resolved',
             [
                 'subscription_id'     => $subscription_id,
-                'external_subscription_id' => $external_subscription_id,
                 'wp_user_id'          => $wp_user_id ?: null,
                 'customer_email_set'  => (bool) $customer_email,
                 'customer_name_set'   => (bool) $customer_name,
@@ -895,18 +888,37 @@ class DSB_Events {
             ]
         );
 
+        if ( ! $subscription_id ) {
+            $event = 'activated';
+
+            if ( ! $order_id ) {
+                dsb_log(
+                    'warning',
+                    'Order ID missing for activation without subscription; payload skipped',
+                    [
+                        'subscription_id' => $subscription_id,
+                        'event'           => $event,
+                    ]
+                );
+
+                return null;
+            }
+        }
+
         $payload = [
-            'event'                   => $event,
-            'customer_email'          => $customer_email,
-            'customer_name'           => $customer_name,
-            'wp_user_id'              => $wp_user_id,
-            'subscription_status'     => $subscription_status,
-            'plan_slug'               => $plan_slug,
-            'subscription_id'         => $subscription_id,
-            'external_subscription_id'=> $external_subscription_id,
-            'order_id'                => $order_id,
-            'product_id'              => $product_id,
+            'event'               => $event,
+            'customer_email'      => $customer_email,
+            'customer_name'       => $customer_name,
+            'wp_user_id'          => $wp_user_id,
+            'subscription_status' => $subscription_status,
+            'plan_slug'           => $plan_slug,
+            'order_id'            => $order_id,
+            'product_id'          => $product_id,
         ] + $this->maybe_add_validity_window( $event, $product_id, $order, $subscription_id, $customer_email, $plan_slug );
+
+        if ( $subscription_id ) {
+            $payload['subscription_id'] = $subscription_id;
+        }
 
         if ( 'activated' === $event && $subscription_id && empty( $payload['valid_until'] ) ) {
             $this->schedule_valid_until_backfill( $subscription_id, $order );

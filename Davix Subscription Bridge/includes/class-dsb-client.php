@@ -348,8 +348,8 @@ class DSB_Client {
         }
 
         $subscription_identifier = sanitize_text_field( $payload['subscription_id'] ?? '' );
-        if ( ! $subscription_identifier && isset( $payload['external_subscription_id'] ) ) {
-            $subscription_identifier = sanitize_text_field( $payload['external_subscription_id'] );
+        if ( ! $subscription_identifier && isset( $payload['order_id'] ) ) {
+            $subscription_identifier = sanitize_text_field( (string) $payload['order_id'] );
         }
 
         if ( $decoded && 'ok' === ( $decoded['status'] ?? '' ) ) {
