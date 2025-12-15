@@ -834,6 +834,21 @@ class DSB_Events {
             }
         }
 
+        $raw_plan_slug   = $plan_slug;
+        $plan_slug       = dsb_normalize_plan_slug( $plan_slug );
+        $normalized_plan = $plan_slug;
+
+        dsb_log(
+            'debug',
+            'Plan slug resolved',
+            [
+                'product_id'      => $product_id ?: null,
+                'raw_plan_slug'   => $raw_plan_slug,
+                'plan_slug'       => $normalized_plan,
+                'plan_map_source' => isset( $plans[ $product_id ] ) ? 'product_plan_option' : 'meta',
+            ]
+        );
+
         if ( ! $plan_slug && $product_id ) {
             $this->db->log_event(
                 [
@@ -928,101 +943,94 @@ class DSB_Events {
     }
 
     protected function maybe_add_validity_window( string $event, int $product_id, ?\WC_Order $order, string $subscription_id, string $customer_email, string $plan_slug ): array {
-        $eligible_events = [ 'activated', 'renewed' ];
+        $eligible_events = [ 'activated', 'renewed', 'active', 'reactivated' ];
         if ( ! in_array( $event, $eligible_events, true ) ) {
             return [];
         }
 
-        $payload = [];
-
-        if ( $subscription_id ) {
-            $wps_expiry = $this->get_wps_expiry_datetime_for_subscription( $subscription_id );
-            if ( $wps_expiry ) {
-                $activation = $this->determine_activation_time( $order );
-                if ( ! $activation ) {
-                    try {
-                        $activation = new \DateTimeImmutable( 'now', wp_timezone() );
-                    } catch ( \Throwable $e ) {
-                        $activation = null;
-                    }
-                }
-
-                if ( $activation ) {
-                    $payload['valid_from'] = $this->format_datetime_for_node( $activation );
-                }
-
-                $payload['valid_until'] = $wps_expiry;
-
-                dsb_log(
-                    'info',
-                    'valid_until resolved',
-                    [
-                        'subscription_id'          => $subscription_id,
-                        'order_id'                 => $order ? $order->get_id() : null,
-                        'valid_from_set'           => isset( $payload['valid_from'] ),
-                        'valid_until_source'       => $this->last_valid_until_source ?: 'unknown',
-                        'valid_until_value'        => $wps_expiry,
-                        'cached_valid_until_meta'  => (bool) get_post_meta( $subscription_id, '_dsb_wps_valid_until', true ),
-                    ]
-                );
-
-                return $payload;
-            }
+        $payload    = [];
+        $activation = $this->determine_activation_time( $order );
+        if ( $activation ) {
+            $payload['valid_from'] = $this->format_datetime_for_node( $activation );
         }
 
-        $interval = $this->get_product_expiry_interval( $product_id );
-        if ( ! $interval ) {
-            dsb_log( 'debug', 'valid_until branch: none', [ 'subscription_id' => $subscription_id, 'order_id' => $order ? $order->get_id() : null ] );
-            return [];
+        $valid_until_dt = $this->resolve_valid_until( $event, $product_id, $order, $subscription_id, $customer_email, $plan_slug, $activation );
+
+        if ( $valid_until_dt ) {
+            $payload['valid_until'] = $this->format_datetime_for_node( $valid_until_dt );
         }
 
-        $start_dt    = null;
-        $valid_until = null;
-
-        if ( 'renewed' === $event ) {
-            $existing = $this->fetch_current_validity( $subscription_id, $customer_email );
-            if ( isset( $existing['valid_until'] ) ) {
-                $valid_until = $this->format_datetime_for_node( $existing['valid_until']->add( $interval ) );
-            } elseif ( isset( $existing['valid_from'] ) ) {
-                $start_dt    = $existing['valid_from'];
-                $valid_until = $this->format_datetime_for_node( $start_dt->add( $interval ) );
-            }
-
-            if ( ! $start_dt ) {
-                $activation = $this->determine_activation_time( $order );
-                if ( $activation ) {
-                    $start_dt = $activation;
-                }
-            }
-
-            if ( ! $valid_until && $start_dt ) {
-                $valid_until = $this->format_datetime_for_node( $start_dt->add( $interval ) );
-            }
-        } else {
-            $activation = $this->determine_activation_time( $order );
-            if ( $activation ) {
-                $valid_until = $this->format_datetime_for_node( $activation->add( $interval ) );
-            }
-        }
-
-        $payload = [];
-        if ( $valid_until ) {
-            $payload['valid_until'] = $valid_until;
-            dsb_log(
-                'info',
-                'valid_until branch: interval',
-                [
-                    'subscription_id' => $subscription_id,
-                    'order_id'        => $order ? $order->get_id() : null,
-                    'event'           => $event,
-                ]
-            );
-        }
+        dsb_log(
+            'info',
+            'validity window resolved',
+            [
+                'subscription_id'    => $subscription_id,
+                'order_id'           => $order ? $order->get_id() : null,
+                'event'              => $event,
+                'valid_from_set'     => isset( $payload['valid_from'] ),
+                'valid_until_set'    => isset( $payload['valid_until'] ),
+                'valid_until_source' => $this->last_valid_until_source ?: 'unknown',
+                'valid_until_value'  => $payload['valid_until'] ?? null,
+            ]
+        );
 
         return $payload;
     }
 
-    private function get_wps_expiry_datetime_for_subscription( $subscription_id ): ?string {
+    protected function resolve_valid_until( string $event, int $product_id, ?\WC_Order $order, string $subscription_id, string $customer_email, string $plan_slug, ?\DateTimeImmutable $activation ): ?\DateTimeImmutable {
+        $this->last_valid_until_source = '';
+
+        $wps_expiry = $this->get_wps_expiry_datetime_for_subscription( $subscription_id );
+        if ( $wps_expiry ) {
+            $this->last_valid_until_source = $this->last_valid_until_source ?: 'wps_meta';
+            $this->cache_valid_until( $subscription_id, $wps_expiry, $this->last_valid_until_source );
+            return $wps_expiry;
+        }
+
+        $interval = $this->get_product_expiry_interval( $product_id );
+        if ( ! $interval ) {
+            return null;
+        }
+
+        $base = $activation;
+        if ( 'renewed' === $event ) {
+            $existing = $this->fetch_current_validity( $subscription_id, $customer_email );
+            if ( isset( $existing['valid_until'] ) ) {
+                $base = $existing['valid_until'];
+            } elseif ( isset( $existing['valid_from'] ) ) {
+                $base = $existing['valid_from'];
+            }
+        }
+
+        if ( ! $base ) {
+            $base = $this->determine_activation_time( $order );
+        }
+
+        if ( ! $base ) {
+            try {
+                $base = ( new \DateTimeImmutable( '@' . current_time( 'timestamp', true ) ) )->setTimezone( wp_timezone() );
+            } catch ( \Throwable $e ) {
+                $base = null;
+            }
+        }
+
+        if ( ! $base ) {
+            return null;
+        }
+
+        try {
+            $valid_until = $base->add( $interval );
+        } catch ( \Throwable $e ) {
+            return null;
+        }
+
+        $this->last_valid_until_source = 'computed_from_product';
+        $this->cache_valid_until( $subscription_id, $valid_until, $this->last_valid_until_source );
+
+        return $valid_until;
+    }
+
+    private function get_wps_expiry_datetime_for_subscription( $subscription_id ): ?\DateTimeImmutable {
         $subscription_id = (int) $subscription_id;
         if ( $subscription_id <= 0 ) {
             return null;
@@ -1045,7 +1053,7 @@ class DSB_Events {
                         'filter_empty'    => null,
                     ]
                 );
-                return $this->format_datetime_for_node( $dt );
+                return $dt;
             }
         }
 
@@ -1064,7 +1072,7 @@ class DSB_Events {
                     'filter_empty'    => $filter_empty,
                 ]
             );
-            return $this->format_datetime_for_node( $dt );
+            return $dt;
         }
 
         $all_meta = get_post_meta( $subscription_id );
@@ -1088,7 +1096,7 @@ class DSB_Events {
                                     'filter_empty'    => $filter_empty,
                                 ]
                             );
-                            return $this->format_datetime_for_node( $dt );
+                            return $dt;
                         }
                         break;
                     }
@@ -1109,6 +1117,21 @@ class DSB_Events {
         );
 
         return null;
+    }
+
+    protected function cache_valid_until( string $subscription_id, \DateTimeInterface $valid_until, string $source ): void {
+        if ( ! $subscription_id ) {
+            return;
+        }
+
+        try {
+            $utc = $valid_until->setTimezone( new \DateTimeZone( 'UTC' ) )->format( 'Y-m-d H:i:s' );
+            update_post_meta( (int) $subscription_id, '_dsb_wps_valid_until', $utc );
+            update_post_meta( (int) $subscription_id, '_dsb_wps_valid_until_source', $source );
+            update_post_meta( (int) $subscription_id, '_dsb_wps_valid_until_captured_at', current_time( 'mysql', true ) );
+        } catch ( \Throwable $e ) {
+            // Silence caching errors.
+        }
     }
 
     private function parse_expiry_value( $value ): ?\DateTimeImmutable {
@@ -1161,6 +1184,8 @@ class DSB_Events {
         }
 
         $value_keys = [
+            'wp_sw_subscription_expiry_number',
+            'wp_sw_subscription_number',
             'wps_sfw_subscription_expiry_interval',
             'wps_sfw_subscription_expiry_value',
             'wps_sfw_subs_expiry_interval',
@@ -1168,6 +1193,8 @@ class DSB_Events {
             'wps_sfw_expiry_interval',
         ];
         $unit_keys  = [
+            'wp_sw_subscription_expiry_interval',
+            'wp_sw_subscription_interval',
             'wps_sfw_subscription_expiry_interval_type',
             'wps_sfw_subscription_expiry_unit',
             'wps_sfw_subs_expiry_interval_type',

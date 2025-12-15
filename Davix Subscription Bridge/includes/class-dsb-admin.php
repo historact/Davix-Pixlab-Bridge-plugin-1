@@ -257,7 +257,7 @@ class DSB_Admin {
 
     public function save_plan_limits_meta( \WC_Product $product ): void {
         $fields = [
-            '_dsb_plan_slug'             => 'sanitize_text_field',
+            '_dsb_plan_slug'             => 'dsb_normalize_plan_slug',
             '_dsb_monthly_quota_files'   => 'absint',
             '_dsb_max_files_per_request' => 'absint',
             '_dsb_max_total_upload_mb'   => 'absint',
@@ -267,8 +267,8 @@ class DSB_Admin {
 
         foreach ( $fields as $key => $callback ) {
             $value = isset( $_POST[ $key ] ) ? call_user_func( $callback, wp_unslash( $_POST[ $key ] ) ) : '';
-            if ( '_dsb_plan_slug' === $key && ! $value ) {
-                $value = str_replace( '-', '_', sanitize_title( $product->get_slug() ) );
+            if ( '_dsb_plan_slug' === $key ) {
+                $value = $value ? dsb_normalize_plan_slug( $value ) : dsb_normalize_plan_slug( $product->get_slug() );
             }
             $product->update_meta_data( $key, $value );
         }
@@ -281,7 +281,7 @@ class DSB_Admin {
 
     protected function get_plan_limits_defaults( \WC_Product $product ): array {
         $defaults = [
-            'plan_slug'             => $product->get_meta( '_dsb_plan_slug', true ) ?: str_replace( '-', '_', sanitize_title( $product->get_slug() ) ),
+            'plan_slug'             => dsb_normalize_plan_slug( $product->get_meta( '_dsb_plan_slug', true ) ?: $product->get_slug() ),
             'monthly_quota_files'   => (int) $product->get_meta( '_dsb_monthly_quota_files', true ) ?: 1000,
             'max_files_per_request' => (int) $product->get_meta( '_dsb_max_files_per_request', true ) ?: 10,
             'max_total_upload_mb'   => (int) $product->get_meta( '_dsb_max_total_upload_mb', true ) ?: 10,
@@ -347,8 +347,9 @@ class DSB_Admin {
                     foreach ( $_POST['dsb_plan_slug_meta'] as $product_id => $slug ) {
                         $pid = absint( $product_id );
                         if ( $pid > 0 ) {
-                        update_post_meta( $pid, '_dsb_plan_slug', sanitize_text_field( wp_unslash( $slug ) ) );
-                    }
+                            $normalized = dsb_normalize_plan_slug( wp_unslash( $slug ) );
+                            update_post_meta( $pid, '_dsb_plan_slug', $normalized );
+                        }
                     }
                 }
                 $updated_settings = $this->client->get_settings();
@@ -387,7 +388,7 @@ class DSB_Admin {
             $pair_count = min( count( $ids ), count( $slugs ) );
             for ( $i = 0; $i < $pair_count; $i ++ ) {
                 $pid  = sanitize_text_field( $ids[ $i ] );
-                $slug = sanitize_text_field( $slugs[ $i ] );
+                $slug = dsb_normalize_plan_slug( sanitize_text_field( $slugs[ $i ] ) );
                 if ( '' !== $pid && '' !== $slug ) {
                     $plans[ $pid ] = $slug;
                 }
@@ -432,7 +433,7 @@ class DSB_Admin {
                     $email = $user->user_email;
                 }
             }
-            $plan_slug      = isset( $_POST['plan_slug'] ) ? sanitize_text_field( wp_unslash( $_POST['plan_slug'] ) ) : '';
+            $plan_slug      = isset( $_POST['plan_slug'] ) ? dsb_normalize_plan_slug( sanitize_text_field( wp_unslash( $_POST['plan_slug'] ) ) ) : '';
             $subscriptionId = isset( $_POST['subscription_id'] ) ? sanitize_text_field( wp_unslash( $_POST['subscription_id'] ) ) : '';
             $order_id       = isset( $_POST['order_id'] ) ? sanitize_text_field( wp_unslash( $_POST['order_id'] ) ) : '';
             $valid_from_raw  = isset( $_POST['valid_from'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_from'] ) ) : '';
@@ -634,7 +635,7 @@ class DSB_Admin {
                                 <?php foreach ( $plan_candidates as $product ) : ?>
                                     <?php $pid = $product->get_id();
                                     $checked = in_array( $pid, $plan_products, true );
-                                    $plan_slug_meta = get_post_meta( $pid, '_dsb_plan_slug', true );
+                                    $plan_slug_meta = dsb_normalize_plan_slug( get_post_meta( $pid, '_dsb_plan_slug', true ) );
                                     ?>
                                     <tr>
                                         <td><input type="checkbox" name="plan_products[]" value="<?php echo esc_attr( $pid ); ?>" <?php checked( $checked ); ?> /></td>

@@ -151,7 +151,11 @@ class DSB_Client {
             if ( $pid <= 0 ) {
                 continue;
             }
-            $clean[ $pid ] = sanitize_text_field( $plan_slug );
+            $clean[ $pid ] = dsb_normalize_plan_slug( $plan_slug );
+        }
+
+        if ( $clean !== $plans ) {
+            update_option( self::OPTION_PRODUCT_PLANS, $clean );
         }
 
         return $clean;
@@ -223,22 +227,22 @@ class DSB_Client {
                 if ( $pid <= 0 ) {
                     continue;
                 }
-                $plans[ $pid ] = sanitize_text_field( $plan_slug );
+                $plans[ $pid ] = dsb_normalize_plan_slug( sanitize_text_field( $plan_slug ) );
             }
         }
 
         foreach ( $plan_products as $pid ) {
-            $slug = isset( $plan_slug_meta[ $pid ] ) ? sanitize_text_field( $plan_slug_meta[ $pid ] ) : '';
+            $slug = isset( $plan_slug_meta[ $pid ] ) ? dsb_normalize_plan_slug( sanitize_text_field( $plan_slug_meta[ $pid ] ) ) : '';
 
             if ( ! $slug ) {
-                $existing_slug = get_post_meta( $pid, '_dsb_plan_slug', true );
+                $existing_slug = dsb_normalize_plan_slug( get_post_meta( $pid, '_dsb_plan_slug', true ) );
                 $slug          = $existing_slug ? $existing_slug : '';
             }
 
             if ( ! $slug ) {
                 $product = wc_get_product( $pid );
                 if ( $product ) {
-                    $slug = str_replace( '-', '_', sanitize_title( $product->get_slug() ) );
+                    $slug = dsb_normalize_plan_slug( $product->get_slug() );
                 }
             }
 
@@ -327,6 +331,7 @@ class DSB_Client {
     }
 
     public function send_event( array $payload ): array {
+        $payload['plan_slug'] = isset( $payload['plan_slug'] ) ? dsb_normalize_plan_slug( $payload['plan_slug'] ) : '';
         $response = $this->request( '/internal/subscription/event', 'POST', $payload );
         $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
         $decoded  = $body ? json_decode( $body, true ) : null;
@@ -495,6 +500,9 @@ class DSB_Client {
     }
 
     public function sync_plan( array $payload ) {
+        if ( isset( $payload['plan_slug'] ) ) {
+            $payload['plan_slug'] = dsb_normalize_plan_slug( $payload['plan_slug'] );
+        }
         return $this->request( '/internal/wp-sync/plan', 'POST', $payload );
     }
 
