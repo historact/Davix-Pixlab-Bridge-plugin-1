@@ -50,7 +50,7 @@
                     data: function(params){
                         return {
                             action: action,
-                            nonce: config.nonce,
+                            nonce: config.ajax_nonce || config.nonce,
                             q: params.term || ''
                         };
                     },

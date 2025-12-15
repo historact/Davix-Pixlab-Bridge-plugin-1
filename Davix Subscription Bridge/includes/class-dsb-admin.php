@@ -105,6 +105,7 @@ class DSB_Admin {
             [
                 'ajaxUrl' => admin_url( 'admin-ajax.php' ),
                 'nonce'   => wp_create_nonce( 'dsb_js_log' ),
+                'ajax_nonce' => wp_create_nonce( 'dsb_admin_ajax' ),
                 'page'    => $page,
                 'tab'     => $tab,
                 'debug'   => ! empty( $settings['debug_enabled'] ),
@@ -1634,30 +1635,49 @@ class DSB_Admin {
         }
         $term = isset( $_GET['q'] ) ? sanitize_text_field( wp_unslash( $_GET['q'] ) ) : '';
 
-        $post_types = [ 'shop_subscription', 'wps_subscriptions', 'wps_sfw_subscription', 'wps-subscription' ];
-        foreach ( get_post_types( [], 'names' ) as $type ) {
-            if ( false !== strpos( $type, 'subscription' ) && ! in_array( $type, $post_types, true ) ) {
-                $post_types[] = $type;
+        $subscription_types = [ 'wps_subscriptions', 'shop_subscription', 'wps_sfw_subscription', 'wps-subscription' ];
+        $args               = [
+            'type'    => $subscription_types,
+            'limit'   => 20,
+            'orderby' => 'date',
+            'order'   => 'DESC',
+        ];
+
+        if ( $term ) {
+            $args['search'] = '*' . $term . '*';
+
+            if ( is_numeric( $term ) ) {
+                $args['include'] = [ absint( $term ) ];
+            }
+
+            if ( is_email( $term ) ) {
+                $args['billing_email'] = $term;
             }
         }
 
-        $query = new \WP_Query(
-            [
-                'post_type'      => $post_types,
-                'post_status'    => 'any',
-                's'              => $term,
-                'posts_per_page' => 20,
-            ]
-        );
+        $orders  = wc_get_orders( $args );
         $results = [];
-        foreach ( $query->posts as $post ) {
-            $email  = $this->find_subscription_email( $post->ID );
-            $status = get_post_status( $post );
+
+        foreach ( $orders as $order ) {
+            if ( ! $order instanceof \WC_Order ) {
+                continue;
+            }
+
+            $email = $order->get_billing_email();
+            $name  = trim( $order->get_formatted_billing_full_name() );
+            $label = $email ?: $name;
+
             $results[] = [
-                'id'   => (string) $post->ID,
-                'text' => $post->ID . ' — ' . $status . ' — ' . $email,
+                'id'   => (string) $order->get_id(),
+                'text' => sprintf(
+                    '%1$s — %2$s — %3$s',
+                    $order->get_id(),
+                    $order->get_status(),
+                    $label ?: __( '(no email)', 'davix-sub-bridge' )
+                ),
             ];
         }
+
         wp_send_json( [ 'results' => $results ] );
     }
 
