@@ -389,10 +389,14 @@ class DSB_Dashboard_Ajax {
     }
 
     private function normalize_summary_payload( array $decoded ): array {
-        $plan   = $decoded['plan'] ?? [];
-        $key    = $decoded['key'] ?? [];
-        $usage  = $decoded['usage'] ?? [];
+        $plan     = $decoded['plan'] ?? [];
+        $key      = $decoded['key'] ?? [];
+        $usage    = $decoded['usage'] ?? [];
         $usagePer = $usage['per_endpoint'] ?? [];
+
+        $plan_slug_raw = $plan['plan_slug'] ?? ( $plan['slug'] ?? ( $decoded['plan_slug'] ?? '' ) );
+        $plan_slug     = $plan_slug_raw ? dsb_normalize_plan_slug( $plan_slug_raw ) : '';
+        $is_free_plan  = ! empty( $plan['is_free'] ) || ( $plan_slug && 'free' === $plan_slug );
 
         $limit = null;
         if ( isset( $plan['monthly_call_limit'] ) && is_numeric( $plan['monthly_call_limit'] ) ) {
@@ -406,12 +410,18 @@ class DSB_Dashboard_Ajax {
 
         $startUtc = $usage['billing_window']['start_utc'] ?? null;
         $endUtc   = $usage['billing_window']['end_utc'] ?? null;
-        $validFrom = $this->fmt_date_ymd( $key['valid_from'] ?? null );
-        $validUntil = $this->fmt_date_ymd( $key['valid_until'] ?? null );
+        $rawValidFrom = $key['valid_from'] ?? null;
+        $rawValidUntil = $key['valid_until'] ?? null;
+
+        $validFrom  = $this->fmt_date_ymd( $rawValidFrom );
+        $validUntil = $this->fmt_date_ymd( $rawValidUntil );
         $hasFrom = $validFrom && '—' !== $validFrom;
         $hasUntil = $validUntil && '—' !== $validUntil;
         $validity = '';
-        if ( $hasFrom && $hasUntil ) {
+        if ( $is_free_plan && ( empty( $rawValidUntil ) || '—' === $validUntil ) ) {
+            list( $windowStart, $windowEnd ) = $this->compute_free_window_strings();
+            $validity = $windowStart . ' – ' . $windowEnd;
+        } elseif ( $hasFrom && $hasUntil ) {
             $validity = $validFrom . ' – ' . $validUntil;
         } elseif ( $hasFrom ) {
             $validity = sprintf( __( 'Valid from %s', 'davix-sub-bridge' ), $validFrom );
@@ -452,6 +462,45 @@ class DSB_Dashboard_Ajax {
             ],
             'plan_validity' => $validity,
         ];
+    }
+
+    private function compute_free_window_strings( ?\DateTimeInterface $now = null, bool $run_sanity_checks = true ): array {
+        $tz       = new \DateTimeZone( 'UTC' );
+        $current  = $now ? ( new \DateTimeImmutable( '@' . $now->getTimestamp() ) )->setTimezone( $tz ) : new \DateTimeImmutable( 'now', $tz );
+        $window_0 = $current->modify( 'first day of this month 00:00:00' );
+        $window_1 = $window_0->modify( '+1 month' );
+
+        if ( $run_sanity_checks ) {
+            $this->sanity_check_free_window_logic();
+        }
+
+        return [
+            $window_0->format( 'Y/m/d' ),
+            $window_1->format( 'Y/m/d' ),
+        ];
+    }
+
+    private function sanity_check_free_window_logic(): void {
+        $tz        = new \DateTimeZone( 'UTC' );
+        $examples  = [
+            '2023-12-17T12:00:00Z' => [ '2023/12/01', '2024/01/01' ],
+            '2024-01-02T00:00:00Z' => [ '2024/01/01', '2024/02/01' ],
+        ];
+
+        foreach ( $examples as $iso => $expected ) {
+            $date = new \DateTimeImmutable( $iso, $tz );
+            list( $start, $end ) = $this->compute_free_window_strings( $date, false );
+            if ( $start !== $expected[0] || $end !== $expected[1] ) {
+                dsb_log( 'warning', 'Free window sanity check failed', [
+                    'now'     => $iso,
+                    'start'   => $start,
+                    'end'     => $end,
+                    'expect0' => $expected[0],
+                    'expect1' => $expected[1],
+                ] );
+                break;
+            }
+        }
     }
 
     private function normalize_logs_payload( array $decoded, int $page, int $per_page ): array {
