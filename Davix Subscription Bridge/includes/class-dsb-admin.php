@@ -10,15 +10,17 @@ class DSB_Admin {
     protected $db;
     protected $events;
     protected $resync;
+    protected $purge_worker;
     protected $notices = [];
     protected $synced_product_ids = [];
     protected $diagnostics_result = null;
 
-    public function __construct( DSB_Client $client, DSB_DB $db, DSB_Events $events, DSB_Resync $resync ) {
-        $this->client = $client;
-        $this->db     = $db;
-        $this->events = $events;
-        $this->resync = $resync;
+    public function __construct( DSB_Client $client, DSB_DB $db, DSB_Events $events, DSB_Resync $resync, DSB_Purge_Worker $purge_worker ) {
+        $this->client       = $client;
+        $this->db           = $db;
+        $this->events       = $events;
+        $this->resync       = $resync;
+        $this->purge_worker = $purge_worker;
     }
 
     public function init(): void {
@@ -545,6 +547,7 @@ class DSB_Admin {
             $action          = isset( $_POST['dsb_action'] ) ? sanitize_key( wp_unslash( $_POST['dsb_action'] ) ) : '';
             $subscription_id = isset( $_POST['subscription_id'] ) ? sanitize_text_field( wp_unslash( $_POST['subscription_id'] ) ) : '';
             $customer_email  = isset( $_POST['customer_email'] ) ? sanitize_email( wp_unslash( $_POST['customer_email'] ) ) : '';
+            $wp_user_id      = isset( $_POST['wp_user_id'] ) ? absint( $_POST['wp_user_id'] ) : 0;
 
             if ( 'disable' === $action ) {
                 $response = $this->client->disable_key(
@@ -562,6 +565,17 @@ class DSB_Admin {
                     ]
                 );
                 $this->handle_key_response( $response, __( 'Key rotated.', 'davix-sub-bridge' ) );
+            } elseif ( 'purge' === $action ) {
+                $job_id = $this->db->enqueue_purge_job(
+                    [
+                        'wp_user_id'      => $wp_user_id ?: null,
+                        'customer_email'  => $customer_email,
+                        'subscription_id' => $subscription_id,
+                        'reason'          => 'admin_purge',
+                    ]
+                );
+                $this->purge_worker->run_once();
+                $this->add_notice( sprintf( __( 'Purge enqueued (job #%d).', 'davix-sub-bridge' ), $job_id ?: 0 ) );
             }
         }
     }
@@ -1385,6 +1399,7 @@ class DSB_Admin {
                                 <input type="hidden" name="dsb_action" value="rotate" />
                                 <input type="hidden" name="subscription_id" value="<?php echo esc_attr( $item['subscription_id'] ?? '' ); ?>" />
                                 <input type="hidden" name="customer_email" value="<?php echo esc_attr( $item['customer_email'] ?? '' ); ?>" />
+                                <input type="hidden" name="wp_user_id" value="<?php echo esc_attr( $item['wp_user_id'] ?? '' ); ?>" />
                                 <?php submit_button( __( 'Rotate', 'davix-sub-bridge' ), 'link', '', false ); ?>
                             </form>
                             |
@@ -1393,7 +1408,17 @@ class DSB_Admin {
                                 <input type="hidden" name="dsb_action" value="disable" />
                                 <input type="hidden" name="subscription_id" value="<?php echo esc_attr( $item['subscription_id'] ?? '' ); ?>" />
                                 <input type="hidden" name="customer_email" value="<?php echo esc_attr( $item['customer_email'] ?? '' ); ?>" />
+                                <input type="hidden" name="wp_user_id" value="<?php echo esc_attr( $item['wp_user_id'] ?? '' ); ?>" />
                                 <?php submit_button( __( 'Disable', 'davix-sub-bridge' ), 'link', '', false ); ?>
+                            </form>
+                            |
+                            <form method="post" style="display:inline;">
+                                <?php wp_nonce_field( 'dsb_key_action', 'dsb_key_action_nonce' ); ?>
+                                <input type="hidden" name="dsb_action" value="purge" />
+                                <input type="hidden" name="subscription_id" value="<?php echo esc_attr( $item['subscription_id'] ?? '' ); ?>" />
+                                <input type="hidden" name="customer_email" value="<?php echo esc_attr( $item['customer_email'] ?? '' ); ?>" />
+                                <input type="hidden" name="wp_user_id" value="<?php echo esc_attr( $item['wp_user_id'] ?? '' ); ?>" />
+                                <?php submit_button( __( 'Purge', 'davix-sub-bridge' ), 'link', '', false ); ?>
                             </form>
                         </td>
                     </tr>

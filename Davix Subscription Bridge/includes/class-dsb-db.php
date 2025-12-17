@@ -6,7 +6,7 @@ defined( 'ABSPATH' ) || exit;
 class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
     const OPTION_DB_VERSION          = 'dsb_db_version';
-    const DB_VERSION                 = '1.2.0';
+    const DB_VERSION                 = '1.3.0';
 
     /** @var \wpdb */
     protected $wpdb;
@@ -16,12 +16,15 @@ class DSB_DB {
     protected $table_keys;
     /** @var string */
     protected $table_user;
+    /** @var string */
+    protected $table_purge_queue;
 
     public function __construct( \wpdb $wpdb ) {
         $this->wpdb       = $wpdb;
         $this->table_logs = $wpdb->prefix . 'davix_bridge_logs';
         $this->table_keys = $wpdb->prefix . 'davix_bridge_keys';
         $this->table_user = $wpdb->prefix . 'davix_bridge_user';
+        $this->table_purge_queue = $wpdb->prefix . 'davix_bridge_purge_queue';
     }
 
     public function create_tables(): void {
@@ -41,6 +44,24 @@ class DSB_DB {
             error_excerpt text DEFAULT NULL,
             created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
+            KEY subscription_id (subscription_id)
+        ) $charset_collate;";
+
+        $sql_purge_queue = "CREATE TABLE {$this->table_purge_queue} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            wp_user_id BIGINT UNSIGNED DEFAULT NULL,
+            customer_email varchar(190) DEFAULT NULL,
+            subscription_id varchar(64) DEFAULT NULL,
+            reason varchar(32) NOT NULL,
+            status varchar(16) NOT NULL DEFAULT 'pending',
+            attempts INT NOT NULL DEFAULT 0,
+            last_error text DEFAULT NULL,
+            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            KEY status (status),
+            KEY wp_user_id (wp_user_id),
+            KEY customer_email (customer_email),
             KEY subscription_id (subscription_id)
         ) $charset_collate;";
 
@@ -96,6 +117,10 @@ class DSB_DB {
         dbDelta( $sql_logs );
         dsb_log( 'debug', 'dbDelta result for davix_bridge_logs', [ 'last_error' => $this->wpdb->last_error ] );
 
+        dsb_log( 'debug', 'Running dbDelta for davix_bridge_purge_queue', [ 'sql' => $sql_purge_queue ] );
+        dbDelta( $sql_purge_queue );
+        dsb_log( 'debug', 'dbDelta result for davix_bridge_purge_queue', [ 'last_error' => $this->wpdb->last_error ] );
+
         dsb_log( 'debug', 'Running dbDelta for davix_bridge_keys', [ 'sql' => $sql_keys ] );
         dbDelta( $sql_keys );
         dsb_log( 'debug', 'dbDelta result for davix_bridge_keys', [ 'last_error' => $this->wpdb->last_error ] );
@@ -103,6 +128,8 @@ class DSB_DB {
         dsb_log( 'debug', 'Running dbDelta for davix_bridge_user', [ 'sql' => $sql_user ] );
         dbDelta( $sql_user );
         dsb_log( 'debug', 'dbDelta result for davix_bridge_user', [ 'last_error' => $this->wpdb->last_error ] );
+
+        $this->maybe_create_triggers();
     }
 
     /**
@@ -123,6 +150,220 @@ class DSB_DB {
         $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_logs}" );
         $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_keys}" );
         $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_user}" );
+        $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_purge_queue}" );
+    }
+
+    protected function maybe_create_triggers(): void {
+        $db_name = $this->wpdb->dbname ?? DB_NAME;
+        $trigger_keys = $this->wpdb->prefix . 'dsb_keys_after_delete';
+        $trigger_user = $this->wpdb->prefix . 'dsb_user_after_delete';
+
+        $existing_keys = $this->wpdb->get_var(
+            $this->wpdb->prepare(
+                'SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s',
+                $db_name,
+                $trigger_keys
+            )
+        );
+
+        if ( ! $existing_keys ) {
+            $sql = "CREATE TRIGGER {$trigger_keys} AFTER DELETE ON {$this->table_keys} FOR EACH ROW "
+                . "INSERT INTO {$this->table_purge_queue} (wp_user_id, customer_email, subscription_id, reason, status) "
+                . "VALUES (OLD.wp_user_id, OLD.customer_email, OLD.subscription_id, 'manual_key_delete', 'pending')";
+            $this->wpdb->query( $sql );
+            dsb_log( 'info', 'Created purge trigger for keys', [ 'last_error' => $this->wpdb->last_error ] );
+        }
+
+        $existing_user = $this->wpdb->get_var(
+            $this->wpdb->prepare(
+                'SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s',
+                $db_name,
+                $trigger_user
+            )
+        );
+
+        if ( ! $existing_user ) {
+            $sql = "CREATE TRIGGER {$trigger_user} AFTER DELETE ON {$this->table_user} FOR EACH ROW "
+                . "INSERT INTO {$this->table_purge_queue} (wp_user_id, customer_email, subscription_id, reason, status) "
+                . "VALUES (OLD.wp_user_id, OLD.customer_email, OLD.subscription_id, 'manual_user_delete', 'pending')";
+            $this->wpdb->query( $sql );
+            dsb_log( 'info', 'Created purge trigger for user truth', [ 'last_error' => $this->wpdb->last_error ] );
+        }
+    }
+
+    public function enqueue_purge_job( array $args ): int {
+        $defaults = [
+            'wp_user_id'      => null,
+            'customer_email'  => null,
+            'subscription_id' => null,
+            'subscription_ids'=> [],
+            'reason'          => '',
+        ];
+
+        $data = wp_parse_args( $args, $defaults );
+
+        $wp_user_id     = $data['wp_user_id'] ? absint( $data['wp_user_id'] ) : null;
+        $customer_email = $data['customer_email'] ? sanitize_email( $data['customer_email'] ) : null;
+        $reason         = sanitize_key( $data['reason'] );
+        $subscription_id = $data['subscription_id'] ? sanitize_text_field( $data['subscription_id'] ) : null;
+        $subscription_ids = is_array( $data['subscription_ids'] ) ? array_filter( array_map( 'sanitize_text_field', $data['subscription_ids'] ) ) : [];
+
+        if ( empty( $subscription_id ) && ! empty( $subscription_ids ) ) {
+            $subscription_id = reset( $subscription_ids );
+        }
+
+        $window_minutes = 30;
+        $params         = [ 'pending', $reason ];
+        $identity_parts = [];
+
+        if ( $wp_user_id ) {
+            $identity_parts[] = 'wp_user_id = %d';
+            $params[]         = $wp_user_id;
+        }
+
+        if ( $customer_email ) {
+            $identity_parts[] = 'customer_email = %s';
+            $params[]         = $customer_email;
+        }
+
+        if ( $subscription_id ) {
+            $identity_parts[] = 'subscription_id = %s';
+            $params[]         = $subscription_id;
+        }
+
+        if ( $identity_parts ) {
+            $identity_sql = implode( ' OR ', $identity_parts );
+            $where_sql    = "status = %s AND reason = %s AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {$window_minutes} MINUTE) AND ({$identity_sql})";
+            $existing     = $this->wpdb->get_var( $this->wpdb->prepare( "SELECT id FROM {$this->table_purge_queue} WHERE {$where_sql} LIMIT 1", ...$params ) );
+            if ( $existing ) {
+                return (int) $existing;
+            }
+        }
+
+        $this->wpdb->insert(
+            $this->table_purge_queue,
+            [
+                'wp_user_id'      => $wp_user_id ?: null,
+                'customer_email'  => $customer_email ?: null,
+                'subscription_id' => $subscription_id ?: null,
+                'reason'          => $reason ?: 'manual',
+                'status'          => 'pending',
+            ]
+        );
+
+        return (int) $this->wpdb->insert_id;
+    }
+
+    public function fetch_pending_purge_jobs( int $limit = 20 ): array {
+        $limit = max( 1, min( 100, $limit ) );
+        return $this->wpdb->get_results(
+            $this->wpdb->prepare(
+                "SELECT * FROM {$this->table_purge_queue} WHERE status = %s ORDER BY id ASC LIMIT %d",
+                'pending',
+                $limit
+            ),
+            ARRAY_A
+        );
+    }
+
+    public function mark_job_processing( int $id ): void {
+        $this->wpdb->query( $this->wpdb->prepare( "UPDATE {$this->table_purge_queue} SET status = %s, attempts = attempts + 1 WHERE id = %d", 'processing', $id ) );
+    }
+
+    public function mark_job_done( int $id ): void {
+        $this->wpdb->update(
+            $this->table_purge_queue,
+            [ 'status' => 'done', 'last_error' => null ],
+            [ 'id' => $id ]
+        );
+    }
+
+    public function mark_job_error( int $id, string $error, int $attempts, int $max_attempts ): void {
+        $next_status = $attempts >= $max_attempts ? 'error' : 'pending';
+        $this->wpdb->update(
+            $this->table_purge_queue,
+            [
+                'status'     => $next_status,
+                'attempts'   => $attempts,
+                'last_error' => wp_strip_all_tags( $error ),
+            ],
+            [ 'id' => $id ]
+        );
+    }
+
+    public function get_identities_for_wp_user_id( int $wp_user_id ): array {
+        $wp_user_id = absint( $wp_user_id );
+        if ( ! $wp_user_id ) {
+            return [ 'emails' => [], 'subscription_ids' => [] ];
+        }
+
+        $emails = [];
+        $subs   = [];
+
+        $user_rows = $this->wpdb->get_results(
+            $this->wpdb->prepare( "SELECT customer_email, subscription_id FROM {$this->table_user} WHERE wp_user_id = %d", $wp_user_id ),
+            ARRAY_A
+        );
+
+        foreach ( $user_rows as $row ) {
+            if ( ! empty( $row['customer_email'] ) ) {
+                $emails[] = sanitize_email( $row['customer_email'] );
+            }
+            if ( ! empty( $row['subscription_id'] ) ) {
+                $subs[] = sanitize_text_field( (string) $row['subscription_id'] );
+            }
+        }
+
+        $key_rows = $this->wpdb->get_results(
+            $this->wpdb->prepare( "SELECT customer_email, subscription_id FROM {$this->table_keys} WHERE wp_user_id = %d", $wp_user_id ),
+            ARRAY_A
+        );
+
+        foreach ( $key_rows as $row ) {
+            if ( ! empty( $row['customer_email'] ) ) {
+                $emails[] = sanitize_email( $row['customer_email'] );
+            }
+            if ( ! empty( $row['subscription_id'] ) ) {
+                $subs[] = sanitize_text_field( (string) $row['subscription_id'] );
+            }
+        }
+
+        $emails = array_values( array_filter( array_unique( $emails ) ) );
+        $subs   = array_values( array_filter( array_unique( $subs ) ) );
+
+        return [ 'emails' => $emails, 'subscription_ids' => $subs ];
+    }
+
+    public function delete_user_rows_local( int $wp_user_id, array $emails = [], array $subscription_ids = [] ): void {
+        $wp_user_id     = absint( $wp_user_id );
+        $emails         = array_values( array_filter( array_map( 'sanitize_email', $emails ) ) );
+        $subscription_ids = array_values( array_filter( array_map( 'sanitize_text_field', $subscription_ids ) ) );
+
+        if ( $subscription_ids ) {
+            $placeholders = implode( ',', array_fill( 0, count( $subscription_ids ), '%s' ) );
+            $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_logs} WHERE subscription_id IN ($placeholders)", ...$subscription_ids ) );
+        }
+
+        if ( $emails ) {
+            $placeholders = implode( ',', array_fill( 0, count( $emails ), '%s' ) );
+            $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_logs} WHERE customer_email IN ($placeholders)", ...$emails ) );
+        }
+
+        if ( $wp_user_id ) {
+            $this->wpdb->delete( $this->table_keys, [ 'wp_user_id' => $wp_user_id ], [ '%d' ] );
+            $this->wpdb->delete( $this->table_user, [ 'wp_user_id' => $wp_user_id ], [ '%d' ] );
+        } else {
+            if ( $emails ) {
+                $placeholders = implode( ',', array_fill( 0, count( $emails ), '%s' ) );
+                $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_keys} WHERE customer_email IN ($placeholders)", ...$emails ) );
+                $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_user} WHERE customer_email IN ($placeholders)", ...$emails ) );
+            }
+            if ( $subscription_ids ) {
+                $placeholders = implode( ',', array_fill( 0, count( $subscription_ids ), '%s' ) );
+                $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_keys} WHERE subscription_id IN ($placeholders)", ...$subscription_ids ) );
+                $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_user} WHERE subscription_id IN ($placeholders)", ...$subscription_ids ) );
+            }
+        }
     }
 
     public function upsert_user( array $data ): void {

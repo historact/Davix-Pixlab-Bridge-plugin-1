@@ -559,6 +559,14 @@ class DSB_Client {
         return $this->post_internal( '/internal/user/key/rotate', $payload );
     }
 
+    public function purge_user_on_node( array $payload ): array {
+        if ( isset( $payload['plan_slug'] ) ) {
+            $payload['plan_slug'] = dsb_normalize_plan_slug( $payload['plan_slug'] );
+        }
+
+        return $this->post_internal( '/internal/user/purge', $payload );
+    }
+
     public function fetch_plans() {
         return $this->request( '/internal/admin/plans', 'GET' );
     }
