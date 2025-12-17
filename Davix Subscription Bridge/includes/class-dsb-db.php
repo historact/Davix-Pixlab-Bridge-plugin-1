@@ -6,7 +6,7 @@ defined( 'ABSPATH' ) || exit;
 class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
     const OPTION_DB_VERSION          = 'dsb_db_version';
-    const DB_VERSION                 = '1.1.0';
+    const DB_VERSION                 = '1.2.0';
 
     /** @var \wpdb */
     protected $wpdb;
@@ -14,11 +14,14 @@ class DSB_DB {
     protected $table_logs;
     /** @var string */
     protected $table_keys;
+    /** @var string */
+    protected $table_user;
 
     public function __construct( \wpdb $wpdb ) {
         $this->wpdb       = $wpdb;
         $this->table_logs = $wpdb->prefix . 'davix_bridge_logs';
         $this->table_keys = $wpdb->prefix . 'davix_bridge_keys';
+        $this->table_user = $wpdb->prefix . 'davix_bridge_user';
     }
 
     public function create_tables(): void {
@@ -66,6 +69,29 @@ class DSB_DB {
             KEY customer_email (customer_email)
         ) $charset_collate;";
 
+        $sql_user = "CREATE TABLE {$this->table_user} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            wp_user_id BIGINT UNSIGNED NOT NULL,
+            customer_email VARCHAR(190) DEFAULT NULL,
+            subscription_id BIGINT UNSIGNED DEFAULT NULL,
+            order_id BIGINT UNSIGNED DEFAULT NULL,
+            product_id BIGINT UNSIGNED DEFAULT NULL,
+            plan_slug VARCHAR(190) DEFAULT NULL,
+            status VARCHAR(50) DEFAULT NULL,
+            valid_from DATETIME NULL,
+            valid_until DATETIME NULL,
+            source VARCHAR(50) DEFAULT 'wps_rest',
+            last_sync_at DATETIME NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            UNIQUE KEY uniq_wp_user_id (wp_user_id),
+            KEY idx_email (customer_email),
+            KEY idx_sub (subscription_id),
+            KEY idx_status (status),
+            KEY idx_plan (plan_slug)
+        ) $charset_collate;";
+
         dsb_log( 'debug', 'Running dbDelta for davix_bridge_logs', [ 'sql' => $sql_logs ] );
         dbDelta( $sql_logs );
         dsb_log( 'debug', 'dbDelta result for davix_bridge_logs', [ 'last_error' => $this->wpdb->last_error ] );
@@ -73,6 +99,10 @@ class DSB_DB {
         dsb_log( 'debug', 'Running dbDelta for davix_bridge_keys', [ 'sql' => $sql_keys ] );
         dbDelta( $sql_keys );
         dsb_log( 'debug', 'dbDelta result for davix_bridge_keys', [ 'last_error' => $this->wpdb->last_error ] );
+
+        dsb_log( 'debug', 'Running dbDelta for davix_bridge_user', [ 'sql' => $sql_user ] );
+        dbDelta( $sql_user );
+        dsb_log( 'debug', 'dbDelta result for davix_bridge_user', [ 'last_error' => $this->wpdb->last_error ] );
     }
 
     /**
@@ -92,6 +122,65 @@ class DSB_DB {
     public function drop_tables(): void {
         $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_logs}" );
         $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_keys}" );
+        $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_user}" );
+    }
+
+    public function upsert_user( array $data ): void {
+        $defaults = [
+            'wp_user_id'      => 0,
+            'customer_email'  => null,
+            'subscription_id' => null,
+            'order_id'        => null,
+            'product_id'      => null,
+            'plan_slug'       => null,
+            'status'          => null,
+            'valid_from'      => null,
+            'valid_until'     => null,
+            'source'          => 'wps_rest',
+            'last_sync_at'    => current_time( 'mysql', true ),
+        ];
+
+        $data = wp_parse_args( $data, $defaults );
+
+        $data['wp_user_id']      = absint( $data['wp_user_id'] );
+        $data['customer_email']  = $data['customer_email'] ? sanitize_email( $data['customer_email'] ) : null;
+        $data['subscription_id'] = $data['subscription_id'] ? absint( $data['subscription_id'] ) : null;
+        $data['order_id']        = $data['order_id'] ? absint( $data['order_id'] ) : null;
+        $data['product_id']      = $data['product_id'] ? absint( $data['product_id'] ) : null;
+        $data['plan_slug']       = $data['plan_slug'] ? sanitize_text_field( dsb_normalize_plan_slug( $data['plan_slug'] ) ) : null;
+        $data['status']          = $data['status'] ? sanitize_text_field( $data['status'] ) : null;
+        $data['valid_from']      = $data['valid_from'] ? sanitize_text_field( $data['valid_from'] ) : null;
+        $data['valid_until']     = $data['valid_until'] ? sanitize_text_field( $data['valid_until'] ) : null;
+        $data['source']          = $data['source'] ? sanitize_text_field( $data['source'] ) : 'wps_rest';
+        $data['last_sync_at']    = $data['last_sync_at'] ? sanitize_text_field( $data['last_sync_at'] ) : current_time( 'mysql', true );
+
+        if ( ! $data['wp_user_id'] ) {
+            return;
+        }
+
+        $existing = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_user} WHERE wp_user_id = %d", $data['wp_user_id'] ), ARRAY_A );
+
+        if ( $existing ) {
+            if ( ( null === $data['valid_until'] || '' === $data['valid_until'] ) && ! empty( $existing['valid_until'] ) ) {
+                $data['valid_until'] = $existing['valid_until'];
+            }
+
+            if ( ( null === $data['valid_from'] || '' === $data['valid_from'] ) && ! empty( $existing['valid_from'] ) ) {
+                $data['valid_from'] = $existing['valid_from'];
+            }
+
+            foreach ( [ 'customer_email', 'subscription_id', 'order_id', 'product_id', 'plan_slug', 'status', 'source' ] as $field ) {
+                if ( ( null === $data[ $field ] || '' === $data[ $field ] ) && isset( $existing[ $field ] ) ) {
+                    $data[ $field ] = $existing[ $field ];
+                }
+            }
+
+            $this->wpdb->update( $this->table_user, $data, [ 'id' => $existing['id'] ] );
+            dsb_log( 'info', 'Updated user truth row', [ 'wp_user_id' => $data['wp_user_id'] ] );
+        } else {
+            $this->wpdb->insert( $this->table_user, $data );
+            dsb_log( 'info', 'Inserted user truth row', [ 'wp_user_id' => $data['wp_user_id'] ] );
+        }
     }
 
     public function log_event( array $data ): void {

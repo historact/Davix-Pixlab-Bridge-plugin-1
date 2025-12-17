@@ -26,6 +26,12 @@ class DSB_Client {
                 'debug_retention_days' => 7,
                 'delete_data'   => 0,
                 'allow_provision_without_refs' => 0,
+                'enable_daily_resync' => 1,
+                'resync_batch_size' => 100,
+                'resync_lock_minutes' => 30,
+                'resync_run_hour' => 3,
+                'resync_disable_non_active' => 1,
+                'wps_rest_consumer_secret' => '',
             ],
             $this->get_style_defaults(),
             $this->get_label_defaults()
@@ -195,11 +201,20 @@ class DSB_Client {
             'debug_retention_days' => isset( $data['debug_retention_days'] ) ? max( 1, (int) $data['debug_retention_days'] ) : ( $existing['debug_retention_days'] ?? 7 ),
             'delete_data'   => isset( $data['delete_data'] ) ? 1 : ( $existing['delete_data'] ?? 0 ),
             'allow_provision_without_refs' => isset( $data['allow_provision_without_refs'] ) ? 1 : ( $existing['allow_provision_without_refs'] ?? 0 ),
+            'enable_daily_resync' => isset( $data['enable_daily_resync'] ) ? 1 : ( $existing['enable_daily_resync'] ?? 0 ),
+            'resync_batch_size' => isset( $data['resync_batch_size'] ) ? (int) $data['resync_batch_size'] : ( $existing['resync_batch_size'] ?? 100 ),
+            'resync_lock_minutes' => isset( $data['resync_lock_minutes'] ) ? (int) $data['resync_lock_minutes'] : ( $existing['resync_lock_minutes'] ?? 30 ),
+            'resync_run_hour' => isset( $data['resync_run_hour'] ) ? (int) $data['resync_run_hour'] : ( $existing['resync_run_hour'] ?? 3 ),
+            'resync_disable_non_active' => isset( $data['resync_disable_non_active'] ) ? 1 : ( $existing['resync_disable_non_active'] ?? 1 ),
+            'wps_rest_consumer_secret' => isset( $data['wps_rest_consumer_secret'] ) ? sanitize_text_field( $data['wps_rest_consumer_secret'] ) : ( $existing['wps_rest_consumer_secret'] ?? '' ),
         ];
 
         $allowed_levels          = [ 'debug', 'info', 'warn', 'error' ];
         $clean['debug_level']    = in_array( $clean['debug_level'], $allowed_levels, true ) ? $clean['debug_level'] : 'info';
         $clean['debug_retention_days'] = max( 1, (int) $clean['debug_retention_days'] );
+        $clean['resync_batch_size'] = max( 20, min( 500, (int) $clean['resync_batch_size'] ) );
+        $clean['resync_lock_minutes'] = max( 5, (int) $clean['resync_lock_minutes'] );
+        $clean['resync_run_hour'] = max( 0, min( 23, (int) $clean['resync_run_hour'] ) );
 
         $plan_slug_meta = isset( $data['dsb_plan_slug_meta'] ) && is_array( $data['dsb_plan_slug_meta'] ) ? $data['dsb_plan_slug_meta'] : [];
         $plan_products = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : $this->get_plan_products();
@@ -269,6 +284,21 @@ class DSB_Client {
             return str_repeat( '*', $len );
         }
         return substr( $token, 0, 3 ) . str_repeat( '*', $len - 6 ) . substr( $token, -3 );
+    }
+
+    public function masked_consumer_secret(): string {
+        $settings = $this->get_settings();
+        $secret   = $settings['wps_rest_consumer_secret'] ?? '';
+        if ( ! $secret ) {
+            return __( 'Not set', 'davix-sub-bridge' );
+        }
+
+        $len = strlen( $secret );
+        if ( $len <= 6 ) {
+            return str_repeat( '*', $len );
+        }
+
+        return substr( $secret, 0, 3 ) . str_repeat( '*', $len - 6 ) . substr( $secret, -3 );
     }
 
     protected function request( string $path, string $method = 'GET', ?array $body = [], array $query = [] ) {
@@ -427,6 +457,45 @@ class DSB_Client {
             'decoded'  => $decoded,
             'code'     => $code,
         ];
+    }
+
+    public function fetch_wps_subscriptions_all() {
+        $settings = $this->get_settings();
+        $secret   = $settings['wps_rest_consumer_secret'] ?? '';
+
+        if ( ! $secret ) {
+            return new \WP_Error( 'dsb_missing_wps_secret', __( 'WPS consumer secret missing', 'davix-sub-bridge' ) );
+        }
+
+        $url = add_query_arg( 'consumer_secret', rawurlencode( $secret ), home_url( '/wp-json/wsp-route/v1/wsp-view-subscription' ) );
+
+        $response = wp_remote_get(
+            $url,
+            [
+                'timeout' => 15,
+            ]
+        );
+
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+
+        $body    = wp_remote_retrieve_body( $response );
+        $decoded = $body ? json_decode( $body, true ) : null;
+
+        if ( ! is_array( $decoded ) ) {
+            return new \WP_Error( 'dsb_wps_invalid_body', __( 'Unexpected WPS response', 'davix-sub-bridge' ) );
+        }
+
+        $status = $decoded['status'] ?? ( $decoded['success'] ?? '' );
+        $data   = $decoded['data'] ?? [];
+
+        if ( is_array( $data ) && ( 'success' === $status || true === $status ) ) {
+            dsb_log( 'info', 'Fetched WPS subscriptions', [ 'count' => count( $data ), 'status' => $status ? 'success' : 'unknown' ] );
+            return $data;
+        }
+
+        return new \WP_Error( 'dsb_wps_invalid_status', __( 'WPS subscription fetch failed', 'davix-sub-bridge' ) );
     }
 
     public function fetch_keys( int $page = 1, int $per_page = 20, string $search = '' ) {

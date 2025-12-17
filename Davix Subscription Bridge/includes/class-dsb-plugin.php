@@ -9,6 +9,7 @@ class DSB_Plugin {
     protected $client;
     protected $admin;
     protected $events;
+    protected $resync;
     protected $dashboard;
     protected $dashboard_ajax;
 
@@ -38,6 +39,10 @@ class DSB_Plugin {
             delete_option( DSB_Client::OPTION_PRODUCT_PLANS );
             delete_option( DSB_Client::OPTION_PLAN_PRODUCTS );
             delete_option( DSB_Client::OPTION_PLAN_SYNC );
+            delete_option( DSB_Resync::OPTION_LOCK_UNTIL );
+            delete_option( DSB_Resync::OPTION_LAST_RUN_AT );
+            delete_option( DSB_Resync::OPTION_LAST_RESULT );
+            delete_option( DSB_Resync::OPTION_LAST_ERROR );
         }
     }
 
@@ -54,7 +59,8 @@ class DSB_Plugin {
         $this->db        = new DSB_DB( $GLOBALS['wpdb'] );
         $this->client    = new DSB_Client( $this->db );
         $this->events    = new DSB_Events( $this->client, $this->db );
-        $this->admin           = new DSB_Admin( $this->client, $this->db, $this->events );
+        $this->resync    = new DSB_Resync( $this->client, $this->db );
+        $this->admin           = new DSB_Admin( $this->client, $this->db, $this->events, $this->resync );
         $this->dashboard       = new DSB_Dashboard( $this->client );
         $this->dashboard_ajax  = new DSB_Dashboard_Ajax( $this->client );
 
@@ -66,6 +72,7 @@ class DSB_Plugin {
         $this->db->migrate();
         $this->admin->init();
         $this->events->init();
+        $this->resync->init();
         $this->dashboard->init();
         $this->dashboard_ajax->init();
     }
