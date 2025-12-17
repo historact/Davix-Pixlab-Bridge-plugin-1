@@ -580,6 +580,35 @@ class DSB_DB {
                 );
             }
 
+            if ( ( null === $data['valid_from'] || '' === $data['valid_from'] ) && ! empty( $existing['valid_from'] ) ) {
+                dsb_log(
+                    'debug',
+                    'Key valid_from retained',
+                    [
+                        'subscription_id' => $existing['subscription_id'],
+                        'old_valid_from'  => $existing['valid_from'],
+                        'new_valid_from'  => $data['valid_from'],
+                    ]
+                );
+                $data['valid_from'] = $existing['valid_from'];
+            } elseif ( empty( $existing['valid_from'] ) && ! empty( $data['valid_from'] ) ) {
+                dsb_log(
+                    'info',
+                    'Key valid_from updated',
+                    [
+                        'subscription_id' => $existing['subscription_id'],
+                        'old_valid_from'  => $existing['valid_from'],
+                        'new_valid_from'  => $data['valid_from'],
+                    ]
+                );
+            }
+
+            foreach ( [ 'key_prefix', 'key_last4' ] as $key_field ) {
+                if ( ( null === $data[ $key_field ] || '' === $data[ $key_field ] ) && ! empty( $existing[ $key_field ] ) ) {
+                    $data[ $key_field ] = $existing[ $key_field ];
+                }
+            }
+
             if ( empty( $data['subscription_id'] ) ) {
                 $data['subscription_id'] = $existing['subscription_id'];
             }
