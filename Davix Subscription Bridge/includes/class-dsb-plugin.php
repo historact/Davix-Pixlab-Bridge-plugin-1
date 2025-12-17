@@ -10,6 +10,7 @@ class DSB_Plugin {
     protected $admin;
     protected $events;
     protected $resync;
+    protected $node_poll;
     protected $purge_worker;
     protected $dashboard;
     protected $dashboard_ajax;
@@ -35,6 +36,7 @@ class DSB_Plugin {
             $db = new DSB_DB( $GLOBALS['wpdb'] );
             $db->drop_tables();
             wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Purge_Worker::CRON_HOOK );
+            wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Node_Poll::CRON_HOOK );
             delete_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL );
             delete_option( DSB_DB::OPTION_DB_VERSION );
             delete_option( DSB_Client::OPTION_SETTINGS );
@@ -45,6 +47,10 @@ class DSB_Plugin {
             delete_option( DSB_Resync::OPTION_LAST_RUN_AT );
             delete_option( DSB_Resync::OPTION_LAST_RESULT );
             delete_option( DSB_Resync::OPTION_LAST_ERROR );
+            delete_option( DSB_Node_Poll::OPTION_LOCK_UNTIL );
+            delete_option( DSB_Node_Poll::OPTION_LAST_RUN_AT );
+            delete_option( DSB_Node_Poll::OPTION_LAST_RESULT );
+            delete_option( DSB_Node_Poll::OPTION_LAST_ERROR );
         }
     }
 
@@ -62,8 +68,9 @@ class DSB_Plugin {
         $this->client    = new DSB_Client( $this->db );
         $this->events    = new DSB_Events( $this->client, $this->db );
         $this->resync    = new DSB_Resync( $this->client, $this->db );
+        $this->node_poll = new DSB_Node_Poll( $this->client, $this->db );
         $this->purge_worker = new DSB_Purge_Worker( $this->client, $this->db );
-        $this->admin           = new DSB_Admin( $this->client, $this->db, $this->events, $this->resync, $this->purge_worker );
+        $this->admin           = new DSB_Admin( $this->client, $this->db, $this->events, $this->resync, $this->purge_worker, $this->node_poll );
         $this->dashboard       = new DSB_Dashboard( $this->client );
         $this->dashboard_ajax  = new DSB_Dashboard_Ajax( $this->client );
 
@@ -80,6 +87,7 @@ class DSB_Plugin {
         $this->admin->init();
         $this->events->init();
         $this->resync->init();
+        $this->node_poll->init();
         $this->purge_worker->init();
         $this->dashboard->init();
         $this->dashboard_ajax->init();

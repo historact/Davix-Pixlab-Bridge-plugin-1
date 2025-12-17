@@ -272,6 +272,7 @@ class DSB_Events {
         }
 
         $attempt = $order instanceof \WC_Order ? $this->current_attempt_number( $order ) : 1;
+        $this->persist_user_truth_from_payload( $payload );
         $result  = $this->client->send_event( $payload );
         $success = $result && ( $result['decoded']['status'] ?? '' ) === 'ok';
 
@@ -306,6 +307,48 @@ class DSB_Events {
         }
 
         return $result;
+    }
+
+    protected function persist_user_truth_from_payload( array $payload ): void {
+        $wp_user_id = isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : 0;
+        if ( $wp_user_id <= 0 ) {
+            return;
+        }
+
+        $status = '';
+        if ( ! empty( $payload['subscription_status'] ) ) {
+            $status = (string) $payload['subscription_status'];
+        } elseif ( ! empty( $payload['event'] ) ) {
+            $event = (string) $payload['event'];
+            $map   = [
+                'cancelled'      => 'cancelled',
+                'expired'        => 'expired',
+                'payment_failed' => 'payment_failed',
+                'paused'         => 'paused',
+                'renewed'        => 'active',
+                'reactivated'    => 'active',
+                'activated'      => 'active',
+                'active'         => 'active',
+                'disabled'       => 'disabled',
+            ];
+            $status = $map[ $event ] ?? $event;
+        }
+
+        $this->db->upsert_user(
+            [
+                'wp_user_id'      => $wp_user_id,
+                'customer_email'  => $payload['customer_email'] ?? '',
+                'subscription_id' => $payload['subscription_id'] ?? null,
+                'order_id'        => $payload['order_id'] ?? null,
+                'product_id'      => $payload['product_id'] ?? null,
+                'plan_slug'       => $payload['plan_slug'] ?? null,
+                'status'          => $status,
+                'valid_from'      => $payload['valid_from'] ?? null,
+                'valid_until'     => $payload['valid_until'] ?? null,
+                'source'          => 'hooks',
+                'last_sync_at'    => current_time( 'mysql', true ),
+            ]
+        );
     }
 
     protected function plan_exists( string $plan_slug, array $plans ): bool {
