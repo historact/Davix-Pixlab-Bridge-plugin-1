@@ -872,6 +872,63 @@ class DSB_Events {
             ]
         );
 
+        if ( ( ! $plan_slug || ! $product_id ) ) {
+            $resolved_wp_user_id = $wp_user_id;
+
+            if ( ! $resolved_wp_user_id && $subscription_id ) {
+                $user_id_meta = (int) get_post_meta( $subscription_id, 'user_id', true );
+                if ( $user_id_meta > 0 ) {
+                    $resolved_wp_user_id = $user_id_meta;
+                }
+            }
+
+            if ( ! $resolved_wp_user_id ) {
+                $current_user_id = (int) get_current_user_id();
+                if ( $current_user_id > 0 ) {
+                    $resolved_wp_user_id = $current_user_id;
+                }
+            }
+
+            if ( $resolved_wp_user_id ) {
+                $truth = $this->db->get_user_truth_by_wp_user_id( $resolved_wp_user_id );
+                if ( $truth ) {
+                    if ( ( ! $product_id || 0 === (int) $product_id ) && ! empty( $truth['product_id'] ) ) {
+                        $product_id = (int) $truth['product_id'];
+                    }
+
+                    if ( ! $plan_slug && ! empty( $truth['plan_slug'] ) ) {
+                        $plan_slug = dsb_normalize_plan_slug( $truth['plan_slug'] );
+                    }
+
+                    if ( ! $subscription_id && ! empty( $truth['subscription_id'] ) ) {
+                        $subscription_id = sanitize_text_field( (string) $truth['subscription_id'] );
+                    }
+
+                    if ( ! $order_id && ! empty( $truth['order_id'] ) ) {
+                        $order_id = sanitize_text_field( (string) $truth['order_id'] );
+                    }
+
+                    if ( ! $customer_email && ! empty( $truth['customer_email'] ) ) {
+                        $customer_email = sanitize_email( $truth['customer_email'] );
+                    }
+
+                    if ( ! $wp_user_id ) {
+                        $wp_user_id = $resolved_wp_user_id;
+                    }
+
+                    dsb_log(
+                        'debug',
+                        'Plan/identity backfilled from truth table',
+                        [
+                            'wp_user_id' => $resolved_wp_user_id,
+                            'product_id' => $product_id ?: null,
+                            'plan_slug'  => $plan_slug ?: null,
+                        ]
+                    );
+                }
+            }
+        }
+
         if ( ! $plan_slug && $product_id ) {
             $this->db->log_event(
                 [
@@ -908,6 +965,7 @@ class DSB_Events {
                     'order_id'        => $order_id,
                     'subscription_id' => $subscription_id,
                     'wp_user_id'      => $wp_user_id ?: null,
+                    'customer_email'  => $customer_email ?: null,
                 ]
             );
         }
