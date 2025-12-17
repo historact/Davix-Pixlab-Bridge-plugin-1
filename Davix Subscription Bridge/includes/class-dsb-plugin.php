@@ -10,6 +10,7 @@ class DSB_Plugin {
     protected $admin;
     protected $events;
     protected $resync;
+    protected $purge_worker;
     protected $dashboard;
     protected $dashboard_ajax;
 
@@ -33,6 +34,7 @@ class DSB_Plugin {
         if ( get_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL ) ) {
             $db = new DSB_DB( $GLOBALS['wpdb'] );
             $db->drop_tables();
+            wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Purge_Worker::CRON_HOOK );
             delete_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL );
             delete_option( DSB_DB::OPTION_DB_VERSION );
             delete_option( DSB_Client::OPTION_SETTINGS );
@@ -60,9 +62,12 @@ class DSB_Plugin {
         $this->client    = new DSB_Client( $this->db );
         $this->events    = new DSB_Events( $this->client, $this->db );
         $this->resync    = new DSB_Resync( $this->client, $this->db );
-        $this->admin           = new DSB_Admin( $this->client, $this->db, $this->events, $this->resync );
+        $this->purge_worker = new DSB_Purge_Worker( $this->client, $this->db );
+        $this->admin           = new DSB_Admin( $this->client, $this->db, $this->events, $this->resync, $this->purge_worker );
         $this->dashboard       = new DSB_Dashboard( $this->client );
         $this->dashboard_ajax  = new DSB_Dashboard_Ajax( $this->client );
+
+        DSB_User_Purger::register( $this->db, $this->purge_worker );
 
         add_action( 'init', [ $this, 'init' ] );
     }
@@ -73,6 +78,7 @@ class DSB_Plugin {
         $this->admin->init();
         $this->events->init();
         $this->resync->init();
+        $this->purge_worker->init();
         $this->dashboard->init();
         $this->dashboard_ajax->init();
     }

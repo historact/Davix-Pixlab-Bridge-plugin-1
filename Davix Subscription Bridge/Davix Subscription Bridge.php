@@ -24,11 +24,13 @@ require_once __DIR__ . '/includes/class-dsb-util.php';
 require_once __DIR__ . '/includes/class-dsb-logger.php';
 require_once __DIR__ . '/includes/class-dsb-client.php';
 require_once __DIR__ . '/includes/class-dsb-resync.php';
+require_once __DIR__ . '/includes/class-dsb-purge-worker.php';
 require_once __DIR__ . '/includes/class-dsb-admin.php';
 require_once __DIR__ . '/includes/class-dsb-events.php';
 require_once __DIR__ . '/includes/class-dsb-keys-table.php';
 require_once __DIR__ . '/includes/class-dsb-dashboard.php';
 require_once __DIR__ . '/includes/class-dsb-dashboard-ajax.php';
+require_once __DIR__ . '/includes/class-dsb-user-purger.php';
 require_once __DIR__ . '/includes/class-dsb-plugin.php';
 
 register_activation_hook( __FILE__, '\\Davix\\SubscriptionBridge\\DSB_Plugin::activate' );
