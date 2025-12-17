@@ -107,11 +107,30 @@ class DSB_Plugin {
         $now_mysql       = current_time( 'mysql', true );
         $subscription_id = 'free-' . $user_id;
 
+        $name = trim( (string) ( $user->first_name ?? '' ) . ' ' . ( $user->last_name ?? '' ) );
+        if ( ! $name ) {
+            $name = $user->display_name ?? '';
+        }
+        $customer_name = $name ? sanitize_text_field( $name ) : '';
+
         $payload = [
             'customer_email' => $email,
             'plan_slug'      => $plan_slug,
             'wp_user_id'     => $user_id,
         ];
+
+        if ( $customer_name ) {
+            $payload['customer_name'] = $customer_name;
+        }
+
+        dsb_log(
+            'debug',
+            'Free provision payload sent',
+            [
+                'user_id' => $user_id,
+                'email'   => $email,
+            ]
+        );
 
         $response    = $this->client->provision_key( $payload );
         $code        = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
