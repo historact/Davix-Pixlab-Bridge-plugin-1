@@ -32,6 +32,11 @@ class DSB_Client {
                 'resync_run_hour' => 3,
                 'resync_disable_non_active' => 1,
                 'wps_rest_consumer_secret' => '',
+                'enable_node_poll_sync' => 0,
+                'node_poll_interval_minutes' => 10,
+                'node_poll_per_page' => 200,
+                'node_poll_delete_stale' => 1,
+                'node_poll_lock_minutes' => 10,
             ],
             $this->get_style_defaults(),
             $this->get_label_defaults()
@@ -207,6 +212,11 @@ class DSB_Client {
             'resync_run_hour' => isset( $data['resync_run_hour'] ) ? (int) $data['resync_run_hour'] : ( $existing['resync_run_hour'] ?? 3 ),
             'resync_disable_non_active' => isset( $data['resync_disable_non_active'] ) ? 1 : ( $existing['resync_disable_non_active'] ?? 1 ),
             'wps_rest_consumer_secret' => isset( $data['wps_rest_consumer_secret'] ) ? sanitize_text_field( $data['wps_rest_consumer_secret'] ) : ( $existing['wps_rest_consumer_secret'] ?? '' ),
+            'enable_node_poll_sync' => isset( $data['enable_node_poll_sync'] ) ? 1 : ( $existing['enable_node_poll_sync'] ?? 0 ),
+            'node_poll_interval_minutes' => isset( $data['node_poll_interval_minutes'] ) ? (int) $data['node_poll_interval_minutes'] : ( $existing['node_poll_interval_minutes'] ?? 10 ),
+            'node_poll_per_page' => isset( $data['node_poll_per_page'] ) ? (int) $data['node_poll_per_page'] : ( $existing['node_poll_per_page'] ?? 200 ),
+            'node_poll_delete_stale' => isset( $data['node_poll_delete_stale'] ) ? 1 : ( $existing['node_poll_delete_stale'] ?? 1 ),
+            'node_poll_lock_minutes' => isset( $data['node_poll_lock_minutes'] ) ? (int) $data['node_poll_lock_minutes'] : ( $existing['node_poll_lock_minutes'] ?? 10 ),
         ];
 
         $allowed_levels          = [ 'debug', 'info', 'warn', 'error' ];
@@ -215,6 +225,9 @@ class DSB_Client {
         $clean['resync_batch_size'] = max( 20, min( 500, (int) $clean['resync_batch_size'] ) );
         $clean['resync_lock_minutes'] = max( 5, (int) $clean['resync_lock_minutes'] );
         $clean['resync_run_hour'] = max( 0, min( 23, (int) $clean['resync_run_hour'] ) );
+        $clean['node_poll_interval_minutes'] = max( 5, min( 60, (int) $clean['node_poll_interval_minutes'] ) );
+        $clean['node_poll_per_page']         = max( 1, min( 500, (int) $clean['node_poll_per_page'] ) );
+        $clean['node_poll_lock_minutes']     = max( 1, (int) $clean['node_poll_lock_minutes'] );
 
         $plan_slug_meta = isset( $data['dsb_plan_slug_meta'] ) && is_array( $data['dsb_plan_slug_meta'] ) ? $data['dsb_plan_slug_meta'] : [];
         $plan_products = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : $this->get_plan_products();
@@ -366,7 +379,17 @@ class DSB_Client {
         $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
         $decoded  = $body ? json_decode( $body, true ) : null;
         $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
-        $success  = ( $code >= 200 && $code < 300 && is_array( $decoded ) && 'ok' === ( $decoded['status'] ?? '' ) );
+        $success  = false;
+        if ( $code >= 200 && $code < 300 && is_array( $decoded ) ) {
+            $status_value = isset( $decoded['status'] ) && is_string( $decoded['status'] ) ? strtolower( $decoded['status'] ) : ( $decoded['status'] ?? '' );
+            $action_value = isset( $decoded['action'] ) && is_string( $decoded['action'] ) ? strtolower( $decoded['action'] ) : ( $decoded['action'] ?? '' );
+            $ok_actions   = [ 'created', 'updated', 'reactivated', 'activated', 'renewed' ];
+            $ok_statuses  = [ 'ok', 'active', 'disabled' ];
+
+            if ( 'error' !== $status_value && ( in_array( $status_value, $ok_statuses, true ) || in_array( $action_value, $ok_actions, true ) ) ) {
+                $success = true;
+            }
+        }
 
         $log = [
             'event'           => $payload['event'] ?? '',
@@ -554,6 +577,18 @@ class DSB_Client {
                 'search'   => $search,
             ]
         );
+    }
+
+    public function fetch_node_export( int $page, int $per_page ): array {
+        $page     = max( 1, $page );
+        $per_page = max( 1, min( 500, $per_page ) );
+
+        $response = $this->request( '/internal/admin/keys/export', 'GET', null, [
+            'page'     => $page,
+            'per_page' => $per_page,
+        ] );
+
+        return $this->prepare_response( $response );
     }
 
     public function provision_key( array $payload ) {

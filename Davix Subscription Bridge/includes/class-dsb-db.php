@@ -366,6 +366,55 @@ class DSB_DB {
         }
     }
 
+    public function delete_users_not_in( array $wp_user_ids ): int {
+        $wp_user_ids = array_values( array_filter( array_map( 'absint', $wp_user_ids ) ) );
+        if ( empty( $wp_user_ids ) ) {
+            return 0;
+        }
+
+        $placeholders = implode( ',', array_fill( 0, count( $wp_user_ids ), '%d' ) );
+        return (int) $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_user} WHERE wp_user_id NOT IN ($placeholders)", ...$wp_user_ids ) );
+    }
+
+    public function delete_keys_not_in( array $wp_user_ids, array $emails, array $subscription_ids ): int {
+        $wp_user_ids      = array_values( array_filter( array_map( 'absint', $wp_user_ids ) ) );
+        $emails           = array_values( array_filter( array_map( 'sanitize_email', $emails ) ) );
+        $subscription_ids = array_values( array_filter( array_map( 'sanitize_text_field', $subscription_ids ) ) );
+
+        if ( empty( $wp_user_ids ) && empty( $emails ) && empty( $subscription_ids ) ) {
+            return 0;
+        }
+
+        $clauses = [];
+        $params  = [];
+
+        if ( $wp_user_ids ) {
+            $placeholders  = implode( ',', array_fill( 0, count( $wp_user_ids ), '%d' ) );
+            $clauses[]     = "(wp_user_id IS NULL OR wp_user_id NOT IN ($placeholders))";
+            $params        = array_merge( $params, $wp_user_ids );
+        }
+
+        if ( $emails ) {
+            $placeholders  = implode( ',', array_fill( 0, count( $emails ), '%s' ) );
+            $clauses[]     = "(customer_email IS NULL OR customer_email NOT IN ($placeholders))";
+            $params        = array_merge( $params, $emails );
+        }
+
+        if ( $subscription_ids ) {
+            $placeholders  = implode( ',', array_fill( 0, count( $subscription_ids ), '%s' ) );
+            $clauses[]     = "(subscription_id IS NULL OR subscription_id NOT IN ($placeholders))";
+            $params        = array_merge( $params, $subscription_ids );
+        }
+
+        if ( empty( $clauses ) ) {
+            return 0;
+        }
+
+        $sql = 'DELETE FROM ' . $this->table_keys . ' WHERE ' . implode( ' AND ', $clauses );
+
+        return (int) $this->wpdb->query( $this->wpdb->prepare( $sql, ...$params ) );
+    }
+
     public function upsert_user( array $data ): void {
         $defaults = [
             'wp_user_id'      => 0,

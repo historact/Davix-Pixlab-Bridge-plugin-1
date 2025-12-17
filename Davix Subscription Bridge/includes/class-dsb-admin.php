@@ -11,16 +11,18 @@ class DSB_Admin {
     protected $events;
     protected $resync;
     protected $purge_worker;
+    protected $node_poll;
     protected $notices = [];
     protected $synced_product_ids = [];
     protected $diagnostics_result = null;
 
-    public function __construct( DSB_Client $client, DSB_DB $db, DSB_Events $events, DSB_Resync $resync, DSB_Purge_Worker $purge_worker ) {
+    public function __construct( DSB_Client $client, DSB_DB $db, DSB_Events $events, DSB_Resync $resync, DSB_Purge_Worker $purge_worker, DSB_Node_Poll $node_poll ) {
         $this->client       = $client;
         $this->db           = $db;
         $this->events       = $events;
         $this->resync       = $resync;
         $this->purge_worker = $purge_worker;
+        $this->node_poll    = $node_poll;
     }
 
     public function init(): void {
@@ -30,6 +32,7 @@ class DSB_Admin {
         add_action( 'admin_post_dsb_download_log', [ $this, 'handle_download_log' ] );
         add_action( 'admin_post_dsb_clear_log', [ $this, 'handle_clear_log' ] );
         add_action( 'admin_post_dsb_run_resync_now', [ $this, 'handle_run_resync_now' ] );
+        add_action( 'admin_post_dsb_run_node_poll_now', [ $this, 'handle_run_node_poll_now' ] );
         add_action( 'wp_ajax_dsb_search_users', [ $this, 'ajax_search_users' ] );
         add_action( 'wp_ajax_dsb_search_subscriptions', [ $this, 'ajax_search_subscriptions' ] );
         add_action( 'wp_ajax_dsb_search_orders', [ $this, 'ajax_search_orders' ] );
@@ -339,6 +342,21 @@ class DSB_Admin {
             }
         }
 
+        if ( isset( $_GET['dsb_node_poll_status'] ) ) {
+            $status  = sanitize_key( wp_unslash( $_GET['dsb_node_poll_status'] ) );
+            $message = isset( $_GET['dsb_node_poll_message'] ) ? sanitize_text_field( wp_unslash( $_GET['dsb_node_poll_message'] ) ) : '';
+
+            if ( 'ok' === $status ) {
+                $this->add_notice( __( 'Node poll sync completed.', 'davix-sub-bridge' ) );
+            } elseif ( 'locked' === $status ) {
+                $this->add_notice( __( 'Node poll skipped because a run is already in progress.', 'davix-sub-bridge' ), 'error' );
+            } elseif ( 'disabled' === $status ) {
+                $this->add_notice( __( 'Node poll is disabled in settings.', 'davix-sub-bridge' ), 'error' );
+            } else {
+                $this->add_notice( $message ? $message : __( 'Node poll encountered an error.', 'davix-sub-bridge' ), 'error' );
+            }
+        }
+
         if ( isset( $_GET['dsb_log_action'] ) ) {
             $action = sanitize_key( wp_unslash( $_GET['dsb_log_action'] ) );
             if ( 'cleared' === $action ) {
@@ -461,6 +479,32 @@ class DSB_Admin {
 
         if ( ! empty( $result['error'] ) ) {
             $args['dsb_resync_message'] = substr( (string) $result['error'], 0, 250 );
+        }
+
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    public function handle_run_node_poll_now(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'You do not have permission to run this action.', 'davix-sub-bridge' ) );
+        }
+
+        $nonce = isset( $_POST['dsb_run_node_poll_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['dsb_run_node_poll_nonce'] ) ) : '';
+        if ( ! wp_verify_nonce( $nonce, 'dsb_run_node_poll_now' ) ) {
+            wp_die( esc_html__( 'Invalid nonce.', 'davix-sub-bridge' ) );
+        }
+
+        $result = $this->node_poll->run_once();
+
+        $args = [
+            'page'                 => 'davix-bridge',
+            'tab'                  => 'settings',
+            'dsb_node_poll_status' => $result['status'] ?? 'ok',
+        ];
+
+        if ( ! empty( $result['error'] ) ) {
+            $args['dsb_node_poll_message'] = substr( (string) $result['error'], 0, 250 );
         }
 
         wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
@@ -652,6 +696,7 @@ class DSB_Admin {
         $plan_candidates = $this->discover_plan_products();
         $plan_sync = $this->client->get_plan_sync_status();
         $resync_status = $this->resync->get_last_status();
+        $node_poll_status = $this->node_poll->get_last_status();
         $masked_secret = $this->client->masked_consumer_secret();
         ?>
         <form method="post">
@@ -708,6 +753,26 @@ class DSB_Admin {
                     <td><label><input type="checkbox" name="resync_disable_non_active" value="1" <?php checked( $settings['resync_disable_non_active'], 1 ); ?> /> <?php esc_html_e( 'Send disable events for cancelled/expired/paused/payment_failed.', 'davix-sub-bridge' ); ?></label></td>
                 </tr>
                 <tr>
+                    <th scope="row"><?php esc_html_e( 'Enable Node poll sync', 'davix-sub-bridge' ); ?></th>
+                    <td><label><input type="checkbox" name="enable_node_poll_sync" value="1" <?php checked( $settings['enable_node_poll_sync'], 1 ); ?> /> <?php esc_html_e( 'Fetch truth from Node export on a schedule.', 'davix-sub-bridge' ); ?></label></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Node poll interval (minutes)', 'davix-sub-bridge' ); ?></th>
+                    <td><input type="number" name="node_poll_interval_minutes" min="5" max="60" value="<?php echo esc_attr( (int) $settings['node_poll_interval_minutes'] ); ?>" /> <p class="description"><?php esc_html_e( 'How often to poll NUDE.js export (5-60).', 'davix-sub-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Node poll page size', 'davix-sub-bridge' ); ?></th>
+                    <td><input type="number" name="node_poll_per_page" min="1" max="500" value="<?php echo esc_attr( (int) $settings['node_poll_per_page'] ); ?>" /> <p class="description"><?php esc_html_e( 'Records fetched per page from Node (max 500).', 'davix-sub-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Delete stale mirror rows', 'davix-sub-bridge' ); ?></th>
+                    <td><label><input type="checkbox" name="node_poll_delete_stale" value="1" <?php checked( $settings['node_poll_delete_stale'], 1 ); ?> /> <?php esc_html_e( 'Remove davix_bridge_keys/user rows missing from Node export.', 'davix-sub-bridge' ); ?></label></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Node poll lock window (minutes)', 'davix-sub-bridge' ); ?></th>
+                    <td><input type="number" name="node_poll_lock_minutes" min="1" value="<?php echo esc_attr( (int) $settings['node_poll_lock_minutes'] ); ?>" /> <p class="description"><?php esc_html_e( 'Prevents overlapping poll runs.', 'davix-sub-bridge' ); ?></p></td>
+                </tr>
+                <tr>
                     <th scope="row"><?php esc_html_e( 'Plan products', 'davix-sub-bridge' ); ?></th>
                     <td>
                         <p class="description"><?php esc_html_e( 'Select which WooCommerce products should sync to Node as plans (auto-detected subscription products plus manual selection).', 'davix-sub-bridge' ); ?></p>
@@ -754,10 +819,33 @@ class DSB_Admin {
             </p>
         </div>
 
+        <div class="notice-inline" style="margin-top:10px;">
+            <p><strong><?php esc_html_e( 'Last Node Poll Sync:', 'davix-sub-bridge' ); ?></strong>
+                <?php
+                if ( empty( $node_poll_status['last_run_at'] ) ) {
+                    esc_html_e( 'Never run.', 'davix-sub-bridge' );
+                } else {
+                    printf(
+                        '%s (%s)%s',
+                        esc_html( $node_poll_status['last_result'] ?: 'ok' ),
+                        esc_html( $node_poll_status['last_run_at'] ),
+                        $node_poll_status['last_error'] ? ' — ' . esc_html( $node_poll_status['last_error'] ) : ''
+                    );
+                }
+                ?>
+            </p>
+        </div>
+
         <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:10px;">
             <input type="hidden" name="action" value="dsb_run_resync_now" />
             <?php wp_nonce_field( 'dsb_run_resync_now', 'dsb_run_resync_nonce' ); ?>
             <?php submit_button( __( 'Run Resync Now', 'davix-sub-bridge' ), 'secondary', 'dsb_run_resync_now', false ); ?>
+        </form>
+
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:10px;">
+            <input type="hidden" name="action" value="dsb_run_node_poll_now" />
+            <?php wp_nonce_field( 'dsb_run_node_poll_now', 'dsb_run_node_poll_nonce' ); ?>
+            <?php submit_button( __( 'Run Node Sync Now', 'davix-sub-bridge' ), 'secondary', 'dsb_run_node_poll_now', false ); ?>
         </form>
 
         <form method="post" style="margin-top:20px;">
