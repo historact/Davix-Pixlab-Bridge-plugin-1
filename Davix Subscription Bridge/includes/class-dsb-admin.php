@@ -9,14 +9,16 @@ class DSB_Admin {
     protected $client;
     protected $db;
     protected $events;
+    protected $resync;
     protected $notices = [];
     protected $synced_product_ids = [];
     protected $diagnostics_result = null;
 
-    public function __construct( DSB_Client $client, DSB_DB $db, DSB_Events $events ) {
+    public function __construct( DSB_Client $client, DSB_DB $db, DSB_Events $events, DSB_Resync $resync ) {
         $this->client = $client;
         $this->db     = $db;
         $this->events = $events;
+        $this->resync = $resync;
     }
 
     public function init(): void {
@@ -25,6 +27,7 @@ class DSB_Admin {
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
         add_action( 'admin_post_dsb_download_log', [ $this, 'handle_download_log' ] );
         add_action( 'admin_post_dsb_clear_log', [ $this, 'handle_clear_log' ] );
+        add_action( 'admin_post_dsb_run_resync_now', [ $this, 'handle_run_resync_now' ] );
         add_action( 'wp_ajax_dsb_search_users', [ $this, 'ajax_search_users' ] );
         add_action( 'wp_ajax_dsb_search_subscriptions', [ $this, 'ajax_search_subscriptions' ] );
         add_action( 'wp_ajax_dsb_search_orders', [ $this, 'ajax_search_orders' ] );
@@ -321,6 +324,19 @@ class DSB_Admin {
             }
         }
 
+        if ( isset( $_GET['dsb_resync_status'] ) ) {
+            $status  = sanitize_key( wp_unslash( $_GET['dsb_resync_status'] ) );
+            $message = isset( $_GET['dsb_resync_message'] ) ? sanitize_text_field( wp_unslash( $_GET['dsb_resync_message'] ) ) : '';
+
+            if ( 'ok' === $status ) {
+                $this->add_notice( __( 'Resync run completed.', 'davix-sub-bridge' ) );
+            } elseif ( 'locked' === $status ) {
+                $this->add_notice( __( 'Resync skipped because a run is already in progress.', 'davix-sub-bridge' ), 'error' );
+            } else {
+                $this->add_notice( $message ? $message : __( 'Resync encountered an error.', 'davix-sub-bridge' ), 'error' );
+            }
+        }
+
         if ( isset( $_GET['dsb_log_action'] ) ) {
             $action = sanitize_key( wp_unslash( $_GET['dsb_log_action'] ) );
             if ( 'cleared' === $action ) {
@@ -421,6 +437,32 @@ class DSB_Admin {
             );
             $this->add_notice( $message, isset( $summary['count_failed'] ) && $summary['count_failed'] > 0 ? 'error' : 'success' );
         }
+    }
+
+    public function handle_run_resync_now(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'You do not have permission to run this action.', 'davix-sub-bridge' ) );
+        }
+
+        $nonce = isset( $_POST['dsb_run_resync_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['dsb_run_resync_nonce'] ) ) : '';
+        if ( ! wp_verify_nonce( $nonce, 'dsb_run_resync_now' ) ) {
+            wp_die( esc_html__( 'Invalid nonce.', 'davix-sub-bridge' ) );
+        }
+
+        $result = $this->resync->run( true );
+
+        $args = [
+            'page'              => 'davix-bridge',
+            'tab'               => 'settings',
+            'dsb_resync_status' => $result['status'] ?? 'ok',
+        ];
+
+        if ( ! empty( $result['error'] ) ) {
+            $args['dsb_resync_message'] = substr( (string) $result['error'], 0, 250 );
+        }
+
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
+        exit;
     }
 
     protected function handle_key_actions(): void {
@@ -595,6 +637,8 @@ class DSB_Admin {
         $plan_products = $this->client->get_plan_products();
         $plan_candidates = $this->discover_plan_products();
         $plan_sync = $this->client->get_plan_sync_status();
+        $resync_status = $this->resync->get_last_status();
+        $masked_secret = $this->client->masked_consumer_secret();
         ?>
         <form method="post">
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
@@ -621,6 +665,33 @@ class DSB_Admin {
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Allow manual provisioning without Subscription/Order', 'davix-sub-bridge' ); ?></th>
                     <td><label><input type="checkbox" name="allow_provision_without_refs" value="1" <?php checked( $settings['allow_provision_without_refs'], 1 ); ?> /> <?php esc_html_e( 'Permit manual keys without linking to a subscription or order.', 'davix-sub-bridge' ); ?></label></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'WPS Consumer Secret', 'davix-sub-bridge' ); ?></th>
+                    <td>
+                        <input type="password" name="wps_rest_consumer_secret" class="regular-text" value="<?php echo esc_attr( $settings['wps_rest_consumer_secret'] ); ?>" autocomplete="off" />
+                        <p class="description"><?php printf( '%s %s', esc_html__( 'Used to read subscriptions from the WPS REST API.', 'davix-sub-bridge' ), esc_html( $masked_secret ) ); ?></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Enable daily resync', 'davix-sub-bridge' ); ?></th>
+                    <td><label><input type="checkbox" name="enable_daily_resync" value="1" <?php checked( $settings['enable_daily_resync'], 1 ); ?> /> <?php esc_html_e( 'Fetch WPS subscriptions daily and reconcile Node.', 'davix-sub-bridge' ); ?></label></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Resync batch size', 'davix-sub-bridge' ); ?></th>
+                    <td><input type="number" name="resync_batch_size" min="20" max="500" value="<?php echo esc_attr( (int) $settings['resync_batch_size'] ); ?>" /> <p class="description"><?php esc_html_e( 'Subscriptions processed per run (20-500).', 'davix-sub-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Resync lock window (minutes)', 'davix-sub-bridge' ); ?></th>
+                    <td><input type="number" name="resync_lock_minutes" min="5" value="<?php echo esc_attr( (int) $settings['resync_lock_minutes'] ); ?>" /> <p class="description"><?php esc_html_e( 'Prevents overlapping resync runs.', 'davix-sub-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Preferred run hour', 'davix-sub-bridge' ); ?></th>
+                    <td><input type="number" name="resync_run_hour" min="0" max="23" value="<?php echo esc_attr( (int) $settings['resync_run_hour'] ); ?>" /> <p class="description"><?php esc_html_e( 'Local site time hour for the daily schedule.', 'davix-sub-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Disable non-active users', 'davix-sub-bridge' ); ?></th>
+                    <td><label><input type="checkbox" name="resync_disable_non_active" value="1" <?php checked( $settings['resync_disable_non_active'], 1 ); ?> /> <?php esc_html_e( 'Send disable events for cancelled/expired/paused/payment_failed.', 'davix-sub-bridge' ); ?></label></td>
                 </tr>
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Plan products', 'davix-sub-bridge' ); ?></th>
@@ -650,6 +721,29 @@ class DSB_Admin {
                 </tr>
             </table>
             <?php submit_button(); ?>
+        </form>
+
+        <div class="notice-inline" style="margin-top:10px;">
+            <p><strong><?php esc_html_e( 'Last Resync Status:', 'davix-sub-bridge' ); ?></strong>
+                <?php
+                if ( empty( $resync_status['last_run_at'] ) ) {
+                    esc_html_e( 'Never run.', 'davix-sub-bridge' );
+                } else {
+                    printf(
+                        '%s (%s)%s',
+                        esc_html( $resync_status['last_result'] ?: 'ok' ),
+                        esc_html( $resync_status['last_run_at'] ),
+                        $resync_status['last_error'] ? ' — ' . esc_html( $resync_status['last_error'] ) : ''
+                    );
+                }
+                ?>
+            </p>
+        </div>
+
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:10px;">
+            <input type="hidden" name="action" value="dsb_run_resync_now" />
+            <?php wp_nonce_field( 'dsb_run_resync_now', 'dsb_run_resync_nonce' ); ?>
+            <?php submit_button( __( 'Run Resync Now', 'davix-sub-bridge' ), 'secondary', 'dsb_run_resync_now', false ); ?>
         </form>
 
         <form method="post" style="margin-top:20px;">

@@ -23,6 +23,7 @@ require_once __DIR__ . '/includes/class-dsb-db.php';
 require_once __DIR__ . '/includes/class-dsb-util.php';
 require_once __DIR__ . '/includes/class-dsb-logger.php';
 require_once __DIR__ . '/includes/class-dsb-client.php';
+require_once __DIR__ . '/includes/class-dsb-resync.php';
 require_once __DIR__ . '/includes/class-dsb-admin.php';
 require_once __DIR__ . '/includes/class-dsb-events.php';
 require_once __DIR__ . '/includes/class-dsb-keys-table.php';
