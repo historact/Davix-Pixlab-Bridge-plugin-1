@@ -10,6 +10,9 @@ class DSB_Node_Poll {
     const OPTION_LAST_RUN_AT  = 'dsb_node_poll_last_run_at';
     const OPTION_LAST_RESULT  = 'dsb_node_poll_last_result';
     const OPTION_LAST_ERROR   = 'dsb_node_poll_last_error';
+    const OPTION_LAST_HTTP    = 'dsb_node_poll_last_http_code';
+    const OPTION_LAST_URL     = 'dsb_node_poll_last_url';
+    const OPTION_LAST_BODY    = 'dsb_node_poll_last_body_excerpt';
 
     /** @var DSB_Client */
     protected $client;
@@ -61,6 +64,9 @@ class DSB_Node_Poll {
             'last_run_at' => get_option( self::OPTION_LAST_RUN_AT, '' ),
             'last_result' => get_option( self::OPTION_LAST_RESULT, '' ),
             'last_error'  => get_option( self::OPTION_LAST_ERROR, '' ),
+            'last_http'   => get_option( self::OPTION_LAST_HTTP, '' ),
+            'last_url'    => get_option( self::OPTION_LAST_URL, '' ),
+            'last_body'   => get_option( self::OPTION_LAST_BODY, '' ),
         ];
     }
 
@@ -99,6 +105,14 @@ class DSB_Node_Poll {
             'deleted_users'  => 0,
         ];
 
+        $error_context = [
+            'http_code'     => 0,
+            'url'           => '',
+            'body_excerpt'  => '',
+            'decoded_error' => '',
+            'method'        => '',
+        ];
+
         try {
             do {
                 $result  = $this->client->fetch_node_export( $page, $per_page );
@@ -106,7 +120,10 @@ class DSB_Node_Poll {
                 $decoded = $result['decoded'] ?? null;
 
                 if ( $code < 200 || $code >= 300 || ! is_array( $decoded ) ) {
-                    $errors[] = is_wp_error( $result['response'] ?? null ) ? ( $result['response']->get_error_message() ?? '' ) : ( is_array( $decoded ) ? (string) ( $decoded['status'] ?? 'unexpected_response' ) : 'unexpected_response' );
+                    $details        = $this->build_error_details( $result, $decoded );
+                    $errors[]       = $details['message'];
+                    $context        = $details['context'];
+                    $error_context  = $error_context['http_code'] ? $error_context : $context;
                     break;
                 }
 
@@ -177,23 +194,45 @@ class DSB_Node_Poll {
             $duration
         );
 
+        $error_excerpt = implode( ';', $errors );
+
+        if ( $errors ) {
+            $context_parts = [];
+            if ( $error_context['url'] ) {
+                $context_parts[] = 'url:' . $error_context['url'];
+            }
+            if ( $error_context['body_excerpt'] ) {
+                $context_parts[] = 'body:' . substr( $error_context['body_excerpt'], 0, 200 );
+            }
+            if ( $error_context['decoded_error'] ) {
+                $context_parts[] = 'decoded:' . $error_context['decoded_error'];
+            }
+
+            $context_summary = implode( ' ', $context_parts );
+            if ( $context_summary ) {
+                $error_excerpt = $error_excerpt ? $error_excerpt . ' | ' . $context_summary : $context_summary;
+            }
+        }
+
         $this->db->log_event(
             [
                 'event'           => 'node_poll_sync',
                 'customer_email'  => null,
                 'subscription_id' => null,
                 'response_action' => $summary_text,
-                'http_code'       => 200,
-                'error_excerpt'   => implode( ';', $errors ),
+                'http_code'       => $errors ? (int) $error_context['http_code'] : 200,
+                'error_excerpt'   => $error_excerpt,
             ]
         );
 
         $this->release_lock();
 
         if ( $errors ) {
+            $this->record_last_error_context( $error_context );
             return $this->record_status( 'error', implode( ';', $errors ) );
         }
 
+        $this->record_last_error_context();
         return $this->record_status( 'ok' );
     }
 
@@ -221,6 +260,73 @@ class DSB_Node_Poll {
         update_option( self::OPTION_LAST_ERROR, $error );
 
         return [ 'status' => $status, 'error' => $error ];
+    }
+
+    protected function record_last_error_context( array $context = [] ): void {
+        $defaults = [
+            'http_code'    => 0,
+            'url'          => '',
+            'body_excerpt' => '',
+        ];
+
+        $context = array_merge( $defaults, $context );
+
+        update_option( self::OPTION_LAST_HTTP, (int) $context['http_code'] );
+        update_option( self::OPTION_LAST_URL, $context['url'] );
+        update_option( self::OPTION_LAST_BODY, $context['body_excerpt'] );
+    }
+
+    protected function build_error_details( array $result, $decoded ): array {
+        $response     = $result['response'] ?? null;
+        $code         = (int) ( $result['code'] ?? 0 );
+        $url          = isset( $result['url'] ) ? (string) $result['url'] : '';
+        $method       = isset( $result['method'] ) ? (string) $result['method'] : '';
+        $body_excerpt = $this->extract_body_excerpt( $response );
+
+        $decoded_error = '';
+        if ( is_array( $decoded ) ) {
+            foreach ( [ 'error', 'message', 'status', 'code' ] as $key ) {
+                if ( isset( $decoded[ $key ] ) && '' !== (string) $decoded[ $key ] ) {
+                    $decoded_error = is_scalar( $decoded[ $key ] ) ? (string) $decoded[ $key ] : wp_json_encode( $decoded[ $key ] );
+                    break;
+                }
+            }
+        }
+
+        if ( is_wp_error( $response ) ) {
+            $message = $response->get_error_message();
+        } elseif ( $code ) {
+            $reason  = $decoded_error ?: ( $body_excerpt ?: 'unexpected_response' );
+            $message = sprintf( 'HTTP %d %s', $code, $reason );
+        } else {
+            $message = $decoded_error ?: ( $body_excerpt ?: 'unexpected_response' );
+        }
+
+        return [
+            'message' => $message,
+            'context' => [
+                'http_code'     => $code,
+                'url'           => $url,
+                'method'        => $method,
+                'body_excerpt'  => $body_excerpt,
+                'decoded_error' => $decoded_error,
+            ],
+        ];
+    }
+
+    protected function extract_body_excerpt( $response ): string {
+        if ( is_wp_error( $response ) ) {
+            $data = $response->get_error_data();
+            $body = is_array( $data ) && isset( $data['body'] ) ? (string) $data['body'] : '';
+            return $body ? substr( $body, 0, 500 ) : '';
+        }
+
+        if ( is_array( $response ) ) {
+            $body = wp_remote_retrieve_body( $response );
+            return $body ? substr( $body, 0, 500 ) : '';
+        }
+
+        return '';
     }
 
     protected function process_item( array $item, int $http_code ): array {
