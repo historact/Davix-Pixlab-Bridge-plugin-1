@@ -394,6 +394,9 @@ class DSB_Dashboard_Ajax {
         $usage  = $decoded['usage'] ?? [];
         $usagePer = $usage['per_endpoint'] ?? [];
 
+        $planSlug = isset( $plan['plan_slug'] ) ? strtolower( (string) $plan['plan_slug'] ) : '';
+        $isFreePlan = ( $plan['is_free'] ?? false ) || 'free' === $planSlug;
+
         $limit = null;
         if ( isset( $plan['monthly_call_limit'] ) && is_numeric( $plan['monthly_call_limit'] ) ) {
             $limit = (int) $plan['monthly_call_limit'];
@@ -406,17 +409,43 @@ class DSB_Dashboard_Ajax {
 
         $startUtc = $usage['billing_window']['start_utc'] ?? null;
         $endUtc   = $usage['billing_window']['end_utc'] ?? null;
-        $validFrom = $this->fmt_date_ymd( $key['valid_from'] ?? null );
-        $validUntil = $this->fmt_date_ymd( $key['valid_until'] ?? null );
+        $rawValidFrom = $key['valid_from'] ?? null;
+        $rawValidUntil = $key['valid_until'] ?? null;
+        $validFrom = $this->fmt_date_ymd( $rawValidFrom );
+        $validUntil = $this->fmt_date_ymd( $rawValidUntil );
         $hasFrom = $validFrom && '—' !== $validFrom;
         $hasUntil = $validUntil && '—' !== $validUntil;
+
+        $defaultStart = ( new \DateTime( 'first day of this month 00:00:00', new \DateTimeZone( 'UTC' ) ) )->format( 'Y-m-d H:i:s' );
+        $defaultEnd   = ( new \DateTime( 'first day of next month 00:00:00', new \DateTimeZone( 'UTC' ) ) )->format( 'Y-m-d H:i:s' );
+
+        $billingStart = $this->fmt_date_ymd( $startUtc ?: $defaultStart );
+        if ( ! empty( $endUtc ) ) {
+            $billingEnd = $this->fmt_date_ymd( $endUtc );
+        } elseif ( ! empty( $startUtc ) ) {
+            $billingEnd = $this->compute_billing_end_from_start( $startUtc );
+        } else {
+            $billingEnd = $this->fmt_date_ymd( $defaultEnd );
+        }
+
         $validity = '';
-        if ( $hasFrom && $hasUntil ) {
-            $validity = $validFrom . ' – ' . $validUntil;
-        } elseif ( $hasFrom ) {
-            $validity = sprintf( __( 'Valid from %s', 'davix-sub-bridge' ), $validFrom );
-        } elseif ( $hasUntil ) {
-            $validity = sprintf( __( 'Valid until %s', 'davix-sub-bridge' ), $validUntil );
+        $useBillingWindow = $isFreePlan || empty( $rawValidUntil );
+        if ( $useBillingWindow ) {
+            if ( $billingStart && '—' !== $billingStart && $billingEnd && '—' !== $billingEnd ) {
+                $validity = $billingStart . ' – ' . $billingEnd;
+            } elseif ( $billingStart && '—' !== $billingStart ) {
+                $validity = sprintf( __( 'Valid from %s', 'davix-sub-bridge' ), $billingStart );
+            } elseif ( $billingEnd && '—' !== $billingEnd ) {
+                $validity = sprintf( __( 'Valid until %s', 'davix-sub-bridge' ), $billingEnd );
+            }
+        } else {
+            if ( $hasFrom && $hasUntil ) {
+                $validity = $validFrom . ' – ' . $validUntil;
+            } elseif ( $hasFrom ) {
+                $validity = sprintf( __( 'Valid from %s', 'davix-sub-bridge' ), $validFrom );
+            } elseif ( $hasUntil ) {
+                $validity = sprintf( __( 'Valid until %s', 'davix-sub-bridge' ), $validUntil );
+            }
         }
 
         return [
@@ -447,8 +476,8 @@ class DSB_Dashboard_Ajax {
             ],
             'billing' => [
                 'period' => $usage['period'] ?? gmdate( 'Y-m' ),
-                'start'  => $this->fmt_date_ymd( $startUtc ),
-                'end'    => ! empty( $endUtc ) ? $this->fmt_date_ymd( $endUtc ) : $this->compute_billing_end_from_start( $startUtc ),
+                'start'  => $billingStart,
+                'end'    => $billingEnd,
             ],
             'plan_validity' => $validity,
         ];
