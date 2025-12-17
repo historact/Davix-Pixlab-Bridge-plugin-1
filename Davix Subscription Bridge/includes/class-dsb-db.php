@@ -6,7 +6,7 @@ defined( 'ABSPATH' ) || exit;
 class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
     const OPTION_DB_VERSION          = 'dsb_db_version';
-    const DB_VERSION                 = '1.3.0';
+    const DB_VERSION                 = '1.4.0';
 
     /** @var \wpdb */
     protected $wpdb;
@@ -55,14 +55,21 @@ class DSB_DB {
             reason varchar(32) NOT NULL,
             status varchar(16) NOT NULL DEFAULT 'pending',
             attempts INT NOT NULL DEFAULT 0,
+            claim_token varchar(64) DEFAULT NULL,
+            locked_until datetime DEFAULT NULL,
+            started_at datetime DEFAULT NULL,
+            finished_at datetime DEFAULT NULL,
+            next_run_at datetime DEFAULT NULL,
             last_error text DEFAULT NULL,
             created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
             KEY status (status),
+            KEY idx_status_locked_until (status, locked_until),
             KEY wp_user_id (wp_user_id),
             KEY customer_email (customer_email),
-            KEY subscription_id (subscription_id)
+            KEY subscription_id (subscription_id),
+            KEY idx_claim_token (claim_token)
         ) $charset_collate;";
 
         $sql_keys = "CREATE TABLE {$this->table_keys} (
@@ -138,12 +145,16 @@ class DSB_DB {
     public function migrate(): void {
         $stored_version = get_option( self::OPTION_DB_VERSION );
 
-        if ( self::DB_VERSION === $stored_version ) {
-            return;
-        }
+        if ( self::DB_VERSION !== $stored_version ) {
+            $this->create_tables();
 
-        $this->create_tables();
-        update_option( self::OPTION_DB_VERSION, self::DB_VERSION );
+            if ( version_compare( (string) $stored_version, '1.4.0', '<' ) ) {
+                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.4.0.php';
+                DSB_Migration_140::run( $this->wpdb, $this->table_purge_queue );
+            }
+
+            update_option( self::OPTION_DB_VERSION, self::DB_VERSION );
+        }
     }
 
     public function drop_tables(): void {
@@ -254,38 +265,79 @@ class DSB_DB {
         return (int) $this->wpdb->insert_id;
     }
 
-    public function fetch_pending_purge_jobs( int $limit = 20 ): array {
-        $limit = max( 1, min( 100, $limit ) );
-        return $this->wpdb->get_results(
+    public function claim_pending_purge_jobs( int $limit, string $claim_token, int $lease_seconds ): array {
+        $limit         = max( 1, min( 100, $limit ) );
+        $lease_seconds = max( 1, $lease_seconds );
+
+        $this->wpdb->query(
             $this->wpdb->prepare(
-                "SELECT * FROM {$this->table_purge_queue} WHERE status = %s ORDER BY id ASC LIMIT %d",
+                "UPDATE {$this->table_purge_queue}
+                SET status = %s,
+                    claim_token = %s,
+                    locked_until = DATE_ADD( UTC_TIMESTAMP(), INTERVAL %d SECOND ),
+                    started_at = IFNULL( started_at, UTC_TIMESTAMP() ),
+                    attempts = attempts + 1
+                WHERE status = %s
+                    AND ( next_run_at IS NULL OR next_run_at <= UTC_TIMESTAMP() )
+                    AND ( locked_until IS NULL OR locked_until < UTC_TIMESTAMP() )
+                ORDER BY id ASC
+                LIMIT %d",
+                'processing',
+                $claim_token,
+                $lease_seconds,
                 'pending',
                 $limit
+            )
+        );
+
+        return $this->wpdb->get_results(
+            $this->wpdb->prepare(
+                "SELECT * FROM {$this->table_purge_queue} WHERE claim_token = %s ORDER BY id ASC",
+                $claim_token
             ),
             ARRAY_A
         );
     }
 
-    public function mark_job_processing( int $id ): void {
-        $this->wpdb->query( $this->wpdb->prepare( "UPDATE {$this->table_purge_queue} SET status = %s, attempts = attempts + 1 WHERE id = %d", 'processing', $id ) );
-    }
-
     public function mark_job_done( int $id ): void {
         $this->wpdb->update(
             $this->table_purge_queue,
-            [ 'status' => 'done', 'last_error' => null ],
+            [
+                'status'       => 'done',
+                'last_error'   => null,
+                'claim_token'  => null,
+                'locked_until' => null,
+                'finished_at'  => current_time( 'mysql', true ),
+                'next_run_at'  => null,
+            ],
             [ 'id' => $id ]
         );
     }
 
-    public function mark_job_error( int $id, string $error, int $attempts, int $max_attempts ): void {
+    public function mark_job_error( array $job, string $error, int $max_attempts ): void {
+        $id       = (int) ( $job['id'] ?? 0 );
+        $attempts = (int) ( $job['attempts'] ?? 0 );
+        if ( ! $id ) {
+            return;
+        }
+
         $next_status = $attempts >= $max_attempts ? 'error' : 'pending';
+
+        $backoff_minutes = $attempts > 0 ? min( pow( 2, $attempts - 1 ) * 5, 360 ) : 5;
+        $next_run_at     = $next_status === 'pending'
+            ? gmdate( 'Y-m-d H:i:s', time() + ( $backoff_minutes * MINUTE_IN_SECONDS ) )
+            : null;
+
         $this->wpdb->update(
             $this->table_purge_queue,
             [
-                'status'     => $next_status,
-                'attempts'   => $attempts,
-                'last_error' => wp_strip_all_tags( $error ),
+                'status'       => $next_status,
+                'attempts'     => $attempts,
+                'last_error'   => wp_strip_all_tags( $error ),
+                'claim_token'  => null,
+                'locked_until' => null,
+                'finished_at'  => current_time( 'mysql', true ),
+                'next_run_at'  => $next_run_at,
             ],
             [ 'id' => $id ]
         );

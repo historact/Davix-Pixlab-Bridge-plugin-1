@@ -443,6 +443,28 @@ class DSB_Admin {
             $this->add_notice( __( 'Plan mappings saved.', 'davix-sub-bridge' ) );
         }
 
+        if ( 'cron' === $tab && isset( $_POST['dsb_run_purge_worker'] ) && check_admin_referer( 'dsb_run_purge_worker' ) ) {
+            $result = $this->purge_worker->run( true );
+            $status = $result['status'] ?? '';
+
+            if ( 'ok' === $status ) {
+                $processed = isset( $result['processed'] ) ? (int) $result['processed'] : 0;
+                $this->add_notice( sprintf( __( 'Purge worker ran successfully. Processed %d jobs.', 'davix-sub-bridge' ), $processed ) );
+            } elseif ( 'skipped_locked' === $status ) {
+                $this->add_notice( __( 'Purge worker skipped because a lock is active.', 'davix-sub-bridge' ), 'error' );
+            } elseif ( 'skipped_disabled' === $status ) {
+                $this->add_notice( __( 'Purge worker is disabled.', 'davix-sub-bridge' ), 'error' );
+            } else {
+                $error_message = isset( $result['error'] ) ? $result['error'] : __( 'Unexpected error', 'davix-sub-bridge' );
+                $this->add_notice( sprintf( __( 'Purge worker failed: %s', 'davix-sub-bridge' ), sanitize_text_field( $error_message ) ), 'error' );
+            }
+        }
+
+        if ( 'cron' === $tab && isset( $_POST['dsb_clear_purge_lock'] ) && check_admin_referer( 'dsb_clear_purge_lock' ) ) {
+            $this->purge_worker->clear_lock();
+            $this->add_notice( __( 'Purge lock cleared.', 'davix-sub-bridge' ) );
+        }
+
         if ( 'keys' === $tab ) {
             $this->handle_key_actions();
         }
@@ -632,7 +654,9 @@ class DSB_Admin {
         $code    = wp_remote_retrieve_response_code( $response );
         $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
 
-        if ( $code >= 200 && $code < 300 && is_array( $decoded ) && ( $decoded['status'] ?? '' ) === 'ok' ) {
+        $status_value = is_array( $decoded ) && isset( $decoded['status'] ) ? strtolower( (string) $decoded['status'] ) : '';
+
+        if ( $code >= 200 && $code < 300 && is_array( $decoded ) && in_array( $status_value, [ 'ok', 'active', 'disabled' ], true ) ) {
             $message = $success_message;
             if ( ! empty( $decoded['key'] ) ) {
                 $message .= ' ' . __( 'Copy now:', 'davix-sub-bridge' ) . ' ' . sanitize_text_field( $decoded['key'] );
@@ -662,6 +686,7 @@ class DSB_Admin {
             'logs'         => __( 'Logs', 'davix-sub-bridge' ),
             'style'        => __( 'Style', 'davix-sub-bridge' ),
             'debug'        => __( 'Debug', 'davix-sub-bridge' ),
+            'cron'         => __( 'Cron Jobs', 'davix-sub-bridge' ),
         ];
         foreach ( $tabs as $key => $label ) {
             $class = $tab === $key ? 'nav-tab nav-tab-active' : 'nav-tab';
@@ -683,6 +708,8 @@ class DSB_Admin {
             $this->render_style_tab();
         } elseif ( 'debug' === $tab ) {
             $this->render_debug_tab();
+        } elseif ( 'cron' === $tab ) {
+            $this->render_cron_tab();
         } else {
             $this->render_settings_tab();
         }
@@ -1887,6 +1914,110 @@ class DSB_Admin {
         }
 
         wp_send_json( [ 'results' => $results ] );
+    }
+
+    protected function render_cron_tab(): void {
+        $settings   = $this->client->get_settings();
+        $status     = $this->purge_worker->get_last_status();
+        $next_run   = wp_next_scheduled( DSB_Purge_Worker::CRON_HOOK );
+        $lock_until = (int) ( $status['lock_until'] ?? 0 );
+        ?>
+        <div class="wrap">
+            <h2><?php esc_html_e( 'Purge worker settings', 'davix-sub-bridge' ); ?></h2>
+            <form method="post">
+                <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Enable purge worker', 'davix-sub-bridge' ); ?></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="enable_purge_worker" value="1" <?php checked( ! empty( $settings['enable_purge_worker'] ) ); ?> />
+                                <?php esc_html_e( 'Process purge queue automatically', 'davix-sub-bridge' ); ?>
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Lock duration (minutes)', 'davix-sub-bridge' ); ?></th>
+                        <td>
+                            <input type="number" min="1" max="120" name="purge_lock_minutes" value="<?php echo esc_attr( (int) ( $settings['purge_lock_minutes'] ?? 10 ) ); ?>" />
+                            <p class="description"><?php esc_html_e( 'Prevents overlapping runs for this many minutes.', 'davix-sub-bridge' ); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Lease duration (minutes)', 'davix-sub-bridge' ); ?></th>
+                        <td>
+                            <input type="number" min="1" max="240" name="purge_lease_minutes" value="<?php echo esc_attr( (int) ( $settings['purge_lease_minutes'] ?? 15 ) ); ?>" />
+                            <p class="description"><?php esc_html_e( 'How long a worker keeps claimed jobs before they can be retried.', 'davix-sub-bridge' ); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Batch size', 'davix-sub-bridge' ); ?></th>
+                        <td>
+                            <input type="number" min="1" max="100" name="purge_batch_size" value="<?php echo esc_attr( (int) ( $settings['purge_batch_size'] ?? 20 ) ); ?>" />
+                            <p class="description"><?php esc_html_e( 'Maximum purge jobs processed per run.', 'davix-sub-bridge' ); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Max attempts', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo esc_html( DSB_Purge_Worker::MAX_ATTEMPTS ); ?></td>
+                    </tr>
+                </table>
+                <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save settings', 'davix-sub-bridge' ); ?></button></p>
+            </form>
+
+            <h2><?php esc_html_e( 'Purge worker status', 'davix-sub-bridge' ); ?></h2>
+            <table class="widefat" style="max-width:800px;">
+                <tbody>
+                    <tr>
+                        <th><?php esc_html_e( 'Lock state', 'davix-sub-bridge' ); ?></th>
+                        <td>
+                            <?php
+                            if ( $lock_until > time() ) {
+                                printf( esc_html__( 'Locked until %s', 'davix-sub-bridge' ), esc_html( gmdate( 'Y-m-d H:i:s', $lock_until ) ) );
+                            } else {
+                                esc_html_e( 'Not locked', 'davix-sub-bridge' );
+                            }
+                            ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Next cron run', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo $next_run ? esc_html( gmdate( 'Y-m-d H:i:s', (int) $next_run ) ) : esc_html__( 'Not scheduled', 'davix-sub-bridge' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Last run at', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo esc_html( $status['last_run_at'] ?? '' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Last result', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo esc_html( $status['last_result'] ?? '' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Last duration (ms)', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo esc_html( (string) ( $status['last_duration_ms'] ?? 0 ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Last processed count', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo esc_html( (string) ( $status['last_processed'] ?? 0 ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Last error', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo esc_html( $status['last_error'] ?? '' ); ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <form method="post" style="margin-top:20px;display:inline-block;">
+                <?php wp_nonce_field( 'dsb_run_purge_worker' ); ?>
+                <button type="submit" name="dsb_run_purge_worker" class="button button-secondary"><?php esc_html_e( 'Run purge worker now', 'davix-sub-bridge' ); ?></button>
+            </form>
+
+            <form method="post" style="margin-top:20px;display:inline-block;margin-left:10px;">
+                <?php wp_nonce_field( 'dsb_clear_purge_lock' ); ?>
+                <button type="submit" name="dsb_clear_purge_lock" class="button"><?php esc_html_e( 'Clear purge lock', 'davix-sub-bridge' ); ?></button>
+            </form>
+        </div>
+        <?php
     }
 
     public function ajax_search_orders(): void {

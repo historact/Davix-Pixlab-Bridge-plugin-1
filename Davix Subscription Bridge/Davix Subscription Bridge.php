@@ -35,6 +35,7 @@ require_once __DIR__ . '/includes/class-dsb-user-purger.php';
 require_once __DIR__ . '/includes/class-dsb-plugin.php';
 
 register_activation_hook( __FILE__, '\\Davix\\SubscriptionBridge\\DSB_Plugin::activate' );
+register_deactivation_hook( __FILE__, '\\Davix\\SubscriptionBridge\\DSB_Plugin::deactivate' );
 register_uninstall_hook( __FILE__, '\\Davix\\SubscriptionBridge\\DSB_Plugin::uninstall' );
 
 add_action( 'plugins_loaded', static function () {

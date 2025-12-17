@@ -31,6 +31,12 @@ class DSB_Plugin {
         $db->migrate();
     }
 
+    public static function deactivate(): void {
+        wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Purge_Worker::CRON_HOOK );
+        wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Node_Poll::CRON_HOOK );
+        wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Resync::CRON_HOOK );
+    }
+
     public static function uninstall(): void {
         if ( get_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL ) ) {
             $db = new DSB_DB( $GLOBALS['wpdb'] );
@@ -51,6 +57,12 @@ class DSB_Plugin {
             delete_option( DSB_Node_Poll::OPTION_LAST_RUN_AT );
             delete_option( DSB_Node_Poll::OPTION_LAST_RESULT );
             delete_option( DSB_Node_Poll::OPTION_LAST_ERROR );
+            delete_option( DSB_Purge_Worker::OPTION_LOCK_UNTIL );
+            delete_option( DSB_Purge_Worker::OPTION_LAST_RUN_AT );
+            delete_option( DSB_Purge_Worker::OPTION_LAST_RESULT );
+            delete_option( DSB_Purge_Worker::OPTION_LAST_ERROR );
+            delete_option( DSB_Purge_Worker::OPTION_LAST_DURATION_MS );
+            delete_option( DSB_Purge_Worker::OPTION_LAST_PROCESSED );
         }
     }
 
