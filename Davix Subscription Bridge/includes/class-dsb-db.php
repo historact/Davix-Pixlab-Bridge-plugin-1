@@ -183,6 +183,40 @@ class DSB_DB {
         }
     }
 
+    /**
+     * Retrieve a truth-table row for a given WordPress user ID.
+     */
+    public function get_user_truth_by_wp_user_id( $wp_user_id ): ?array {
+        $wp_user_id = absint( $wp_user_id );
+
+        if ( ! $wp_user_id ) {
+            return null;
+        }
+
+        $row = $this->wpdb->get_row(
+            $this->wpdb->prepare( "SELECT * FROM {$this->table_user} WHERE wp_user_id = %d", $wp_user_id ),
+            ARRAY_A
+        );
+
+        if ( ! $row ) {
+            return null;
+        }
+
+        return [
+            'wp_user_id'      => isset( $row['wp_user_id'] ) ? absint( $row['wp_user_id'] ) : 0,
+            'customer_email'  => $row['customer_email'] ?? null,
+            'subscription_id' => $row['subscription_id'] ?? null,
+            'order_id'        => $row['order_id'] ?? null,
+            'product_id'      => isset( $row['product_id'] ) ? absint( $row['product_id'] ) : null,
+            'plan_slug'       => $row['plan_slug'] ?? null,
+            'status'          => $row['status'] ?? null,
+            'valid_from'      => $row['valid_from'] ?? null,
+            'valid_until'     => $row['valid_until'] ?? null,
+            'source'          => $row['source'] ?? null,
+            'last_sync_at'    => $row['last_sync_at'] ?? null,
+        ];
+    }
+
     public function log_event( array $data ): void {
         $record = [
             'event'           => sanitize_text_field( $data['event'] ?? '' ),

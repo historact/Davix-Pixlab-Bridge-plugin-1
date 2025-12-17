@@ -5,6 +5,11 @@ defined( 'ABSPATH' ) || exit;
 
 if ( ! function_exists( __NAMESPACE__ . '\\dsb_pixlab_get_identity' ) ) {
     function dsb_pixlab_get_identity(): array {
+        $wp_user_id      = (int) get_current_user_id();
+        if ( ! $wp_user_id ) {
+            wp_send_json_error( [ 'status' => 'error', 'code' => 'unauthorized', 'message' => __( 'Please log in.', 'davix-sub-bridge' ) ], 401 );
+        }
+
         $user            = wp_get_current_user();
         $subscription_id = null;
         $order_id        = null;
@@ -52,6 +57,7 @@ if ( ! function_exists( __NAMESPACE__ . '\\dsb_pixlab_get_identity' ) ) {
         }
 
         return [
+            'wp_user_id'      => $wp_user_id,
             'subscription_id' => $subscription_id ? sanitize_text_field( $subscription_id ) : null,
             'order_id'        => $order_id ? sanitize_text_field( $order_id ) : null,
             'customer_email'  => $customer_email ? sanitize_email( $customer_email ) : null,
