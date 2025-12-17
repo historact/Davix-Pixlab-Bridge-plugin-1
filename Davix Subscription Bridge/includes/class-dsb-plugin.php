@@ -69,6 +69,8 @@ class DSB_Plugin {
 
         DSB_User_Purger::register( $this->db, $this->purge_worker );
 
+        add_action( 'user_register', [ $this, 'handle_user_register_free' ], 20, 1 );
+
         add_action( 'init', [ $this, 'init' ] );
     }
 
@@ -85,5 +87,134 @@ class DSB_Plugin {
 
     public function dependency_notice(): void {
         echo '<div class="notice notice-error"><p>' . esc_html__( 'Davix Subscription Bridge requires WooCommerce and WPSwings Subscriptions for WooCommerce to be active.', 'davix-sub-bridge' ) . '</p></div>';
+    }
+
+    public function handle_user_register_free( int $user_id ): void {
+        $user = get_userdata( $user_id );
+
+        if ( ! $user instanceof \WP_User ) {
+            return;
+        }
+
+        $email = $user->user_email ? sanitize_email( $user->user_email ) : '';
+
+        if ( ! $email ) {
+            dsb_log( 'warning', 'Skipping free provisioning for user without email', [ 'user_id' => $user_id ] );
+            return;
+        }
+
+        $plan_slug       = dsb_normalize_plan_slug( 'free' );
+        $now_mysql       = current_time( 'mysql', true );
+        $subscription_id = 'free-' . $user_id;
+
+        $payload = [
+            'customer_email' => $email,
+            'plan_slug'      => $plan_slug,
+            'wp_user_id'     => $user_id,
+        ];
+
+        $response    = $this->client->provision_key( $payload );
+        $code        = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+        $decoded     = is_wp_error( $response ) ? null : json_decode( wp_remote_retrieve_body( $response ), true );
+        $status_ok   = ! is_wp_error( $response ) && $code >= 200 && $code < 300 && is_array( $decoded ) && ( $decoded['status'] ?? '' ) === 'ok';
+        $valid_from  = $this->normalize_mysql_datetime( $decoded['key']['valid_from'] ?? $decoded['valid_from'] ?? $now_mysql ) ?? $now_mysql;
+        $valid_until = $this->normalize_mysql_datetime(
+            $decoded['key']['valid_until']
+                ?? $decoded['key']['valid_to']
+                ?? $decoded['key']['expires_at']
+                ?? $decoded['key']['expires_on']
+                ?? $decoded['valid_until']
+                ?? $decoded['valid_to']
+                ?? $decoded['expires_at']
+                ?? $decoded['expires_on']
+                ?? null
+        );
+
+        $this->db->upsert_key(
+            [
+                'subscription_id'     => $subscription_id,
+                'customer_email'      => $email,
+                'wp_user_id'          => $user_id,
+                'plan_slug'           => $plan_slug,
+                'status'              => $status_ok ? 'active' : 'error',
+                'subscription_status' => $status_ok ? 'active' : 'pending',
+                'key_prefix'          => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], 0, 10 ) : ( $decoded['key_prefix'] ?? null ),
+                'key_last4'           => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], -4 ) : ( $decoded['key_last4'] ?? null ),
+                'valid_from'          => $valid_from,
+                'valid_until'         => $valid_until,
+                'node_plan_id'        => $decoded['plan_id'] ?? null,
+                'last_action'         => 'auto_free_register',
+                'last_http_code'      => $code ?: null,
+                'last_error'          => $status_ok ? null : ( is_wp_error( $response ) ? $response->get_error_message() : ( $decoded['status'] ?? wp_remote_retrieve_body( $response ) ) ),
+            ]
+        );
+
+        $this->db->upsert_user(
+            [
+                'wp_user_id'      => $user_id,
+                'customer_email'  => $email,
+                'subscription_id' => null,
+                'order_id'        => null,
+                'product_id'      => null,
+                'plan_slug'       => $plan_slug,
+                'status'          => 'active',
+                'valid_from'      => $valid_from,
+                'valid_until'     => null,
+                'source'          => 'auto_free_register',
+                'last_sync_at'    => $now_mysql,
+            ]
+        );
+
+        $settings = $this->client->get_settings();
+        if ( ! empty( $settings['enable_logging'] ) ) {
+            $this->db->log_event(
+                [
+                    'event'           => 'free_user_register',
+                    'customer_email'  => $email,
+                    'plan_slug'       => $plan_slug,
+                    'subscription_id' => $subscription_id,
+                    'response_action' => $decoded['action'] ?? null,
+                    'http_code'       => $code,
+                    'error_excerpt'   => is_wp_error( $response ) ? $response->get_error_message() : ( $decoded['status'] ?? '' ),
+                ]
+            );
+        }
+
+        if ( $status_ok ) {
+            dsb_log( 'info', 'Provisioned free plan on user registration', [ 'user_id' => $user_id, 'email' => $email ] );
+        } else {
+            dsb_log(
+                'error',
+                'Provisioning free plan on user registration failed',
+                [
+                    'user_id' => $user_id,
+                    'email'   => $email,
+                    'code'    => $code,
+                    'body'    => is_wp_error( $response ) ? $response->get_error_message() : wp_remote_retrieve_body( $response ),
+                ]
+            );
+        }
+    }
+
+    protected function normalize_mysql_datetime( $value ): ?string {
+        if ( null === $value || '' === $value ) {
+            return null;
+        }
+
+        try {
+            if ( is_numeric( $value ) ) {
+                $dt = new \DateTimeImmutable( '@' . (int) $value );
+                return $dt->setTimezone( wp_timezone() )->format( 'Y-m-d H:i:s' );
+            }
+
+            if ( is_array( $value ) ) {
+                $value = reset( $value );
+            }
+
+            $dt = new \DateTimeImmutable( is_string( $value ) ? $value : '' );
+            return $dt->format( 'Y-m-d H:i:s' );
+        } catch ( \Throwable $e ) {
+            return null;
+        }
     }
 }
