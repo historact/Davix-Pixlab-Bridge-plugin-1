@@ -7,6 +7,12 @@ class DSB_Purge_Worker {
     const CRON_HOOK     = 'dsb_purge_queue_event';
     const SCHEDULE_KEY  = 'dsb_every_five_minutes';
     const MAX_ATTEMPTS  = 10;
+    const OPTION_LOCK_UNTIL   = 'dsb_purge_lock_until';
+    const OPTION_LAST_RUN_AT  = 'dsb_purge_last_run_at';
+    const OPTION_LAST_RESULT  = 'dsb_purge_last_result';
+    const OPTION_LAST_ERROR   = 'dsb_purge_last_error';
+    const OPTION_LAST_DURATION_MS = 'dsb_purge_last_duration_ms';
+    const OPTION_LAST_PROCESSED = 'dsb_purge_last_processed_count';
 
     /** @var DSB_Client */
     protected $client;
@@ -36,35 +42,71 @@ class DSB_Purge_Worker {
     }
 
     public function maybe_schedule(): void {
+        $settings = $this->client->get_settings();
+
+        if ( empty( $settings['enable_purge_worker'] ) ) {
+            $this->unschedule();
+            return;
+        }
+
         if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
             wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, self::SCHEDULE_KEY, self::CRON_HOOK );
         }
     }
 
-    public function run(): void {
-        $this->process_queue();
+    public function unschedule(): void {
+        wp_clear_scheduled_hook( self::CRON_HOOK );
     }
 
-    public function run_once(): void {
-        $this->process_queue( 5 );
-    }
+    public function run( bool $manual = false, ?int $limit = null ): array {
+        $settings = $this->client->get_settings();
 
-    protected function process_queue( int $limit = 20 ): void {
-        $jobs = $this->db->fetch_pending_purge_jobs( $limit );
-        foreach ( $jobs as $job ) {
-            $this->process_job( $job );
+        if ( empty( $settings['enable_purge_worker'] ) ) {
+            $this->unschedule();
+            return $this->record_status( 'skipped_disabled', '', 0, 0 );
         }
+
+        $lock_minutes = max( 1, min( 120, (int) ( $settings['purge_lock_minutes'] ?? 10 ) ) );
+        if ( ! $this->acquire_lock( $lock_minutes ) ) {
+            return $this->record_status( 'skipped_locked', __( 'Purge worker locked', 'davix-sub-bridge' ), 0, 0 );
+        }
+
+        $lease_minutes  = max( 1, min( 120, (int) ( $settings['purge_lease_minutes'] ?? 15 ) ) );
+        $batch_size     = max( 1, min( 100, (int) ( $limit ?? ( $settings['purge_batch_size'] ?? 20 ) ) ) );
+        $processed      = 0;
+        $result         = 'ok';
+        $error_message  = '';
+        $started        = microtime( true );
+        $claim_token    = bin2hex( random_bytes( 16 ) );
+
+        try {
+            $jobs = $this->db->claim_pending_purge_jobs( $batch_size, $claim_token, $lease_minutes * MINUTE_IN_SECONDS );
+            foreach ( $jobs as $job ) {
+                $this->process_job( $job );
+                $processed ++;
+            }
+        } catch ( \Throwable $e ) {
+            $result        = 'error';
+            $error_message = $e->getMessage();
+            dsb_log( 'error', 'Purge worker failed', [ 'error' => $error_message ] );
+        } finally {
+            $duration_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
+            $this->release_lock();
+            return $this->record_status( $result, $error_message, $duration_ms, $processed );
+        }
+    }
+
+    public function run_once(): array {
+        return $this->run( true );
     }
 
     protected function process_job( array $job ): void {
         $job_id  = (int) ( $job['id'] ?? 0 );
-        $attempt = (int) ( $job['attempts'] ?? 0 ) + 1;
         if ( ! $job_id ) {
             return;
         }
 
-        $this->db->mark_job_processing( $job_id );
-
+        $attempt    = (int) ( $job['attempts'] ?? 0 );
         $wp_user_id = isset( $job['wp_user_id'] ) ? absint( $job['wp_user_id'] ) : 0;
         $emails     = [];
         $subs       = [];
@@ -102,7 +144,8 @@ class DSB_Purge_Worker {
 
         $this->db->delete_user_rows_local( $wp_user_id, $emails, $subs );
 
-        $status_ok = $code >= 200 && $code < 300 && ( ! is_array( $decoded ) || ! isset( $decoded['status'] ) || 'ok' === $decoded['status'] );
+        $status_value = is_array( $decoded ) && isset( $decoded['status'] ) ? strtolower( (string) $decoded['status'] ) : '';
+        $status_ok = $code >= 200 && $code < 300 && ( ! is_array( $decoded ) || ! isset( $decoded['status'] ) || in_array( $status_value, [ 'ok', 'active', 'disabled' ], true ) );
         $error     = '';
 
         if ( ! $status_ok ) {
@@ -129,8 +172,51 @@ class DSB_Purge_Worker {
             $this->db->mark_job_done( $job_id );
             dsb_log( 'info', 'Purge job completed', [ 'job_id' => $job_id, 'code' => $code, 'wp_user_id' => $wp_user_id ?: null ] );
         } else {
-            $this->db->mark_job_error( $job_id, $error, $attempt, self::MAX_ATTEMPTS );
+            $this->db->mark_job_error( $job, $error, self::MAX_ATTEMPTS );
             dsb_log( 'error', 'Purge job failed', [ 'job_id' => $job_id, 'code' => $code, 'error' => $error, 'attempt' => $attempt ] );
         }
+    }
+
+    public function clear_lock(): void {
+        delete_option( self::OPTION_LOCK_UNTIL );
+    }
+
+    public function get_last_status(): array {
+        return [
+            'last_run_at'      => get_option( self::OPTION_LAST_RUN_AT, '' ),
+            'last_result'      => get_option( self::OPTION_LAST_RESULT, '' ),
+            'last_error'       => get_option( self::OPTION_LAST_ERROR, '' ),
+            'last_duration_ms' => (int) get_option( self::OPTION_LAST_DURATION_MS, 0 ),
+            'last_processed'   => (int) get_option( self::OPTION_LAST_PROCESSED, 0 ),
+            'lock_until'       => (int) get_option( self::OPTION_LOCK_UNTIL, 0 ),
+        ];
+    }
+
+    protected function acquire_lock( int $minutes ): bool {
+        $lock_until = (int) get_option( self::OPTION_LOCK_UNTIL );
+        if ( $lock_until > time() ) {
+            return false;
+        }
+
+        return update_option( self::OPTION_LOCK_UNTIL, time() + ( $minutes * MINUTE_IN_SECONDS ) );
+    }
+
+    protected function release_lock(): void {
+        delete_option( self::OPTION_LOCK_UNTIL );
+    }
+
+    protected function record_status( string $result, string $error, int $duration_ms, int $processed ): array {
+        update_option( self::OPTION_LAST_RUN_AT, current_time( 'mysql', true ) );
+        update_option( self::OPTION_LAST_RESULT, $result );
+        update_option( self::OPTION_LAST_ERROR, wp_strip_all_tags( $error ) );
+        update_option( self::OPTION_LAST_DURATION_MS, $duration_ms );
+        update_option( self::OPTION_LAST_PROCESSED, $processed );
+
+        return [
+            'status'    => $result,
+            'error'     => $error,
+            'processed' => $processed,
+            'duration'  => $duration_ms,
+        ];
     }
 }

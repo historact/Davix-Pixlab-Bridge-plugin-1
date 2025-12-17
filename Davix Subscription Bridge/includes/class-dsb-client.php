@@ -37,6 +37,10 @@ class DSB_Client {
                 'node_poll_per_page' => 200,
                 'node_poll_delete_stale' => 1,
                 'node_poll_lock_minutes' => 10,
+                'enable_purge_worker' => 1,
+                'purge_lock_minutes'  => 10,
+                'purge_lease_minutes' => 15,
+                'purge_batch_size'    => 20,
             ],
             $this->get_style_defaults(),
             $this->get_label_defaults()
@@ -217,6 +221,10 @@ class DSB_Client {
             'node_poll_per_page' => isset( $data['node_poll_per_page'] ) ? (int) $data['node_poll_per_page'] : ( $existing['node_poll_per_page'] ?? 200 ),
             'node_poll_delete_stale' => isset( $data['node_poll_delete_stale'] ) ? 1 : ( $existing['node_poll_delete_stale'] ?? 1 ),
             'node_poll_lock_minutes' => isset( $data['node_poll_lock_minutes'] ) ? (int) $data['node_poll_lock_minutes'] : ( $existing['node_poll_lock_minutes'] ?? 10 ),
+            'enable_purge_worker' => isset( $data['enable_purge_worker'] ) ? 1 : ( $existing['enable_purge_worker'] ?? 1 ),
+            'purge_lock_minutes'  => isset( $data['purge_lock_minutes'] ) ? (int) $data['purge_lock_minutes'] : ( $existing['purge_lock_minutes'] ?? 10 ),
+            'purge_lease_minutes' => isset( $data['purge_lease_minutes'] ) ? (int) $data['purge_lease_minutes'] : ( $existing['purge_lease_minutes'] ?? 15 ),
+            'purge_batch_size'    => isset( $data['purge_batch_size'] ) ? (int) $data['purge_batch_size'] : ( $existing['purge_batch_size'] ?? 20 ),
         ];
 
         $allowed_levels          = [ 'debug', 'info', 'warn', 'error' ];
@@ -228,6 +236,9 @@ class DSB_Client {
         $clean['node_poll_interval_minutes'] = max( 5, min( 60, (int) $clean['node_poll_interval_minutes'] ) );
         $clean['node_poll_per_page']         = max( 1, min( 500, (int) $clean['node_poll_per_page'] ) );
         $clean['node_poll_lock_minutes']     = max( 1, (int) $clean['node_poll_lock_minutes'] );
+        $clean['purge_lock_minutes']         = max( 1, min( 120, (int) $clean['purge_lock_minutes'] ) );
+        $clean['purge_lease_minutes']        = max( 1, min( 240, (int) $clean['purge_lease_minutes'] ) );
+        $clean['purge_batch_size']           = max( 1, min( 100, (int) $clean['purge_batch_size'] ) );
 
         $plan_slug_meta = isset( $data['dsb_plan_slug_meta'] ) && is_array( $data['dsb_plan_slug_meta'] ) ? $data['dsb_plan_slug_meta'] : [];
         $plan_products = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : $this->get_plan_products();
@@ -385,8 +396,9 @@ class DSB_Client {
             $action_value = isset( $decoded['action'] ) && is_string( $decoded['action'] ) ? strtolower( $decoded['action'] ) : ( $decoded['action'] ?? '' );
             $ok_actions   = [ 'created', 'updated', 'reactivated', 'activated', 'renewed' ];
             $ok_statuses  = [ 'ok', 'active', 'disabled' ];
+            $has_marker   = ( ! empty( $decoded['api_key_id'] ) || ! empty( $decoded['key'] ) || ! empty( $decoded['subscription_id'] ) );
 
-            if ( 'error' !== $status_value && ( in_array( $status_value, $ok_statuses, true ) || in_array( $action_value, $ok_actions, true ) ) ) {
+            if ( 'error' !== $status_value && ( in_array( $status_value, $ok_statuses, true ) || in_array( $action_value, $ok_actions, true ) || $has_marker ) ) {
                 $success = true;
             }
         }
@@ -428,6 +440,10 @@ class DSB_Client {
                     ?? $decoded['expires_on']
                     ?? ( $payload['valid_until'] ?? null )
             );
+            $key_status = in_array( $status_value, [ 'active', 'disabled' ], true )
+                ? $status_value
+                : ( isset( $payload['event'] ) && in_array( $payload['event'], [ 'cancelled', 'disabled' ], true ) ? 'disabled' : 'active' );
+
             $this->db->upsert_key(
                 [
                     'subscription_id' => $subscription_identifier,
@@ -436,7 +452,7 @@ class DSB_Client {
                     'customer_name'   => isset( $payload['customer_name'] ) ? sanitize_text_field( $payload['customer_name'] ) : null,
                     'subscription_status' => isset( $payload['subscription_status'] ) ? sanitize_text_field( $payload['subscription_status'] ) : null,
                     'plan_slug'       => sanitize_text_field( $payload['plan_slug'] ?? '' ),
-                    'status'          => isset( $payload['event'] ) && in_array( $payload['event'], [ 'cancelled', 'disabled' ], true ) ? 'disabled' : 'active',
+                    'status'          => $key_status,
                     'key_prefix'      => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], 0, 10 ) : ( $decoded['key_prefix'] ?? null ),
                     'key_last4'       => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], -4 ) : ( $decoded['key_last4'] ?? null ),
                     'valid_from'      => $valid_from,
