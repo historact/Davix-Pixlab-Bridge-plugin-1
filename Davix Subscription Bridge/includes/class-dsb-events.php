@@ -806,6 +806,8 @@ class DSB_Events {
         $customer_name        = '';
         $subscription_status  = '';
 
+        $subscription_order = null;
+
         if ( $order ) {
             $customer_email = $order->get_billing_email();
             $order_id       = $order->get_id();
@@ -814,6 +816,18 @@ class DSB_Events {
             foreach ( $order->get_items() as $item ) {
                 $product_id = $item->get_variation_id() ?: $item->get_product_id();
                 break;
+            }
+        } elseif ( $subscription_id ) {
+            $subscription_order = wc_get_order( (int) $subscription_id );
+            if ( $subscription_order instanceof \WC_Order ) {
+                $order_id       = $subscription_order->get_id();
+                $customer_email = $subscription_order->get_billing_email();
+                $wp_user_id     = (int) $subscription_order->get_user_id();
+                $customer_name  = trim( $subscription_order->get_formatted_billing_full_name() ?: $subscription_order->get_billing_first_name() . ' ' . $subscription_order->get_billing_last_name() );
+                foreach ( $subscription_order->get_items() as $item ) {
+                    $product_id = $item->get_variation_id() ?: $item->get_product_id();
+                    break;
+                }
             }
         }
 
@@ -839,6 +853,16 @@ class DSB_Events {
 
         if ( ! $customer_name && $order ) {
             $customer_name = trim( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() );
+        }
+
+        if ( ! $customer_email && $subscription_id && ! $subscription_order ) {
+            $subscription_order = wc_get_order( (int) $subscription_id );
+            if ( $subscription_order instanceof \WC_Order ) {
+                $customer_email = $subscription_order->get_billing_email();
+                if ( ! $order_id ) {
+                    $order_id = $subscription_order->get_id();
+                }
+            }
         }
 
         $plans = $this->client->get_product_plans();
@@ -955,6 +979,20 @@ class DSB_Events {
 
         if ( ! $customer_email && $order ) {
             $customer_email = $order->get_billing_email();
+        }
+
+        if ( ! $wp_user_id && $customer_email ) {
+            $user = get_user_by( 'email', $customer_email );
+            if ( $user ) {
+                $wp_user_id = (int) $user->ID;
+            }
+        }
+
+        if ( ! $customer_email && $subscription_id ) {
+            $maybe_email = get_post_meta( $subscription_id, '_billing_email', true );
+            if ( $maybe_email ) {
+                $customer_email = $maybe_email;
+            }
         }
 
         if ( ! $customer_email ) {

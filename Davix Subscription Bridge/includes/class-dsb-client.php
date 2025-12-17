@@ -366,6 +366,7 @@ class DSB_Client {
         $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
         $decoded  = $body ? json_decode( $body, true ) : null;
         $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+        $success  = ( $code >= 200 && $code < 300 && is_array( $decoded ) && 'ok' === ( $decoded['status'] ?? '' ) );
 
         $log = [
             'event'           => $payload['event'] ?? '',
@@ -375,7 +376,7 @@ class DSB_Client {
             'order_id'        => $payload['order_id'] ?? '',
             'response_action' => $decoded['action'] ?? null,
             'http_code'       => $code,
-            'error_excerpt'   => is_wp_error( $response ) ? $response->get_error_message() : ( $decoded['status'] ?? '' ),
+            'error_excerpt'   => is_wp_error( $response ) ? $response->get_error_message() : ( is_array( $decoded ) ? ( $decoded['status'] ?? '' ) : ( $body ? substr( $body, 0, 200 ) : '' ) ),
         ];
         $settings = $this->get_settings();
         if ( $settings['enable_logging'] ) {
@@ -387,7 +388,7 @@ class DSB_Client {
             $subscription_identifier = sanitize_text_field( (string) $payload['order_id'] );
         }
 
-        if ( $decoded && 'ok' === ( $decoded['status'] ?? '' ) ) {
+        if ( $success ) {
             $valid_from  = $this->normalize_mysql_datetime(
                 $decoded['key']['valid_from']
                     ?? $decoded['valid_from']
@@ -423,21 +424,65 @@ class DSB_Client {
                     'last_error'      => null,
                 ]
             );
+
+            if ( isset( $payload['event'] ) && in_array( $payload['event'], [ 'activated', 'renewed', 'reactivated', 'active' ], true ) ) {
+                $this->db->upsert_user(
+                    [
+                        'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : 0,
+                        'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
+                        'subscription_id' => $subscription_identifier,
+                        'order_id'        => isset( $payload['order_id'] ) ? absint( $payload['order_id'] ) : null,
+                        'product_id'      => isset( $payload['product_id'] ) ? absint( $payload['product_id'] ) : null,
+                        'plan_slug'       => sanitize_text_field( $payload['plan_slug'] ?? '' ),
+                        'status'          => isset( $payload['event'] ) && in_array( $payload['event'], [ 'cancelled', 'disabled' ], true ) ? 'disabled' : 'active',
+                        'valid_from'      => $valid_from,
+                        'valid_until'     => $valid_until,
+                        'source'          => 'subscription_event',
+                        'last_sync_at'    => current_time( 'mysql', true ),
+                    ]
+                );
+
+                if ( $settings['enable_logging'] ) {
+                    $this->db->log_event(
+                        [
+                            'event'           => 'upgrade_debug',
+                            'customer_email'  => $payload['customer_email'] ?? '',
+                            'plan_slug'       => $payload['plan_slug'] ?? '',
+                            'subscription_id' => $subscription_identifier,
+                            'order_id'        => $payload['order_id'] ?? '',
+                            'response_action' => $decoded['action'] ?? null,
+                            'http_code'       => $code,
+                            'error_excerpt'   => 'truth_table_upserted',
+                        ]
+                    );
+                }
+            }
         } elseif ( $settings['enable_logging'] ) {
-            $this->db->upsert_key(
-                [
-                    'subscription_id' => $subscription_identifier,
-                    'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
-                    'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : null,
-                    'customer_name'   => isset( $payload['customer_name'] ) ? sanitize_text_field( $payload['customer_name'] ) : null,
-                    'subscription_status' => isset( $payload['subscription_status'] ) ? sanitize_text_field( $payload['subscription_status'] ) : null,
-                    'plan_slug'       => sanitize_text_field( $payload['plan_slug'] ?? '' ),
-                    'status'          => 'error',
-                    'last_action'     => $payload['event'] ?? '',
-                    'last_http_code'  => $code,
-                    'last_error'      => is_wp_error( $response ) ? $response->get_error_message() : ( $decoded['status'] ?? '' ),
-                ]
-            );
+            if ( 200 === $code && ! is_array( $decoded ) ) {
+                dsb_log(
+                    'error',
+                    'Node response invalid JSON; key untouched',
+                    [
+                        'subscription_id' => $subscription_identifier,
+                        'http_code'       => $code,
+                    ]
+                );
+            } else {
+                $this->db->upsert_key(
+                    [
+                        'subscription_id' => $subscription_identifier,
+                        'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
+                        'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : null,
+                        'customer_name'   => isset( $payload['customer_name'] ) ? sanitize_text_field( $payload['customer_name'] ) : null,
+                        'subscription_status' => isset( $payload['subscription_status'] ) ? sanitize_text_field( $payload['subscription_status'] ) : null,
+                        'plan_slug'       => sanitize_text_field( $payload['plan_slug'] ?? '' ),
+                        'status'          => 'error',
+                        'last_action'     => $payload['event'] ?? '',
+                        'last_http_code'  => $code,
+                        'last_error'      => is_wp_error( $response ) ? $response->get_error_message() : ( is_array( $decoded ) ? ( $decoded['status'] ?? '' ) : ( $body ? substr( $body, 0, 200 ) : '' ) ),
+                    ]
+                );
+            }
         }
 
         return [
