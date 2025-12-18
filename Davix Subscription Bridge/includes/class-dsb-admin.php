@@ -71,12 +71,20 @@ class DSB_Admin {
             return;
         }
 
-        if ( wp_script_is( 'selectWoo', 'registered' ) ) {
+        if ( wp_script_is( 'selectWoo', 'registered' ) || wp_script_is( 'selectWoo', 'enqueued' ) ) {
             wp_enqueue_script( 'selectWoo' );
-            wp_enqueue_style( 'select2' );
+            if ( wp_style_is( 'selectWoo', 'registered' ) ) {
+                wp_enqueue_style( 'selectWoo' );
+            } elseif ( wp_style_is( 'woocommerce_admin_styles', 'registered' ) ) {
+                wp_enqueue_style( 'woocommerce_admin_styles' );
+            } elseif ( wp_style_is( 'select2', 'registered' ) ) {
+                wp_enqueue_style( 'select2' );
+            }
         } elseif ( wp_script_is( 'select2', 'registered' ) ) {
             wp_enqueue_script( 'select2' );
-            wp_enqueue_style( 'select2' );
+            if ( wp_style_is( 'select2', 'registered' ) ) {
+                wp_enqueue_style( 'select2' );
+            }
         }
 
         wp_enqueue_style( 'wp-color-picker' );
@@ -507,32 +515,6 @@ class DSB_Admin {
             $this->add_notice( __( 'Cron debug log cleared.', 'davix-sub-bridge' ) );
         }
 
-        if ( 'cron' === $tab && isset( $_POST['dsb_clear_node_poll_lock'] ) && check_admin_referer( 'dsb_clear_node_poll_lock' ) ) {
-            $lock_until = (int) get_option( DSB_Node_Poll::OPTION_LOCK_UNTIL, 0 );
-            if ( $lock_until > time() ) {
-                $this->add_notice( __( 'Node poll lock is still active; not cleared.', 'davix-sub-bridge' ), 'error' );
-            } else {
-                $this->node_poll->clear_lock();
-                $this->add_notice( __( 'Node poll lock cleared.', 'davix-sub-bridge' ) );
-            }
-        }
-
-        if ( 'cron' === $tab && isset( $_POST['dsb_clear_resync_lock'] ) && check_admin_referer( 'dsb_clear_resync_lock' ) ) {
-            $lock_until = (int) get_option( DSB_Resync::OPTION_LOCK_UNTIL, 0 );
-            if ( $lock_until > time() ) {
-                $this->add_notice( __( 'Resync lock is still active; not cleared.', 'davix-sub-bridge' ), 'error' );
-            } else {
-                $this->resync->clear_lock();
-                $this->add_notice( __( 'Resync lock cleared.', 'davix-sub-bridge' ) );
-            }
-        }
-
-        if ( 'cron' === $tab && isset( $_POST['dsb_clear_cron_log'] ) && check_admin_referer( 'dsb_clear_cron_log' ) ) {
-            $job = sanitize_key( wp_unslash( $_POST['dsb_clear_cron_log'] ) );
-            DSB_Cron_Logger::clear( $job );
-            $this->add_notice( __( 'Cron debug log cleared.', 'davix-sub-bridge' ) );
-        }
-
         if ( 'keys' === $tab ) {
             $this->handle_key_actions();
         }
@@ -743,9 +725,6 @@ class DSB_Admin {
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
-
-        // Ensure any posted actions are processed before rendering the page.
-        $this->handle_actions();
 
         $tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'settings';
 

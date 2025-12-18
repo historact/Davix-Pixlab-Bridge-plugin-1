@@ -24,7 +24,7 @@ class DSB_Cron_Alerts {
         ];
 
         $clean_error = self::sanitize_excerpt( $error_excerpt );
-        $is_failure  = in_array( $status, [ 'error', 'failed', 'failure' ], true );
+        $is_failure  = in_array( $status, [ 'error', 'failed', 'failure', 'warning' ], true );
 
         if ( ! $is_failure ) {
             $send_recovery = $job_state['alerted'] && ! empty( $settings[ 'enable_recovery_' . $job ] );
@@ -85,7 +85,7 @@ class DSB_Cron_Alerts {
         $emails = array_values( array_filter( $emails, 'is_email' ) );
 
         $chat_ids = self::parse_list( (string) ( $settings['telegram_chat_ids'] ?? '' ) );
-        $bot_token = trim( (string) ( $settings['telegram_bot_token'] ?? '' ) );
+        $bot_token = preg_replace( '/\s+/', '', trim( (string) ( $settings['telegram_bot_token'] ?? '' ) ) );
 
         if ( empty( $emails ) && ( empty( $bot_token ) || empty( $chat_ids ) ) ) {
             return false;
@@ -108,7 +108,7 @@ class DSB_Cron_Alerts {
         if ( $bot_token && $chat_ids ) {
             foreach ( $chat_ids as $chat_id ) {
                 $response = wp_remote_post(
-                    'https://api.telegram.org/bot' . rawurlencode( $bot_token ) . '/sendMessage',
+                    'https://api.telegram.org/bot' . $bot_token . '/sendMessage',
                     [
                         'timeout' => 10,
                         'body'    => [
@@ -132,7 +132,7 @@ class DSB_Cron_Alerts {
         $emails = self::parse_list( (string) ( $settings['alert_emails'] ?? '' ) );
         $emails = array_values( array_filter( $emails, 'is_email' ) );
         $chat_ids = self::parse_list( (string) ( $settings['telegram_chat_ids'] ?? '' ) );
-        $bot_token = trim( (string) ( $settings['telegram_bot_token'] ?? '' ) );
+        $bot_token = preg_replace( '/\s+/', '', trim( (string) ( $settings['telegram_bot_token'] ?? '' ) ) );
 
         if ( empty( $emails ) && ( empty( $bot_token ) || empty( $chat_ids ) ) ) {
             return;
@@ -154,7 +154,7 @@ class DSB_Cron_Alerts {
         if ( $bot_token && $chat_ids ) {
             foreach ( $chat_ids as $chat_id ) {
                 wp_remote_post(
-                    'https://api.telegram.org/bot' . rawurlencode( $bot_token ) . '/sendMessage',
+                    'https://api.telegram.org/bot' . $bot_token . '/sendMessage',
                     [
                         'timeout' => 10,
                         'body'    => [

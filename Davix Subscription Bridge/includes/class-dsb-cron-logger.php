@@ -51,7 +51,11 @@ class DSB_Cron_Logger {
             return;
         }
 
-        $context = dsb_mask_secrets( $context );
+        if ( function_exists( 'dsb_mask_secrets' ) ) {
+            $context = dsb_mask_secrets( $context );
+        } else {
+            $context = self::mask_secrets_fallback( $context );
+        }
         $line    = sprintf(
             '[%s] %s %s',
             gmdate( 'c' ),
@@ -152,5 +156,49 @@ class DSB_Cron_Logger {
         $buffer = array_slice( array_filter( $buffer, 'strlen' ), -1 * $lines );
 
         return implode( "\n", $buffer );
+    }
+
+    private static function mask_secrets_fallback( $context ) {
+        if ( ! is_array( $context ) ) {
+            return $context;
+        }
+
+        $masked = [];
+        foreach ( $context as $key => $value ) {
+            if ( is_array( $value ) ) {
+                $masked[ $key ] = self::mask_secrets_fallback( $value );
+                continue;
+            }
+
+            if ( self::should_mask_key( (string) $key ) ) {
+                $masked[ $key ] = self::mask_value( $value );
+            } else {
+                $masked[ $key ] = $value;
+            }
+        }
+
+        return $masked;
+    }
+
+    private static function should_mask_key( string $key ): bool {
+        $needles = [ 'token', 'key', 'secret', 'auth', 'authorization', 'bridge' ];
+        foreach ( $needles as $needle ) {
+            if ( false !== stripos( $key, $needle ) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function mask_value( $value ): string {
+        $string = is_scalar( $value ) ? (string) $value : '';
+        $length = strlen( $string );
+
+        if ( $length > 10 ) {
+            return substr( $string, 0, 4 ) . '***' . substr( $string, -4 );
+        }
+
+        return '***';
     }
 }
