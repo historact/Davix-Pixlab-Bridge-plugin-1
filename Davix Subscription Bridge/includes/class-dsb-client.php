@@ -242,7 +242,7 @@ class DSB_Client {
             'purge_lease_minutes' => isset( $data['purge_lease_minutes'] ) ? (int) $data['purge_lease_minutes'] : ( $existing['purge_lease_minutes'] ?? 15 ),
             'purge_batch_size'    => isset( $data['purge_batch_size'] ) ? (int) $data['purge_batch_size'] : ( $existing['purge_batch_size'] ?? 20 ),
             'alert_emails'        => isset( $data['alert_emails'] ) ? sanitize_textarea_field( $data['alert_emails'] ) : ( $existing['alert_emails'] ?? '' ),
-            'telegram_bot_token'  => isset( $data['telegram_bot_token'] ) ? sanitize_text_field( $data['telegram_bot_token'] ) : ( $existing['telegram_bot_token'] ?? '' ),
+            'telegram_bot_token'  => isset( $data['telegram_bot_token'] ) ? preg_replace( '/\s+/', '', sanitize_text_field( $data['telegram_bot_token'] ) ) : ( $existing['telegram_bot_token'] ?? '' ),
             'telegram_chat_ids'   => isset( $data['telegram_chat_ids'] ) ? sanitize_textarea_field( $data['telegram_chat_ids'] ) : ( $existing['telegram_chat_ids'] ?? '' ),
             'alert_template'      => isset( $data['alert_template'] ) ? wp_kses_post( $data['alert_template'] ) : ( $existing['alert_template'] ?? '' ),
             'recovery_template'   => isset( $data['recovery_template'] ) ? wp_kses_post( $data['recovery_template'] ) : ( $existing['recovery_template'] ?? '' ),
