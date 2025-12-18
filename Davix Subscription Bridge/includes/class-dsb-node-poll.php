@@ -13,6 +13,7 @@ class DSB_Node_Poll {
     const OPTION_LAST_HTTP    = 'dsb_node_poll_last_http_code';
     const OPTION_LAST_URL     = 'dsb_node_poll_last_url';
     const OPTION_LAST_BODY    = 'dsb_node_poll_last_body_excerpt';
+    const OPTION_LAST_DURATION_MS = 'dsb_node_poll_last_duration_ms';
 
     /** @var DSB_Client */
     protected $client;
@@ -67,24 +68,26 @@ class DSB_Node_Poll {
             'last_http'   => get_option( self::OPTION_LAST_HTTP, '' ),
             'last_url'    => get_option( self::OPTION_LAST_URL, '' ),
             'last_body'   => get_option( self::OPTION_LAST_BODY, '' ),
+            'last_duration_ms' => (int) get_option( self::OPTION_LAST_DURATION_MS, 0 ),
+            'lock_until'       => (int) get_option( self::OPTION_LOCK_UNTIL, 0 ),
         ];
     }
 
     public function run( bool $manual = false ): array {
         $settings = $this->client->get_settings();
         if ( empty( $settings['enable_node_poll_sync'] ) && ! $manual ) {
-            return $this->record_status( 'disabled' );
+            return $this->record_status( 'disabled', '', 0 );
         }
 
         $lock_minutes = max( 1, (int) ( $settings['node_poll_lock_minutes'] ?? 10 ) );
 
         $resync_lock_until = (int) get_option( DSB_Resync::OPTION_LOCK_UNTIL );
         if ( $resync_lock_until > time() ) {
-            return $this->record_status( 'locked', __( 'Resync in progress; poll skipped.', 'davix-sub-bridge' ) );
+            return $this->record_status( 'locked', __( 'Resync in progress; poll skipped.', 'davix-sub-bridge' ), 0 );
         }
 
         if ( ! $this->acquire_lock( $lock_minutes ) ) {
-            return $this->record_status( 'locked', __( 'Poll already running.', 'davix-sub-bridge' ) );
+            return $this->record_status( 'locked', __( 'Poll already running.', 'davix-sub-bridge' ), 0 );
         }
 
         $started  = microtime( true );
@@ -112,6 +115,8 @@ class DSB_Node_Poll {
             'decoded_error' => '',
             'method'        => '',
         ];
+
+        DSB_Cron_Logger::log( 'node_poll', 'Node poll started', [ 'manual' => $manual, 'per_page' => $per_page ] );
 
         try {
             do {
@@ -229,11 +234,36 @@ class DSB_Node_Poll {
 
         if ( $errors ) {
             $this->record_last_error_context( $error_context );
-            return $this->record_status( 'error', implode( ';', $errors ) );
+            $status = $this->record_status( 'error', implode( ';', $errors ), $duration );
+            DSB_Cron_Logger::log( 'node_poll', 'Node poll failed', [ 'errors' => $errors, 'context' => $error_context, 'duration_ms' => $duration ] );
+            DSB_Cron_Alerts::handle_job_result(
+                'node_poll',
+                $status['status'] ?? 'error',
+                $error_excerpt,
+                $settings,
+                [
+                    'last_run' => get_option( self::OPTION_LAST_RUN_AT ),
+                    'next_run' => $this->format_next_run(),
+                ]
+            );
+            return $status;
         }
 
         $this->record_last_error_context();
-        return $this->record_status( 'ok' );
+        $status = $this->record_status( 'ok', '', $duration );
+        DSB_Cron_Logger::log( 'node_poll', 'Node poll completed', [ 'summary' => $summary, 'duration_ms' => $duration ] );
+        DSB_Cron_Alerts::handle_job_result(
+            'node_poll',
+            $status['status'] ?? 'ok',
+            '',
+            $settings,
+            [
+                'last_run' => get_option( self::OPTION_LAST_RUN_AT ),
+                'next_run' => $this->format_next_run(),
+            ]
+        );
+
+        return $status;
     }
 
     public function run_once(): array {
@@ -254,12 +284,17 @@ class DSB_Node_Poll {
         delete_option( self::OPTION_LOCK_UNTIL );
     }
 
-    protected function record_status( string $status, string $error = '' ): array {
+    public function clear_lock(): void {
+        delete_option( self::OPTION_LOCK_UNTIL );
+    }
+
+    protected function record_status( string $status, string $error = '', int $duration_ms = 0 ): array {
         update_option( self::OPTION_LAST_RUN_AT, current_time( 'mysql', true ) );
         update_option( self::OPTION_LAST_RESULT, $status );
         update_option( self::OPTION_LAST_ERROR, $error );
+        update_option( self::OPTION_LAST_DURATION_MS, $duration_ms );
 
-        return [ 'status' => $status, 'error' => $error ];
+        return [ 'status' => $status, 'error' => $error, 'duration_ms' => $duration_ms ];
     }
 
     protected function record_last_error_context( array $context = [] ): void {
@@ -312,6 +347,11 @@ class DSB_Node_Poll {
                 'decoded_error' => $decoded_error,
             ],
         ];
+    }
+
+    protected function format_next_run(): string {
+        $next = wp_next_scheduled( self::CRON_HOOK );
+        return $next ? gmdate( 'Y-m-d H:i:s', (int) $next ) : '';
     }
 
     protected function extract_body_excerpt( $response ): string {

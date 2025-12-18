@@ -398,6 +398,20 @@ class DSB_Admin {
                     dsb_log( 'info', 'Debug enabled' );
                 }
 
+                $cron_debug_keys = [
+                    'purge_worker' => __( 'Purge worker', 'davix-sub-bridge' ),
+                    'node_poll'    => __( 'Node poll', 'davix-sub-bridge' ),
+                    'resync'       => __( 'Daily resync', 'davix-sub-bridge' ),
+                ];
+
+                foreach ( $cron_debug_keys as $key => $label ) {
+                    $setting_key = 'enable_cron_debug_' . $key;
+                    if ( ! empty( $previous_settings[ $setting_key ] ) && empty( $updated_settings[ $setting_key ] ) ) {
+                        DSB_Cron_Logger::clear( $key );
+                        $this->add_notice( sprintf( __( '%s cron debug log cleared.', 'davix-sub-bridge' ), $label ) );
+                    }
+                }
+
                 dsb_log( 'info', 'Settings saved', [ 'tab' => $tab, 'posted_keys' => array_keys( $_POST ) ] );
                 $this->add_notice( __( 'Settings saved.', 'davix-sub-bridge' ) );
             }
@@ -465,6 +479,32 @@ class DSB_Admin {
             $this->add_notice( __( 'Purge lock cleared.', 'davix-sub-bridge' ) );
         }
 
+        if ( 'cron' === $tab && isset( $_POST['dsb_clear_node_poll_lock'] ) && check_admin_referer( 'dsb_clear_node_poll_lock' ) ) {
+            $lock_until = (int) get_option( DSB_Node_Poll::OPTION_LOCK_UNTIL, 0 );
+            if ( $lock_until > time() ) {
+                $this->add_notice( __( 'Node poll lock is still active; not cleared.', 'davix-sub-bridge' ), 'error' );
+            } else {
+                $this->node_poll->clear_lock();
+                $this->add_notice( __( 'Node poll lock cleared.', 'davix-sub-bridge' ) );
+            }
+        }
+
+        if ( 'cron' === $tab && isset( $_POST['dsb_clear_resync_lock'] ) && check_admin_referer( 'dsb_clear_resync_lock' ) ) {
+            $lock_until = (int) get_option( DSB_Resync::OPTION_LOCK_UNTIL, 0 );
+            if ( $lock_until > time() ) {
+                $this->add_notice( __( 'Resync lock is still active; not cleared.', 'davix-sub-bridge' ), 'error' );
+            } else {
+                $this->resync->clear_lock();
+                $this->add_notice( __( 'Resync lock cleared.', 'davix-sub-bridge' ) );
+            }
+        }
+
+        if ( 'cron' === $tab && isset( $_POST['dsb_clear_cron_log'] ) && check_admin_referer( 'dsb_clear_cron_log' ) ) {
+            $job = sanitize_key( wp_unslash( $_POST['dsb_clear_cron_log'] ) );
+            DSB_Cron_Logger::clear( $job );
+            $this->add_notice( __( 'Cron debug log cleared.', 'davix-sub-bridge' ) );
+        }
+
         if ( 'keys' === $tab ) {
             $this->handle_key_actions();
         }
@@ -493,9 +533,11 @@ class DSB_Admin {
 
         $result = $this->resync->run( true );
 
+        $target_tab = isset( $_POST['dsb_target_tab'] ) ? sanitize_key( wp_unslash( $_POST['dsb_target_tab'] ) ) : 'settings';
+
         $args = [
             'page'              => 'davix-bridge',
-            'tab'               => 'settings',
+            'tab'               => $target_tab ?: 'settings',
             'dsb_resync_status' => $result['status'] ?? 'ok',
         ];
 
@@ -519,9 +561,11 @@ class DSB_Admin {
 
         $result = $this->node_poll->run_once();
 
+        $target_tab = isset( $_POST['dsb_target_tab'] ) ? sanitize_key( wp_unslash( $_POST['dsb_target_tab'] ) ) : 'settings';
+
         $args = [
             'page'                 => 'davix-bridge',
-            'tab'                  => 'settings',
+            'tab'                  => $target_tab ?: 'settings',
             'dsb_node_poll_status' => $result['status'] ?? 'ok',
         ];
 
@@ -760,46 +804,6 @@ class DSB_Admin {
                     </td>
                 </tr>
                 <tr>
-                    <th scope="row"><?php esc_html_e( 'Enable daily resync', 'davix-sub-bridge' ); ?></th>
-                    <td><label><input type="checkbox" name="enable_daily_resync" value="1" <?php checked( $settings['enable_daily_resync'], 1 ); ?> /> <?php esc_html_e( 'Fetch WPS subscriptions daily and reconcile Node.', 'davix-sub-bridge' ); ?></label></td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Resync batch size', 'davix-sub-bridge' ); ?></th>
-                    <td><input type="number" name="resync_batch_size" min="20" max="500" value="<?php echo esc_attr( (int) $settings['resync_batch_size'] ); ?>" /> <p class="description"><?php esc_html_e( 'Subscriptions processed per run (20-500).', 'davix-sub-bridge' ); ?></p></td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Resync lock window (minutes)', 'davix-sub-bridge' ); ?></th>
-                    <td><input type="number" name="resync_lock_minutes" min="5" value="<?php echo esc_attr( (int) $settings['resync_lock_minutes'] ); ?>" /> <p class="description"><?php esc_html_e( 'Prevents overlapping resync runs.', 'davix-sub-bridge' ); ?></p></td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Preferred run hour', 'davix-sub-bridge' ); ?></th>
-                    <td><input type="number" name="resync_run_hour" min="0" max="23" value="<?php echo esc_attr( (int) $settings['resync_run_hour'] ); ?>" /> <p class="description"><?php esc_html_e( 'Local site time hour for the daily schedule.', 'davix-sub-bridge' ); ?></p></td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Disable non-active users', 'davix-sub-bridge' ); ?></th>
-                    <td><label><input type="checkbox" name="resync_disable_non_active" value="1" <?php checked( $settings['resync_disable_non_active'], 1 ); ?> /> <?php esc_html_e( 'Send disable events for cancelled/expired/paused/payment_failed.', 'davix-sub-bridge' ); ?></label></td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Enable Node poll sync', 'davix-sub-bridge' ); ?></th>
-                    <td><label><input type="checkbox" name="enable_node_poll_sync" value="1" <?php checked( $settings['enable_node_poll_sync'], 1 ); ?> /> <?php esc_html_e( 'Fetch truth from Node export on a schedule.', 'davix-sub-bridge' ); ?></label></td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Node poll interval (minutes)', 'davix-sub-bridge' ); ?></th>
-                    <td><input type="number" name="node_poll_interval_minutes" min="5" max="60" value="<?php echo esc_attr( (int) $settings['node_poll_interval_minutes'] ); ?>" /> <p class="description"><?php esc_html_e( 'How often to poll NUDE.js export (5-60).', 'davix-sub-bridge' ); ?></p></td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Node poll page size', 'davix-sub-bridge' ); ?></th>
-                    <td><input type="number" name="node_poll_per_page" min="1" max="500" value="<?php echo esc_attr( (int) $settings['node_poll_per_page'] ); ?>" /> <p class="description"><?php esc_html_e( 'Records fetched per page from Node (max 500).', 'davix-sub-bridge' ); ?></p></td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Delete stale mirror rows', 'davix-sub-bridge' ); ?></th>
-                    <td><label><input type="checkbox" name="node_poll_delete_stale" value="1" <?php checked( $settings['node_poll_delete_stale'], 1 ); ?> /> <?php esc_html_e( 'Remove davix_bridge_keys/user rows missing from Node export.', 'davix-sub-bridge' ); ?></label></td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Node poll lock window (minutes)', 'davix-sub-bridge' ); ?></th>
-                    <td><input type="number" name="node_poll_lock_minutes" min="1" value="<?php echo esc_attr( (int) $settings['node_poll_lock_minutes'] ); ?>" /> <p class="description"><?php esc_html_e( 'Prevents overlapping poll runs.', 'davix-sub-bridge' ); ?></p></td>
-                </tr>
-                <tr>
                     <th scope="row"><?php esc_html_e( 'Plan products', 'davix-sub-bridge' ); ?></th>
                     <td>
                         <p class="description"><?php esc_html_e( 'Select which WooCommerce products should sync to Node as plans (auto-detected subscription products plus manual selection).', 'davix-sub-bridge' ); ?></p>
@@ -827,52 +831,6 @@ class DSB_Admin {
                 </tr>
             </table>
             <?php submit_button(); ?>
-        </form>
-
-        <div class="notice-inline" style="margin-top:10px;">
-            <p><strong><?php esc_html_e( 'Last Resync Status:', 'davix-sub-bridge' ); ?></strong>
-                <?php
-                if ( empty( $resync_status['last_run_at'] ) ) {
-                    esc_html_e( 'Never run.', 'davix-sub-bridge' );
-                } else {
-                    printf(
-                        '%s (%s)%s',
-                        esc_html( $resync_status['last_result'] ?: 'ok' ),
-                        esc_html( $resync_status['last_run_at'] ),
-                        $resync_status['last_error'] ? ' — ' . esc_html( $resync_status['last_error'] ) : ''
-                    );
-                }
-                ?>
-            </p>
-        </div>
-
-        <div class="notice-inline" style="margin-top:10px;">
-            <p><strong><?php esc_html_e( 'Last Node Poll Sync:', 'davix-sub-bridge' ); ?></strong>
-                <?php
-                if ( empty( $node_poll_status['last_run_at'] ) ) {
-                    esc_html_e( 'Never run.', 'davix-sub-bridge' );
-                } else {
-                    printf(
-                        '%s (%s)%s',
-                        esc_html( $node_poll_status['last_result'] ?: 'ok' ),
-                        esc_html( $node_poll_status['last_run_at'] ),
-                        $node_poll_status['last_error'] ? ' — ' . esc_html( $node_poll_status['last_error'] ) : ''
-                    );
-                }
-                ?>
-            </p>
-        </div>
-
-        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:10px;">
-            <input type="hidden" name="action" value="dsb_run_resync_now" />
-            <?php wp_nonce_field( 'dsb_run_resync_now', 'dsb_run_resync_nonce' ); ?>
-            <?php submit_button( __( 'Run Resync Now', 'davix-sub-bridge' ), 'secondary', 'dsb_run_resync_now', false ); ?>
-        </form>
-
-        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:10px;">
-            <input type="hidden" name="action" value="dsb_run_node_poll_now" />
-            <?php wp_nonce_field( 'dsb_run_node_poll_now', 'dsb_run_node_poll_nonce' ); ?>
-            <?php submit_button( __( 'Run Node Sync Now', 'davix-sub-bridge' ), 'secondary', 'dsb_run_node_poll_now', false ); ?>
         </form>
 
         <form method="post" style="margin-top:20px;">
@@ -1917,63 +1875,213 @@ class DSB_Admin {
     }
 
     protected function render_cron_tab(): void {
-        $settings   = $this->client->get_settings();
-        $status     = $this->purge_worker->get_last_status();
-        $next_run   = wp_next_scheduled( DSB_Purge_Worker::CRON_HOOK );
-        $lock_until = (int) ( $status['lock_until'] ?? 0 );
+        $settings      = $this->client->get_settings();
+        $purge_status  = $this->purge_worker->get_last_status();
+        $node_status   = $this->node_poll->get_last_status();
+        $resync_status = $this->resync->get_last_status();
+
+        $logs_link = add_query_arg(
+            [ 'page' => 'davix-bridge', 'tab' => 'logs' ],
+            admin_url( 'admin.php' )
+        );
         ?>
         <div class="wrap">
-            <h2><?php esc_html_e( 'Purge worker settings', 'davix-sub-bridge' ); ?></h2>
-            <form method="post">
+            <h2><?php esc_html_e( 'Cron job settings', 'davix-sub-bridge' ); ?></h2>
+            <form method="post" class="dsb-cron-settings">
                 <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
+                <h3><?php esc_html_e( 'Purge Worker', 'davix-sub-bridge' ); ?></h3>
                 <table class="form-table" role="presentation">
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Enable purge worker', 'davix-sub-bridge' ); ?></th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="enable_purge_worker" value="1" <?php checked( ! empty( $settings['enable_purge_worker'] ) ); ?> />
-                                <?php esc_html_e( 'Process purge queue automatically', 'davix-sub-bridge' ); ?>
-                            </label>
-                        </td>
+                        <td><label><input type="checkbox" name="enable_purge_worker" value="1" <?php checked( ! empty( $settings['enable_purge_worker'] ) ); ?> /> <?php esc_html_e( 'Process purge queue automatically', 'davix-sub-bridge' ); ?></label></td>
                     </tr>
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Lock duration (minutes)', 'davix-sub-bridge' ); ?></th>
-                        <td>
-                            <input type="number" min="1" max="120" name="purge_lock_minutes" value="<?php echo esc_attr( (int) ( $settings['purge_lock_minutes'] ?? 10 ) ); ?>" />
-                            <p class="description"><?php esc_html_e( 'Prevents overlapping runs for this many minutes.', 'davix-sub-bridge' ); ?></p>
-                        </td>
+                        <td><input type="number" min="1" max="120" name="purge_lock_minutes" value="<?php echo esc_attr( (int) ( $settings['purge_lock_minutes'] ?? 10 ) ); ?>" /> <p class="description"><?php esc_html_e( 'Prevents overlapping runs.', 'davix-sub-bridge' ); ?></p></td>
                     </tr>
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Lease duration (minutes)', 'davix-sub-bridge' ); ?></th>
-                        <td>
-                            <input type="number" min="1" max="240" name="purge_lease_minutes" value="<?php echo esc_attr( (int) ( $settings['purge_lease_minutes'] ?? 15 ) ); ?>" />
-                            <p class="description"><?php esc_html_e( 'How long a worker keeps claimed jobs before they can be retried.', 'davix-sub-bridge' ); ?></p>
-                        </td>
+                        <td><input type="number" min="1" max="240" name="purge_lease_minutes" value="<?php echo esc_attr( (int) ( $settings['purge_lease_minutes'] ?? 15 ) ); ?>" /> <p class="description"><?php esc_html_e( 'How long a worker keeps claimed jobs.', 'davix-sub-bridge' ); ?></p></td>
                     </tr>
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Batch size', 'davix-sub-bridge' ); ?></th>
+                        <td><input type="number" min="1" max="100" name="purge_batch_size" value="<?php echo esc_attr( (int) ( $settings['purge_batch_size'] ?? 20 ) ); ?>" /> <p class="description"><?php esc_html_e( 'Maximum purge jobs processed per run.', 'davix-sub-bridge' ); ?></p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Alerts', 'davix-sub-bridge' ); ?></th>
                         <td>
-                            <input type="number" min="1" max="100" name="purge_batch_size" value="<?php echo esc_attr( (int) ( $settings['purge_batch_size'] ?? 20 ) ); ?>" />
-                            <p class="description"><?php esc_html_e( 'Maximum purge jobs processed per run.', 'davix-sub-bridge' ); ?></p>
+                            <label><input type="checkbox" name="enable_alerts_purge_worker" value="1" <?php checked( ! empty( $settings['enable_alerts_purge_worker'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'davix-sub-bridge' ); ?></label><br />
+                            <label><input type="checkbox" name="enable_recovery_purge_worker" value="1" <?php checked( ! empty( $settings['enable_recovery_purge_worker'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'davix-sub-bridge' ); ?></label>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php esc_html_e( 'Max attempts', 'davix-sub-bridge' ); ?></th>
-                        <td><?php echo esc_html( DSB_Purge_Worker::MAX_ATTEMPTS ); ?></td>
+                        <th scope="row"><?php esc_html_e( 'Cron debug log', 'davix-sub-bridge' ); ?></th>
+                        <td><label><input type="checkbox" name="enable_cron_debug_purge_worker" value="1" <?php checked( ! empty( $settings['enable_cron_debug_purge_worker'] ) ); ?> /> <?php esc_html_e( 'Enable purge worker cron debug log', 'davix-sub-bridge' ); ?></label></td>
                     </tr>
                 </table>
-                <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save settings', 'davix-sub-bridge' ); ?></button></p>
+
+                <h3><?php esc_html_e( 'Node Poll Sync', 'davix-sub-bridge' ); ?></h3>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Enable Node poll sync', 'davix-sub-bridge' ); ?></th>
+                        <td><label><input type="checkbox" name="enable_node_poll_sync" value="1" <?php checked( $settings['enable_node_poll_sync'], 1 ); ?> /> <?php esc_html_e( 'Fetch truth from Node export on a schedule.', 'davix-sub-bridge' ); ?></label></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Node poll interval (minutes)', 'davix-sub-bridge' ); ?></th>
+                        <td><input type="number" name="node_poll_interval_minutes" min="5" max="60" value="<?php echo esc_attr( (int) $settings['node_poll_interval_minutes'] ); ?>" /> <p class="description"><?php esc_html_e( 'How often to poll (5-60).', 'davix-sub-bridge' ); ?></p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Node poll page size', 'davix-sub-bridge' ); ?></th>
+                        <td><input type="number" name="node_poll_per_page" min="1" max="500" value="<?php echo esc_attr( (int) $settings['node_poll_per_page'] ); ?>" /> <p class="description"><?php esc_html_e( 'Records fetched per page (max 500).', 'davix-sub-bridge' ); ?></p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Delete stale mirror rows', 'davix-sub-bridge' ); ?></th>
+                        <td><label><input type="checkbox" name="node_poll_delete_stale" value="1" <?php checked( $settings['node_poll_delete_stale'], 1 ); ?> /> <?php esc_html_e( 'Remove davix_bridge keys/users missing from Node export.', 'davix-sub-bridge' ); ?></label></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Node poll lock window (minutes)', 'davix-sub-bridge' ); ?></th>
+                        <td><input type="number" name="node_poll_lock_minutes" min="1" value="<?php echo esc_attr( (int) $settings['node_poll_lock_minutes'] ); ?>" /> <p class="description"><?php esc_html_e( 'Prevents overlapping poll runs.', 'davix-sub-bridge' ); ?></p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Alerts', 'davix-sub-bridge' ); ?></th>
+                        <td>
+                            <label><input type="checkbox" name="enable_alerts_node_poll" value="1" <?php checked( ! empty( $settings['enable_alerts_node_poll'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'davix-sub-bridge' ); ?></label><br />
+                            <label><input type="checkbox" name="enable_recovery_node_poll" value="1" <?php checked( ! empty( $settings['enable_recovery_node_poll'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'davix-sub-bridge' ); ?></label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Cron debug log', 'davix-sub-bridge' ); ?></th>
+                        <td><label><input type="checkbox" name="enable_cron_debug_node_poll" value="1" <?php checked( ! empty( $settings['enable_cron_debug_node_poll'] ) ); ?> /> <?php esc_html_e( 'Enable Node poll cron debug log', 'davix-sub-bridge' ); ?></label></td>
+                    </tr>
+                </table>
+
+                <h3><?php esc_html_e( 'Daily Resync', 'davix-sub-bridge' ); ?></h3>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Enable daily resync', 'davix-sub-bridge' ); ?></th>
+                        <td><label><input type="checkbox" name="enable_daily_resync" value="1" <?php checked( $settings['enable_daily_resync'], 1 ); ?> /> <?php esc_html_e( 'Fetch WPS subscriptions daily and reconcile Node.', 'davix-sub-bridge' ); ?></label></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Resync batch size', 'davix-sub-bridge' ); ?></th>
+                        <td><input type="number" name="resync_batch_size" min="20" max="500" value="<?php echo esc_attr( (int) $settings['resync_batch_size'] ); ?>" /> <p class="description"><?php esc_html_e( 'Subscriptions processed per run (20-500).', 'davix-sub-bridge' ); ?></p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Resync lock window (minutes)', 'davix-sub-bridge' ); ?></th>
+                        <td><input type="number" name="resync_lock_minutes" min="5" value="<?php echo esc_attr( (int) $settings['resync_lock_minutes'] ); ?>" /> <p class="description"><?php esc_html_e( 'Prevents overlapping resync runs.', 'davix-sub-bridge' ); ?></p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Preferred run hour', 'davix-sub-bridge' ); ?></th>
+                        <td><input type="number" name="resync_run_hour" min="0" max="23" value="<?php echo esc_attr( (int) $settings['resync_run_hour'] ); ?>" /> <p class="description"><?php esc_html_e( 'Local site time hour for the daily schedule.', 'davix-sub-bridge' ); ?></p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Disable non-active users', 'davix-sub-bridge' ); ?></th>
+                        <td><label><input type="checkbox" name="resync_disable_non_active" value="1" <?php checked( $settings['resync_disable_non_active'], 1 ); ?> /> <?php esc_html_e( 'Send disable events for cancelled/expired/paused/payment_failed.', 'davix-sub-bridge' ); ?></label></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Alerts', 'davix-sub-bridge' ); ?></th>
+                        <td>
+                            <label><input type="checkbox" name="enable_alerts_resync" value="1" <?php checked( ! empty( $settings['enable_alerts_resync'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'davix-sub-bridge' ); ?></label><br />
+                            <label><input type="checkbox" name="enable_recovery_resync" value="1" <?php checked( ! empty( $settings['enable_recovery_resync'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'davix-sub-bridge' ); ?></label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Cron debug log', 'davix-sub-bridge' ); ?></th>
+                        <td><label><input type="checkbox" name="enable_cron_debug_resync" value="1" <?php checked( ! empty( $settings['enable_cron_debug_resync'] ) ); ?> /> <?php esc_html_e( 'Enable resync cron debug log', 'davix-sub-bridge' ); ?></label></td>
+                    </tr>
+                </table>
+
+                <h3><?php esc_html_e( 'Global Alert Routing', 'davix-sub-bridge' ); ?></h3>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Alert emails', 'davix-sub-bridge' ); ?></th>
+                        <td><textarea name="alert_emails" rows="3" class="large-text" placeholder="admin@example.com&#10;ops@example.com"><?php echo esc_textarea( $settings['alert_emails'] ?? '' ); ?></textarea><p class="description"><?php esc_html_e( 'Comma or newline separated.', 'davix-sub-bridge' ); ?></p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Telegram bot token', 'davix-sub-bridge' ); ?></th>
+                        <td><input type="text" name="telegram_bot_token" class="regular-text" value="<?php echo esc_attr( $settings['telegram_bot_token'] ?? '' ); ?>" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Telegram chat IDs', 'davix-sub-bridge' ); ?></th>
+                        <td><textarea name="telegram_chat_ids" rows="3" class="large-text" placeholder="123456789&#10;-100123456789"><?php echo esc_textarea( $settings['telegram_chat_ids'] ?? '' ); ?></textarea><p class="description"><?php esc_html_e( 'Comma or newline separated chat IDs or @channel handles.', 'davix-sub-bridge' ); ?></p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Alert template', 'davix-sub-bridge' ); ?></th>
+                        <td><textarea name="alert_template" rows="3" class="large-text" placeholder="{job_name} failed on {site} with {error_excerpt}"><?php echo esc_textarea( $settings['alert_template'] ?? '' ); ?></textarea></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Recovery template', 'davix-sub-bridge' ); ?></th>
+                        <td><textarea name="recovery_template" rows="3" class="large-text" placeholder="{job_name} recovered on {site} at {time}"><?php echo esc_textarea( $settings['recovery_template'] ?? '' ); ?></textarea></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Alert threshold', 'davix-sub-bridge' ); ?></th>
+                        <td><input type="number" name="alert_threshold" min="1" value="<?php echo esc_attr( (int) ( $settings['alert_threshold'] ?? 3 ) ); ?>" /> <p class="description"><?php esc_html_e( 'Consecutive failures before alerting.', 'davix-sub-bridge' ); ?></p></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Alert cooldown (minutes)', 'davix-sub-bridge' ); ?></th>
+                        <td><input type="number" name="alert_cooldown_minutes" min="1" value="<?php echo esc_attr( (int) ( $settings['alert_cooldown_minutes'] ?? 60 ) ); ?>" /> <p class="description"><?php esc_html_e( 'Minimum minutes between alerts for the same job.', 'davix-sub-bridge' ); ?></p></td>
+                    </tr>
+                </table>
+
+                <?php submit_button( __( 'Save cron settings', 'davix-sub-bridge' ) ); ?>
             </form>
 
-            <h2><?php esc_html_e( 'Purge worker status', 'davix-sub-bridge' ); ?></h2>
-            <table class="widefat" style="max-width:800px;">
+            <h2><?php esc_html_e( 'Cron Job Status', 'davix-sub-bridge' ); ?></h2>
+
+            <?php $this->render_cron_job_status_section( 'purge_worker', __( 'Purge Worker', 'davix-sub-bridge' ), $settings['enable_purge_worker'] ?? 0, 'Every 5 minutes', wp_next_scheduled( DSB_Purge_Worker::CRON_HOOK ), $purge_status, $logs_link ); ?>
+            <?php $this->render_cron_job_status_section( 'node_poll', __( 'Node Poll Sync', 'davix-sub-bridge' ), $settings['enable_node_poll_sync'] ?? 0, sprintf( __( 'Every %d minutes', 'davix-sub-bridge' ), (int) ( $settings['node_poll_interval_minutes'] ?? 10 ) ), wp_next_scheduled( DSB_Node_Poll::CRON_HOOK ), $node_status, $logs_link ); ?>
+            <?php $this->render_cron_job_status_section( 'resync', __( 'Daily Resync', 'davix-sub-bridge' ), $settings['enable_daily_resync'] ?? 0, sprintf( __( 'Daily at %02d:00', 'davix-sub-bridge' ), (int) ( $settings['resync_run_hour'] ?? 3 ) ), wp_next_scheduled( DSB_Resync::CRON_HOOK ), $resync_status, $logs_link ); ?>
+        </div>
+        <?php
+    }
+
+    protected function render_cron_job_status_section( string $job_key, string $label, int $enabled, string $schedule, $next_run, array $status, string $logs_link ): void {
+        $lock_until   = (int) ( $status['lock_until'] ?? 0 );
+        $lock_active  = $lock_until > time();
+        $lock_stale   = $lock_until && $lock_until < time();
+        $last_run     = $status['last_run_at'] ?? '';
+        $last_result  = $status['last_result'] ?? '';
+        $last_error   = $status['last_error'] ?? '';
+        $last_duration = isset( $status['last_duration_ms'] ) ? (int) $status['last_duration_ms'] : (int) ( $status['last_duration'] ?? 0 );
+        $log_tail     = DSB_Cron_Logger::tail( $job_key );
+        $job_anchor   = 'dsb-cron-' . sanitize_html_class( $job_key );
+        $refresh_url  = add_query_arg( [ 'page' => 'davix-bridge', 'tab' => 'cron' ], admin_url( 'admin.php' ) ) . '#' . $job_anchor;
+        ?>
+        <div class="dsb-cron-job" id="<?php echo esc_attr( $job_anchor ); ?>" style="margin-top:20px;">
+            <h3><?php echo esc_html( $label ); ?></h3>
+            <table class="widefat" style="max-width:900px;">
                 <tbody>
                     <tr>
-                        <th><?php esc_html_e( 'Lock state', 'davix-sub-bridge' ); ?></th>
+                        <th><?php esc_html_e( 'Enabled', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo $enabled ? esc_html__( 'Yes', 'davix-sub-bridge' ) : esc_html__( 'No', 'davix-sub-bridge' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Schedule', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo esc_html( $schedule ); ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Next run time', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo $next_run ? esc_html( gmdate( 'Y-m-d H:i:s', (int) $next_run ) ) : esc_html__( 'Not scheduled', 'davix-sub-bridge' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Last run time', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo esc_html( $last_run ); ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Last result', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo esc_html( $last_result ); ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Last duration (ms)', 'davix-sub-bridge' ); ?></th>
+                        <td><?php echo esc_html( (string) $last_duration ); ?></td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Lock status', 'davix-sub-bridge' ); ?></th>
                         <td>
                             <?php
-                            if ( $lock_until > time() ) {
+                            if ( $lock_active ) {
                                 printf( esc_html__( 'Locked until %s', 'davix-sub-bridge' ), esc_html( gmdate( 'Y-m-d H:i:s', $lock_until ) ) );
+                            } elseif ( $lock_stale ) {
+                                esc_html_e( 'Lock stale', 'davix-sub-bridge' );
                             } else {
                                 esc_html_e( 'Not locked', 'davix-sub-bridge' );
                             }
@@ -1981,41 +2089,68 @@ class DSB_Admin {
                         </td>
                     </tr>
                     <tr>
-                        <th><?php esc_html_e( 'Next cron run', 'davix-sub-bridge' ); ?></th>
-                        <td><?php echo $next_run ? esc_html( gmdate( 'Y-m-d H:i:s', (int) $next_run ) ) : esc_html__( 'Not scheduled', 'davix-sub-bridge' ); ?></td>
-                    </tr>
-                    <tr>
-                        <th><?php esc_html_e( 'Last run at', 'davix-sub-bridge' ); ?></th>
-                        <td><?php echo esc_html( $status['last_run_at'] ?? '' ); ?></td>
-                    </tr>
-                    <tr>
-                        <th><?php esc_html_e( 'Last result', 'davix-sub-bridge' ); ?></th>
-                        <td><?php echo esc_html( $status['last_result'] ?? '' ); ?></td>
-                    </tr>
-                    <tr>
-                        <th><?php esc_html_e( 'Last duration (ms)', 'davix-sub-bridge' ); ?></th>
-                        <td><?php echo esc_html( (string) ( $status['last_duration_ms'] ?? 0 ) ); ?></td>
-                    </tr>
-                    <tr>
-                        <th><?php esc_html_e( 'Last processed count', 'davix-sub-bridge' ); ?></th>
-                        <td><?php echo esc_html( (string) ( $status['last_processed'] ?? 0 ) ); ?></td>
-                    </tr>
-                    <tr>
                         <th><?php esc_html_e( 'Last error', 'davix-sub-bridge' ); ?></th>
-                        <td><?php echo esc_html( $status['last_error'] ?? '' ); ?></td>
+                        <td><?php echo esc_html( $last_error ); ?></td>
                     </tr>
                 </tbody>
             </table>
 
-            <form method="post" style="margin-top:20px;display:inline-block;">
-                <?php wp_nonce_field( 'dsb_run_purge_worker' ); ?>
-                <button type="submit" name="dsb_run_purge_worker" class="button button-secondary"><?php esc_html_e( 'Run purge worker now', 'davix-sub-bridge' ); ?></button>
-            </form>
+            <div style="margin-top:10px;">
+                <?php if ( 'purge_worker' === $job_key ) : ?>
+                    <form method="post" style="display:inline-block;">
+                        <?php wp_nonce_field( 'dsb_run_purge_worker' ); ?>
+                        <button type="submit" name="dsb_run_purge_worker" class="button button-secondary"><?php esc_html_e( 'Run now', 'davix-sub-bridge' ); ?></button>
+                    </form>
+                <?php elseif ( 'node_poll' === $job_key ) : ?>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+                        <input type="hidden" name="action" value="dsb_run_node_poll_now" />
+                        <input type="hidden" name="dsb_target_tab" value="cron" />
+                        <?php wp_nonce_field( 'dsb_run_node_poll_now', 'dsb_run_node_poll_nonce' ); ?>
+                        <button type="submit" class="button button-secondary"><?php esc_html_e( 'Run now', 'davix-sub-bridge' ); ?></button>
+                    </form>
+                <?php else : ?>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+                        <input type="hidden" name="action" value="dsb_run_resync_now" />
+                        <input type="hidden" name="dsb_target_tab" value="cron" />
+                        <?php wp_nonce_field( 'dsb_run_resync_now', 'dsb_run_resync_nonce' ); ?>
+                        <button type="submit" class="button button-secondary"><?php esc_html_e( 'Run now', 'davix-sub-bridge' ); ?></button>
+                    </form>
+                <?php endif; ?>
 
-            <form method="post" style="margin-top:20px;display:inline-block;margin-left:10px;">
-                <?php wp_nonce_field( 'dsb_clear_purge_lock' ); ?>
-                <button type="submit" name="dsb_clear_purge_lock" class="button"><?php esc_html_e( 'Clear purge lock', 'davix-sub-bridge' ); ?></button>
-            </form>
+                <?php if ( 'purge_worker' === $job_key ) : ?>
+                    <form method="post" style="display:inline-block;margin-left:8px;">
+                        <?php wp_nonce_field( 'dsb_clear_purge_lock' ); ?>
+                        <button type="submit" name="dsb_clear_purge_lock" class="button" <?php disabled( ! $lock_stale && ! $lock_active ); ?>><?php esc_html_e( 'Clear lock', 'davix-sub-bridge' ); ?></button>
+                    </form>
+                <?php elseif ( 'node_poll' === $job_key ) : ?>
+                    <form method="post" style="display:inline-block;margin-left:8px;">
+                        <?php wp_nonce_field( 'dsb_clear_node_poll_lock' ); ?>
+                        <input type="hidden" name="dsb_clear_node_poll_lock" value="1" />
+                        <button type="submit" class="button" <?php disabled( ! $lock_stale && ! $lock_active ); ?>><?php esc_html_e( 'Clear lock', 'davix-sub-bridge' ); ?></button>
+                    </form>
+                <?php else : ?>
+                    <form method="post" style="display:inline-block;margin-left:8px;">
+                        <?php wp_nonce_field( 'dsb_clear_resync_lock' ); ?>
+                        <input type="hidden" name="dsb_clear_resync_lock" value="1" />
+                        <button type="submit" class="button" <?php disabled( ! $lock_stale && ! $lock_active ); ?>><?php esc_html_e( 'Clear lock', 'davix-sub-bridge' ); ?></button>
+                    </form>
+                <?php endif; ?>
+
+                <a class="button" style="margin-left:8px;" href="<?php echo esc_url( $logs_link ); ?>"><?php esc_html_e( 'View DB logs', 'davix-sub-bridge' ); ?></a>
+            </div>
+
+            <div style="margin-top:10px;">
+                <h4><?php esc_html_e( 'Cron debug log (last 200 lines)', 'davix-sub-bridge' ); ?></h4>
+                <textarea class="large-text code" rows="8" readonly><?php echo esc_textarea( $log_tail ); ?></textarea>
+                <div style="margin-top:6px;">
+                    <a class="button" href="<?php echo esc_url( $refresh_url ); ?>"><?php esc_html_e( 'Refresh', 'davix-sub-bridge' ); ?></a>
+                    <form method="post" style="display:inline-block;margin-left:6px;">
+                        <?php wp_nonce_field( 'dsb_clear_cron_log' ); ?>
+                        <input type="hidden" name="dsb_clear_cron_log" value="<?php echo esc_attr( $job_key ); ?>" />
+                        <button type="submit" class="button" <?php disabled( empty( $log_tail ) ); ?>><?php esc_html_e( 'Clear cron debug log', 'davix-sub-bridge' ); ?></button>
+                    </form>
+                </div>
+            </div>
         </div>
         <?php
     }

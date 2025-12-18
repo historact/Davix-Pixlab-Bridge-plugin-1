@@ -41,6 +41,22 @@ class DSB_Client {
                 'purge_lock_minutes'  => 10,
                 'purge_lease_minutes' => 15,
                 'purge_batch_size'    => 20,
+                'alert_emails'        => '',
+                'telegram_bot_token'  => '',
+                'telegram_chat_ids'   => '',
+                'alert_template'      => '',
+                'recovery_template'   => '',
+                'alert_threshold'     => 3,
+                'alert_cooldown_minutes' => 60,
+                'enable_alerts_purge_worker'   => 0,
+                'enable_recovery_purge_worker' => 0,
+                'enable_alerts_node_poll'      => 0,
+                'enable_recovery_node_poll'    => 0,
+                'enable_alerts_resync'         => 0,
+                'enable_recovery_resync'       => 0,
+                'enable_cron_debug_purge_worker' => 0,
+                'enable_cron_debug_node_poll'    => 0,
+                'enable_cron_debug_resync'       => 0,
             ],
             $this->get_style_defaults(),
             $this->get_label_defaults()
@@ -225,6 +241,22 @@ class DSB_Client {
             'purge_lock_minutes'  => isset( $data['purge_lock_minutes'] ) ? (int) $data['purge_lock_minutes'] : ( $existing['purge_lock_minutes'] ?? 10 ),
             'purge_lease_minutes' => isset( $data['purge_lease_minutes'] ) ? (int) $data['purge_lease_minutes'] : ( $existing['purge_lease_minutes'] ?? 15 ),
             'purge_batch_size'    => isset( $data['purge_batch_size'] ) ? (int) $data['purge_batch_size'] : ( $existing['purge_batch_size'] ?? 20 ),
+            'alert_emails'        => isset( $data['alert_emails'] ) ? sanitize_textarea_field( $data['alert_emails'] ) : ( $existing['alert_emails'] ?? '' ),
+            'telegram_bot_token'  => isset( $data['telegram_bot_token'] ) ? sanitize_text_field( $data['telegram_bot_token'] ) : ( $existing['telegram_bot_token'] ?? '' ),
+            'telegram_chat_ids'   => isset( $data['telegram_chat_ids'] ) ? sanitize_textarea_field( $data['telegram_chat_ids'] ) : ( $existing['telegram_chat_ids'] ?? '' ),
+            'alert_template'      => isset( $data['alert_template'] ) ? wp_kses_post( $data['alert_template'] ) : ( $existing['alert_template'] ?? '' ),
+            'recovery_template'   => isset( $data['recovery_template'] ) ? wp_kses_post( $data['recovery_template'] ) : ( $existing['recovery_template'] ?? '' ),
+            'alert_threshold'     => isset( $data['alert_threshold'] ) ? (int) $data['alert_threshold'] : ( $existing['alert_threshold'] ?? 3 ),
+            'alert_cooldown_minutes' => isset( $data['alert_cooldown_minutes'] ) ? (int) $data['alert_cooldown_minutes'] : ( $existing['alert_cooldown_minutes'] ?? 60 ),
+            'enable_alerts_purge_worker'   => isset( $data['enable_alerts_purge_worker'] ) ? 1 : ( $existing['enable_alerts_purge_worker'] ?? 0 ),
+            'enable_recovery_purge_worker' => isset( $data['enable_recovery_purge_worker'] ) ? 1 : ( $existing['enable_recovery_purge_worker'] ?? 0 ),
+            'enable_alerts_node_poll'      => isset( $data['enable_alerts_node_poll'] ) ? 1 : ( $existing['enable_alerts_node_poll'] ?? 0 ),
+            'enable_recovery_node_poll'    => isset( $data['enable_recovery_node_poll'] ) ? 1 : ( $existing['enable_recovery_node_poll'] ?? 0 ),
+            'enable_alerts_resync'         => isset( $data['enable_alerts_resync'] ) ? 1 : ( $existing['enable_alerts_resync'] ?? 0 ),
+            'enable_recovery_resync'       => isset( $data['enable_recovery_resync'] ) ? 1 : ( $existing['enable_recovery_resync'] ?? 0 ),
+            'enable_cron_debug_purge_worker' => isset( $data['enable_cron_debug_purge_worker'] ) ? 1 : ( $existing['enable_cron_debug_purge_worker'] ?? 0 ),
+            'enable_cron_debug_node_poll'    => isset( $data['enable_cron_debug_node_poll'] ) ? 1 : ( $existing['enable_cron_debug_node_poll'] ?? 0 ),
+            'enable_cron_debug_resync'       => isset( $data['enable_cron_debug_resync'] ) ? 1 : ( $existing['enable_cron_debug_resync'] ?? 0 ),
         ];
 
         $allowed_levels          = [ 'debug', 'info', 'warn', 'error' ];
@@ -239,6 +271,8 @@ class DSB_Client {
         $clean['purge_lock_minutes']         = max( 1, min( 120, (int) $clean['purge_lock_minutes'] ) );
         $clean['purge_lease_minutes']        = max( 1, min( 240, (int) $clean['purge_lease_minutes'] ) );
         $clean['purge_batch_size']           = max( 1, min( 100, (int) $clean['purge_batch_size'] ) );
+        $clean['alert_threshold']            = max( 1, (int) $clean['alert_threshold'] );
+        $clean['alert_cooldown_minutes']     = max( 1, (int) $clean['alert_cooldown_minutes'] );
 
         $plan_slug_meta = isset( $data['dsb_plan_slug_meta'] ) && is_array( $data['dsb_plan_slug_meta'] ) ? $data['dsb_plan_slug_meta'] : [];
         $plan_products = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : $this->get_plan_products();

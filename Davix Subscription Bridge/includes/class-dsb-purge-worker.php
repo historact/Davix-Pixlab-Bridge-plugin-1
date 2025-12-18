@@ -79,6 +79,8 @@ class DSB_Purge_Worker {
         $started        = microtime( true );
         $claim_token    = bin2hex( random_bytes( 16 ) );
 
+        DSB_Cron_Logger::log( 'purge_worker', 'Purge worker started', [ 'manual' => $manual, 'batch_size' => $batch_size ] );
+
         try {
             $jobs = $this->db->claim_pending_purge_jobs( $batch_size, $claim_token, $lease_minutes * MINUTE_IN_SECONDS );
             foreach ( $jobs as $job ) {
@@ -92,7 +94,20 @@ class DSB_Purge_Worker {
         } finally {
             $duration_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
             $this->release_lock();
-            return $this->record_status( $result, $error_message, $duration_ms, $processed );
+            $status = $this->record_status( $result, $error_message, $duration_ms, $processed );
+            DSB_Cron_Logger::log( 'purge_worker', 'Purge worker finished', [ 'status' => $result, 'duration_ms' => $duration_ms, 'processed' => $processed ] );
+            DSB_Cron_Alerts::handle_job_result(
+                'purge_worker',
+                $status['status'] ?? $result,
+                $error_message,
+                $settings,
+                [
+                    'last_run' => get_option( self::OPTION_LAST_RUN_AT ),
+                    'next_run' => $this->format_next_run(),
+                ]
+            );
+
+            return $status;
         }
     }
 
@@ -218,5 +233,10 @@ class DSB_Purge_Worker {
             'processed' => $processed,
             'duration'  => $duration_ms,
         ];
+    }
+
+    protected function format_next_run(): string {
+        $next = wp_next_scheduled( self::CRON_HOOK );
+        return $next ? gmdate( 'Y-m-d H:i:s', (int) $next ) : '';
     }
 }
