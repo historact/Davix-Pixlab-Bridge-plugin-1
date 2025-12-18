@@ -440,7 +440,9 @@ class DSB_Admin {
             $this->diagnostics_result = $this->run_request_log_diagnostics();
         }
 
-        if ( 'plan-mapping' === $tab && isset( $_POST['dsb_plans_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_plans_nonce'] ) ), 'dsb_save_plans' ) ) {
+        $plan_mapping_nonce_valid = isset( $_POST['dsb_plans_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_plans_nonce'] ) ), 'dsb_save_plans' );
+
+        if ( 'plan-mapping' === $tab && ( $plan_mapping_nonce_valid || ( isset( $_POST['dsb_settings_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_settings_nonce'] ) ), 'dsb_save_settings' ) ) ) ) {
             $plans      = [];
             $ids        = isset( $_POST['product_ids'] ) && is_array( $_POST['product_ids'] ) ? array_values( $_POST['product_ids'] ) : [];
             $slugs      = isset( $_POST['plan_slugs'] ) && is_array( $_POST['plan_slugs'] ) ? array_values( $_POST['plan_slugs'] ) : [];
@@ -1943,11 +1945,11 @@ class DSB_Admin {
             admin_url( 'admin.php' )
         );
         ?>
-        <div class="wrap">
-            <h2><?php esc_html_e( 'Cron job settings', 'davix-sub-bridge' ); ?></h2>
+        <div class="wrap dsb-cron-tab">
+            <h2 class="dsb-cron-h1"><?php esc_html_e( 'Cron job settings', 'davix-sub-bridge' ); ?></h2>
             <form method="post" class="dsb-cron-settings">
                 <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
-                <h3><?php esc_html_e( 'Purge Worker', 'davix-sub-bridge' ); ?></h3>
+                <h3 class="dsb-cron-h2"><?php esc_html_e( 'Purge Worker', 'davix-sub-bridge' ); ?></h3>
                 <table class="form-table" role="presentation">
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Enable purge worker', 'davix-sub-bridge' ); ?></th>
@@ -1978,7 +1980,7 @@ class DSB_Admin {
                     </tr>
                 </table>
 
-                <h3><?php esc_html_e( 'Node Poll Sync', 'davix-sub-bridge' ); ?></h3>
+                <h3 class="dsb-cron-h2"><?php esc_html_e( 'Node Poll Sync', 'davix-sub-bridge' ); ?></h3>
                 <table class="form-table" role="presentation">
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Enable Node poll sync', 'davix-sub-bridge' ); ?></th>
@@ -2013,7 +2015,7 @@ class DSB_Admin {
                     </tr>
                 </table>
 
-                <h3><?php esc_html_e( 'Daily Resync', 'davix-sub-bridge' ); ?></h3>
+                <h3 class="dsb-cron-h2"><?php esc_html_e( 'Daily Resync', 'davix-sub-bridge' ); ?></h3>
                 <table class="form-table" role="presentation">
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Enable daily resync', 'davix-sub-bridge' ); ?></th>
@@ -2048,7 +2050,7 @@ class DSB_Admin {
                     </tr>
                 </table>
 
-                <h3><?php esc_html_e( 'Global Alert Routing', 'davix-sub-bridge' ); ?></h3>
+                <h3 class="dsb-cron-h2"><?php esc_html_e( 'Global Alert Routing', 'davix-sub-bridge' ); ?></h3>
                 <table class="form-table" role="presentation">
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Alert emails', 'davix-sub-bridge' ); ?></th>
@@ -2083,7 +2085,7 @@ class DSB_Admin {
                 <?php submit_button( __( 'Save cron settings', 'davix-sub-bridge' ) ); ?>
             </form>
 
-            <h2><?php esc_html_e( 'Cron Job Status', 'davix-sub-bridge' ); ?></h2>
+            <h2 class="dsb-cron-h1"><?php esc_html_e( 'Cron Job Status', 'davix-sub-bridge' ); ?></h2>
 
             <?php $this->render_cron_job_status_section( 'purge_worker', __( 'Purge Worker', 'davix-sub-bridge' ), $settings['enable_purge_worker'] ?? 0, 'Every 5 minutes', wp_next_scheduled( DSB_Purge_Worker::CRON_HOOK ), $purge_status, $logs_link ); ?>
             <?php $this->render_cron_job_status_section( 'node_poll', __( 'Node Poll Sync', 'davix-sub-bridge' ), $settings['enable_node_poll_sync'] ?? 0, sprintf( __( 'Every %d minutes', 'davix-sub-bridge' ), (int) ( $settings['node_poll_interval_minutes'] ?? 10 ) ), wp_next_scheduled( DSB_Node_Poll::CRON_HOOK ), $node_status, $logs_link ); ?>
@@ -2105,7 +2107,7 @@ class DSB_Admin {
         $refresh_url  = add_query_arg( [ 'page' => 'davix-bridge', 'tab' => 'cron' ], admin_url( 'admin.php' ) ) . '#' . $job_anchor;
         ?>
         <div class="dsb-cron-job" id="<?php echo esc_attr( $job_anchor ); ?>" style="margin-top:20px;">
-            <h3><?php echo esc_html( $label ); ?></h3>
+            <h3 class="dsb-cron-h2"><?php echo esc_html( $label ); ?></h3>
             <table class="widefat" style="max-width:900px;">
                 <tbody>
                     <tr>

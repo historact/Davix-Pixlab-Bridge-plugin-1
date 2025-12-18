@@ -217,15 +217,18 @@ class DSB_Client {
             $debug_enabled = (int) ( '1' === (string) $debug_value );
         }
 
+        $enable_logging_value = isset( $data['enable_logging'] ) ? ( is_array( $data['enable_logging'] ) ? end( $data['enable_logging'] ) : $data['enable_logging'] ) : null;
+        $allow_without_refs_value = isset( $data['allow_provision_without_refs'] ) ? ( is_array( $data['allow_provision_without_refs'] ) ? end( $data['allow_provision_without_refs'] ) : $data['allow_provision_without_refs'] ) : null;
+
         $clean = [
             'node_base_url' => esc_url_raw( $data['node_base_url'] ?? ( $existing['node_base_url'] ?? '' ) ),
             'bridge_token'  => sanitize_text_field( $data['bridge_token'] ?? ( $existing['bridge_token'] ?? '' ) ),
-            'enable_logging'=> isset( $data['enable_logging'] ) ? 1 : ( $existing['enable_logging'] ?? 0 ),
+            'enable_logging'=> $enable_logging_value !== null ? (int) ( '1' === (string) $enable_logging_value ) : ( $existing['enable_logging'] ?? 0 ),
             'debug_enabled' => $debug_enabled,
             'debug_level'   => isset( $data['debug_level'] ) ? sanitize_key( $data['debug_level'] ) : ( $existing['debug_level'] ?? 'info' ),
             'debug_retention_days' => isset( $data['debug_retention_days'] ) ? max( 1, (int) $data['debug_retention_days'] ) : ( $existing['debug_retention_days'] ?? 7 ),
             'delete_data'   => isset( $data['delete_data'] ) ? 1 : ( $existing['delete_data'] ?? 0 ),
-            'allow_provision_without_refs' => isset( $data['allow_provision_without_refs'] ) ? 1 : ( $existing['allow_provision_without_refs'] ?? 0 ),
+            'allow_provision_without_refs' => $allow_without_refs_value !== null ? (int) ( '1' === (string) $allow_without_refs_value ) : ( $existing['allow_provision_without_refs'] ?? 0 ),
             'enable_daily_resync' => isset( $data['enable_daily_resync'] ) ? 1 : ( $existing['enable_daily_resync'] ?? 0 ),
             'resync_batch_size' => isset( $data['resync_batch_size'] ) ? (int) $data['resync_batch_size'] : ( $existing['resync_batch_size'] ?? 100 ),
             'resync_lock_minutes' => isset( $data['resync_lock_minutes'] ) ? (int) $data['resync_lock_minutes'] : ( $existing['resync_lock_minutes'] ?? 30 ),
