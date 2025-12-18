@@ -220,6 +220,14 @@ class DSB_Client {
         $enable_logging_value = isset( $data['enable_logging'] ) ? ( is_array( $data['enable_logging'] ) ? end( $data['enable_logging'] ) : $data['enable_logging'] ) : null;
         $allow_without_refs_value = isset( $data['allow_provision_without_refs'] ) ? ( is_array( $data['allow_provision_without_refs'] ) ? end( $data['allow_provision_without_refs'] ) : $data['allow_provision_without_refs'] ) : null;
 
+        $bool_from_post = function ( array $source, string $key, $existing_default ) {
+            if ( array_key_exists( $key, $source ) ) {
+                $value = is_array( $source[ $key ] ) ? end( $source[ $key ] ) : $source[ $key ];
+                return (int) ( '1' === (string) $value );
+            }
+            return (int) $existing_default;
+        };
+
         $clean = [
             'node_base_url' => esc_url_raw( $data['node_base_url'] ?? ( $existing['node_base_url'] ?? '' ) ),
             'bridge_token'  => sanitize_text_field( $data['bridge_token'] ?? ( $existing['bridge_token'] ?? '' ) ),
@@ -227,20 +235,20 @@ class DSB_Client {
             'debug_enabled' => $debug_enabled,
             'debug_level'   => isset( $data['debug_level'] ) ? sanitize_key( $data['debug_level'] ) : ( $existing['debug_level'] ?? 'info' ),
             'debug_retention_days' => isset( $data['debug_retention_days'] ) ? max( 1, (int) $data['debug_retention_days'] ) : ( $existing['debug_retention_days'] ?? 7 ),
-            'delete_data'   => isset( $data['delete_data'] ) ? 1 : ( $existing['delete_data'] ?? 0 ),
+            'delete_data'   => $bool_from_post( $data, 'delete_data', $existing['delete_data'] ?? 0 ),
             'allow_provision_without_refs' => $allow_without_refs_value !== null ? (int) ( '1' === (string) $allow_without_refs_value ) : ( $existing['allow_provision_without_refs'] ?? 0 ),
-            'enable_daily_resync' => isset( $data['enable_daily_resync'] ) ? 1 : ( $existing['enable_daily_resync'] ?? 0 ),
+            'enable_daily_resync' => $bool_from_post( $data, 'enable_daily_resync', $existing['enable_daily_resync'] ?? 0 ),
             'resync_batch_size' => isset( $data['resync_batch_size'] ) ? (int) $data['resync_batch_size'] : ( $existing['resync_batch_size'] ?? 100 ),
             'resync_lock_minutes' => isset( $data['resync_lock_minutes'] ) ? (int) $data['resync_lock_minutes'] : ( $existing['resync_lock_minutes'] ?? 30 ),
             'resync_run_hour' => isset( $data['resync_run_hour'] ) ? (int) $data['resync_run_hour'] : ( $existing['resync_run_hour'] ?? 3 ),
-            'resync_disable_non_active' => isset( $data['resync_disable_non_active'] ) ? 1 : ( $existing['resync_disable_non_active'] ?? 1 ),
+            'resync_disable_non_active' => $bool_from_post( $data, 'resync_disable_non_active', $existing['resync_disable_non_active'] ?? 1 ),
             'wps_rest_consumer_secret' => isset( $data['wps_rest_consumer_secret'] ) ? sanitize_text_field( $data['wps_rest_consumer_secret'] ) : ( $existing['wps_rest_consumer_secret'] ?? '' ),
-            'enable_node_poll_sync' => isset( $data['enable_node_poll_sync'] ) ? 1 : ( $existing['enable_node_poll_sync'] ?? 0 ),
+            'enable_node_poll_sync' => $bool_from_post( $data, 'enable_node_poll_sync', $existing['enable_node_poll_sync'] ?? 0 ),
             'node_poll_interval_minutes' => isset( $data['node_poll_interval_minutes'] ) ? (int) $data['node_poll_interval_minutes'] : ( $existing['node_poll_interval_minutes'] ?? 10 ),
             'node_poll_per_page' => isset( $data['node_poll_per_page'] ) ? (int) $data['node_poll_per_page'] : ( $existing['node_poll_per_page'] ?? 200 ),
-            'node_poll_delete_stale' => isset( $data['node_poll_delete_stale'] ) ? 1 : ( $existing['node_poll_delete_stale'] ?? 1 ),
+            'node_poll_delete_stale' => $bool_from_post( $data, 'node_poll_delete_stale', $existing['node_poll_delete_stale'] ?? 1 ),
             'node_poll_lock_minutes' => isset( $data['node_poll_lock_minutes'] ) ? (int) $data['node_poll_lock_minutes'] : ( $existing['node_poll_lock_minutes'] ?? 10 ),
-            'enable_purge_worker' => isset( $data['enable_purge_worker'] ) ? 1 : ( $existing['enable_purge_worker'] ?? 1 ),
+            'enable_purge_worker' => $bool_from_post( $data, 'enable_purge_worker', $existing['enable_purge_worker'] ?? 1 ),
             'purge_lock_minutes'  => isset( $data['purge_lock_minutes'] ) ? (int) $data['purge_lock_minutes'] : ( $existing['purge_lock_minutes'] ?? 10 ),
             'purge_lease_minutes' => isset( $data['purge_lease_minutes'] ) ? (int) $data['purge_lease_minutes'] : ( $existing['purge_lease_minutes'] ?? 15 ),
             'purge_batch_size'    => isset( $data['purge_batch_size'] ) ? (int) $data['purge_batch_size'] : ( $existing['purge_batch_size'] ?? 20 ),
@@ -251,15 +259,15 @@ class DSB_Client {
             'recovery_template'   => isset( $data['recovery_template'] ) ? wp_kses_post( $data['recovery_template'] ) : ( $existing['recovery_template'] ?? '' ),
             'alert_threshold'     => isset( $data['alert_threshold'] ) ? (int) $data['alert_threshold'] : ( $existing['alert_threshold'] ?? 3 ),
             'alert_cooldown_minutes' => isset( $data['alert_cooldown_minutes'] ) ? (int) $data['alert_cooldown_minutes'] : ( $existing['alert_cooldown_minutes'] ?? 60 ),
-            'enable_alerts_purge_worker'   => isset( $data['enable_alerts_purge_worker'] ) ? 1 : ( $existing['enable_alerts_purge_worker'] ?? 0 ),
-            'enable_recovery_purge_worker' => isset( $data['enable_recovery_purge_worker'] ) ? 1 : ( $existing['enable_recovery_purge_worker'] ?? 0 ),
-            'enable_alerts_node_poll'      => isset( $data['enable_alerts_node_poll'] ) ? 1 : ( $existing['enable_alerts_node_poll'] ?? 0 ),
-            'enable_recovery_node_poll'    => isset( $data['enable_recovery_node_poll'] ) ? 1 : ( $existing['enable_recovery_node_poll'] ?? 0 ),
-            'enable_alerts_resync'         => isset( $data['enable_alerts_resync'] ) ? 1 : ( $existing['enable_alerts_resync'] ?? 0 ),
-            'enable_recovery_resync'       => isset( $data['enable_recovery_resync'] ) ? 1 : ( $existing['enable_recovery_resync'] ?? 0 ),
-            'enable_cron_debug_purge_worker' => isset( $data['enable_cron_debug_purge_worker'] ) ? 1 : ( $existing['enable_cron_debug_purge_worker'] ?? 0 ),
-            'enable_cron_debug_node_poll'    => isset( $data['enable_cron_debug_node_poll'] ) ? 1 : ( $existing['enable_cron_debug_node_poll'] ?? 0 ),
-            'enable_cron_debug_resync'       => isset( $data['enable_cron_debug_resync'] ) ? 1 : ( $existing['enable_cron_debug_resync'] ?? 0 ),
+            'enable_alerts_purge_worker'   => $bool_from_post( $data, 'enable_alerts_purge_worker', $existing['enable_alerts_purge_worker'] ?? 0 ),
+            'enable_recovery_purge_worker' => $bool_from_post( $data, 'enable_recovery_purge_worker', $existing['enable_recovery_purge_worker'] ?? 0 ),
+            'enable_alerts_node_poll'      => $bool_from_post( $data, 'enable_alerts_node_poll', $existing['enable_alerts_node_poll'] ?? 0 ),
+            'enable_recovery_node_poll'    => $bool_from_post( $data, 'enable_recovery_node_poll', $existing['enable_recovery_node_poll'] ?? 0 ),
+            'enable_alerts_resync'         => $bool_from_post( $data, 'enable_alerts_resync', $existing['enable_alerts_resync'] ?? 0 ),
+            'enable_recovery_resync'       => $bool_from_post( $data, 'enable_recovery_resync', $existing['enable_recovery_resync'] ?? 0 ),
+            'enable_cron_debug_purge_worker' => $bool_from_post( $data, 'enable_cron_debug_purge_worker', $existing['enable_cron_debug_purge_worker'] ?? 0 ),
+            'enable_cron_debug_node_poll'    => $bool_from_post( $data, 'enable_cron_debug_node_poll', $existing['enable_cron_debug_node_poll'] ?? 0 ),
+            'enable_cron_debug_resync'       => $bool_from_post( $data, 'enable_cron_debug_resync', $existing['enable_cron_debug_resync'] ?? 0 ),
         ];
 
         $allowed_levels          = [ 'debug', 'info', 'warn', 'error' ];
