@@ -357,15 +357,6 @@ class DSB_Admin {
             }
         }
 
-        if ( isset( $_GET['dsb_log_action'] ) ) {
-            $action = sanitize_key( wp_unslash( $_GET['dsb_log_action'] ) );
-            if ( 'cleared' === $action ) {
-                $this->add_notice( __( 'Debug log cleared.', 'davix-sub-bridge' ) );
-            } elseif ( 'error' === $action ) {
-                $this->add_notice( __( 'Debug log action failed.', 'davix-sub-bridge' ), 'error' );
-            }
-        }
-
         if ( 'POST' === $_SERVER['REQUEST_METHOD'] && isset( $_POST['dsb_settings_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_settings_nonce'] ) ), 'dsb_save_settings' ) ) {
             if ( 'style' === $tab ) {
                 $style_keys = array_keys( $this->client->get_style_defaults() );
@@ -475,8 +466,45 @@ class DSB_Admin {
         }
 
         if ( 'cron' === $tab && isset( $_POST['dsb_clear_purge_lock'] ) && check_admin_referer( 'dsb_clear_purge_lock' ) ) {
-            $this->purge_worker->clear_lock();
-            $this->add_notice( __( 'Purge lock cleared.', 'davix-sub-bridge' ) );
+            $lock_until = (int) get_option( DSB_Purge_Worker::OPTION_LOCK_UNTIL, 0 );
+            if ( $lock_until > time() ) {
+                $this->add_notice( __( 'Purge worker lock is still active; not cleared.', 'davix-sub-bridge' ), 'error' );
+            } elseif ( $lock_until <= 0 ) {
+                $this->add_notice( __( 'Purge worker is not locked.', 'davix-sub-bridge' ) );
+            } else {
+                $this->purge_worker->clear_lock();
+                $this->add_notice( __( 'Purge lock cleared.', 'davix-sub-bridge' ) );
+            }
+        }
+
+        if ( 'cron' === $tab && isset( $_POST['dsb_clear_node_poll_lock'] ) && check_admin_referer( 'dsb_clear_node_poll_lock' ) ) {
+            $lock_until = (int) get_option( DSB_Node_Poll::OPTION_LOCK_UNTIL, 0 );
+            if ( $lock_until > time() ) {
+                $this->add_notice( __( 'Node poll lock is still active; not cleared.', 'davix-sub-bridge' ), 'error' );
+            } elseif ( $lock_until <= 0 ) {
+                $this->add_notice( __( 'Node poll is not locked.', 'davix-sub-bridge' ) );
+            } else {
+                $this->node_poll->clear_lock();
+                $this->add_notice( __( 'Node poll lock cleared.', 'davix-sub-bridge' ) );
+            }
+        }
+
+        if ( 'cron' === $tab && isset( $_POST['dsb_clear_resync_lock'] ) && check_admin_referer( 'dsb_clear_resync_lock' ) ) {
+            $lock_until = (int) get_option( DSB_Resync::OPTION_LOCK_UNTIL, 0 );
+            if ( $lock_until > time() ) {
+                $this->add_notice( __( 'Resync lock is still active; not cleared.', 'davix-sub-bridge' ), 'error' );
+            } elseif ( $lock_until <= 0 ) {
+                $this->add_notice( __( 'Resync job is not locked.', 'davix-sub-bridge' ) );
+            } else {
+                $this->resync->clear_lock();
+                $this->add_notice( __( 'Resync lock cleared.', 'davix-sub-bridge' ) );
+            }
+        }
+
+        if ( 'cron' === $tab && isset( $_POST['dsb_clear_cron_log'] ) && check_admin_referer( 'dsb_clear_cron_log' ) ) {
+            $job = sanitize_key( wp_unslash( $_POST['dsb_clear_cron_log'] ) );
+            DSB_Cron_Logger::clear( $job );
+            $this->add_notice( __( 'Cron debug log cleared.', 'davix-sub-bridge' ) );
         }
 
         if ( 'cron' === $tab && isset( $_POST['dsb_clear_node_poll_lock'] ) && check_admin_referer( 'dsb_clear_node_poll_lock' ) ) {
@@ -2120,19 +2148,19 @@ class DSB_Admin {
                 <?php if ( 'purge_worker' === $job_key ) : ?>
                     <form method="post" style="display:inline-block;margin-left:8px;">
                         <?php wp_nonce_field( 'dsb_clear_purge_lock' ); ?>
-                        <button type="submit" name="dsb_clear_purge_lock" class="button" <?php disabled( ! $lock_stale && ! $lock_active ); ?>><?php esc_html_e( 'Clear lock', 'davix-sub-bridge' ); ?></button>
+                        <button type="submit" name="dsb_clear_purge_lock" class="button" <?php disabled( ! $lock_stale ); ?>><?php esc_html_e( 'Clear lock', 'davix-sub-bridge' ); ?></button>
                     </form>
                 <?php elseif ( 'node_poll' === $job_key ) : ?>
                     <form method="post" style="display:inline-block;margin-left:8px;">
                         <?php wp_nonce_field( 'dsb_clear_node_poll_lock' ); ?>
                         <input type="hidden" name="dsb_clear_node_poll_lock" value="1" />
-                        <button type="submit" class="button" <?php disabled( ! $lock_stale && ! $lock_active ); ?>><?php esc_html_e( 'Clear lock', 'davix-sub-bridge' ); ?></button>
+                        <button type="submit" class="button" <?php disabled( ! $lock_stale ); ?>><?php esc_html_e( 'Clear lock', 'davix-sub-bridge' ); ?></button>
                     </form>
                 <?php else : ?>
                     <form method="post" style="display:inline-block;margin-left:8px;">
                         <?php wp_nonce_field( 'dsb_clear_resync_lock' ); ?>
                         <input type="hidden" name="dsb_clear_resync_lock" value="1" />
-                        <button type="submit" class="button" <?php disabled( ! $lock_stale && ! $lock_active ); ?>><?php esc_html_e( 'Clear lock', 'davix-sub-bridge' ); ?></button>
+                        <button type="submit" class="button" <?php disabled( ! $lock_stale ); ?>><?php esc_html_e( 'Clear lock', 'davix-sub-bridge' ); ?></button>
                     </form>
                 <?php endif; ?>
 
