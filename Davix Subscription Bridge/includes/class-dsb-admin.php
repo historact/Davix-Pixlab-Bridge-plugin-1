@@ -1334,6 +1334,7 @@ class DSB_Admin {
         ?>
         <form method="post" id="dsb-plan-form">
             <?php wp_nonce_field( 'dsb_save_plans', 'dsb_plans_nonce' ); ?>
+            <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
             <p><?php esc_html_e( 'Map WooCommerce product IDs to Davix plan slugs.', 'davix-sub-bridge' ); ?></p>
             <table class="widefat" id="dsb-plan-table">
                 <thead><tr><th><?php esc_html_e( 'Product ID', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Plan Slug', 'davix-sub-bridge' ); ?></th><th></th></tr></thead>
@@ -1351,28 +1352,8 @@ class DSB_Admin {
                 </tbody>
             </table>
             <p><button type="button" class="button" id="dsb-add-row"><?php esc_html_e( 'Add mapping', 'davix-sub-bridge' ); ?></button></p>
-            <?php submit_button( __( 'Save Mappings', 'davix-sub-bridge' ) ); ?>
-        </form>
-        <script>
-            (function($){
-                $('#dsb-add-row').on('click', function(){
-                    var row = '<tr><td><input type="number" name="product_ids[]" value="" required /></td><td><input type="text" name="plan_slugs[]" value="" placeholder="plan_slug" required /></td><td><button type="button" class="button dsb-remove-row">&times;</button></td></tr>';
-                    $('#dsb-plan-table tbody .dsb-empty').hide();
-                    $('#dsb-plan-table tbody').append(row);
-                });
-                $(document).on('click', '.dsb-remove-row', function(){
-                    $(this).closest('tr').remove();
-                    var rows = $('#dsb-plan-table tbody tr').not('.dsb-empty');
-                    if (rows.length === 0){
-                        $('#dsb-plan-table tbody .dsb-empty').show();
-                    }
-                });
-            })(jQuery);
-        </script>
 
-        <form method="post" style="margin-top:20px;">
-            <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
-            <table class="form-table" role="presentation">
+            <table class="form-table" role="presentation" style="margin-top:20px;">
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Plan products', 'davix-sub-bridge' ); ?></th>
                     <td>
@@ -1400,8 +1381,24 @@ class DSB_Admin {
                     </td>
                 </tr>
             </table>
-            <?php submit_button(); ?>
+            <?php submit_button( __( 'Save Changes', 'davix-sub-bridge' ) ); ?>
         </form>
+        <script>
+            (function($){
+                $('#dsb-add-row').on('click', function(){
+                    var row = '<tr><td><input type="number" name="product_ids[]" value="" required /></td><td><input type="text" name="plan_slugs[]" value="" placeholder="plan_slug" required /></td><td><button type="button" class="button dsb-remove-row">&times;</button></td></tr>';
+                    $('#dsb-plan-table tbody .dsb-empty').hide();
+                    $('#dsb-plan-table tbody').append(row);
+                });
+                $(document).on('click', '.dsb-remove-row', function(){
+                    $(this).closest('tr').remove();
+                    var rows = $('#dsb-plan-table tbody tr').not('.dsb-empty');
+                    if (rows.length === 0){
+                        $('#dsb-plan-table tbody .dsb-empty').show();
+                    }
+                });
+            })(jQuery);
+        </script>
 
         <form method="post" style="margin-top:20px;">
             <?php wp_nonce_field( 'dsb_sync_plans' ); ?>
@@ -1452,8 +1449,10 @@ class DSB_Admin {
             $this->add_notice( $response->get_error_message(), 'error' );
         }
         ?>
+        <h2><?php esc_html_e( 'Keys Settings', 'davix-sub-bridge' ); ?></h2>
         <form method="post" style="margin-bottom:15px;">
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
+            <input type="hidden" name="allow_provision_without_refs" value="0" />
             <label><input type="checkbox" name="allow_provision_without_refs" value="1" <?php checked( $settings['allow_provision_without_refs'], 1 ); ?> /> <?php esc_html_e( 'Allow manual provisioning without Subscription/Order', 'davix-sub-bridge' ); ?></label>
             <?php submit_button( __( 'Save', 'davix-sub-bridge' ), 'secondary', 'submit', false ); ?>
         </form>
@@ -1615,6 +1614,7 @@ class DSB_Admin {
         <h2><?php esc_html_e( 'Bridge Logs', 'davix-sub-bridge' ); ?></h2>
         <form method="post" style="margin-bottom:10px;display:flex;gap:10px;align-items:center;">
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
+            <input type="hidden" name="enable_logging" value="0" />
             <label><input type="checkbox" name="enable_logging" value="1" <?php checked( $settings['enable_logging'], 1 ); ?> /> <?php esc_html_e( 'Enable logging (Store last 200 events)', 'davix-sub-bridge' ); ?></label>
             <?php submit_button( __( 'Save', 'davix-sub-bridge' ), 'secondary', 'submit', false ); ?>
         </form>
@@ -1789,8 +1789,12 @@ class DSB_Admin {
 
         global $wpdb;
         $table      = $wpdb->prefix . 'davix_bridge_logs';
-        $table_sql  = esc_sql( $table );
-        $cleared    = $wpdb->query( "TRUNCATE TABLE {$table_sql}" );
+        $cleared    = $wpdb->query( "TRUNCATE TABLE `{$table}`" );
+
+        if ( false === $cleared ) {
+            $cleared = $wpdb->query( "DELETE FROM `{$table}`" );
+        }
+
         $log_action = $cleared === false ? 'error' : 'cleared';
 
         if ( false !== $cleared ) {
