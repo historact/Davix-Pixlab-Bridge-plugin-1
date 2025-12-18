@@ -43,3 +43,15 @@
 body.dsb-modal-open {
     overflow: hidden;
 }
+
+.dsb-cron-tab .dsb-cron-h1 {
+    font-size: 24px;
+    margin-top: 24px;
+    margin-bottom: 12px;
+}
+
+.dsb-cron-tab .dsb-cron-h2 {
+    font-size: 18px;
+    margin-top: 24px;
+    margin-bottom: 12px;
+}
