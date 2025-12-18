@@ -57,12 +57,15 @@ class DSB_Plugin {
             delete_option( DSB_Node_Poll::OPTION_LAST_RUN_AT );
             delete_option( DSB_Node_Poll::OPTION_LAST_RESULT );
             delete_option( DSB_Node_Poll::OPTION_LAST_ERROR );
+            delete_option( DSB_Node_Poll::OPTION_LAST_DURATION_MS );
             delete_option( DSB_Purge_Worker::OPTION_LOCK_UNTIL );
             delete_option( DSB_Purge_Worker::OPTION_LAST_RUN_AT );
             delete_option( DSB_Purge_Worker::OPTION_LAST_RESULT );
             delete_option( DSB_Purge_Worker::OPTION_LAST_ERROR );
             delete_option( DSB_Purge_Worker::OPTION_LAST_DURATION_MS );
             delete_option( DSB_Purge_Worker::OPTION_LAST_PROCESSED );
+            delete_option( DSB_Resync::OPTION_LAST_DURATION );
+            delete_option( DSB_Cron_Alerts::OPTION_STATE );
         }
     }
 

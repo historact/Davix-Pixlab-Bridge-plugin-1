@@ -9,6 +9,7 @@ class DSB_Resync {
     const OPTION_LAST_RUN_AT   = 'dsb_resync_last_run_at';
     const OPTION_LAST_RESULT   = 'dsb_resync_last_result';
     const OPTION_LAST_ERROR    = 'dsb_resync_last_error';
+    const OPTION_LAST_DURATION = 'dsb_resync_last_duration_ms';
 
     /** @var DSB_Client */
     protected $client;
@@ -60,6 +61,9 @@ class DSB_Resync {
         $skipped   = 0;
         $result    = 'ok';
         $error     = '';
+        $started   = microtime( true );
+
+        DSB_Cron_Logger::log( 'resync', 'Daily resync started', [ 'manual' => $is_manual ] );
 
         try {
             $subscriptions = $this->client->fetch_wps_subscriptions_all();
@@ -89,7 +93,19 @@ class DSB_Resync {
             dsb_log( 'error', 'Resync failed', [ 'message' => $e->getMessage() ] );
         } finally {
             $this->release_lock();
-            $this->record_status( $result, $error );
+            $duration_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
+            $status      = $this->record_status( $result, $error, $duration_ms );
+            DSB_Cron_Logger::log( 'resync', 'Daily resync finished', [ 'status' => $result, 'duration_ms' => $duration_ms, 'processed' => $processed, 'skipped' => $skipped ] );
+            DSB_Cron_Alerts::handle_job_result(
+                'resync',
+                $status['status'] ?? $result,
+                $error,
+                $settings,
+                [
+                    'last_run' => get_option( self::OPTION_LAST_RUN_AT ),
+                    'next_run' => $this->format_next_run( $settings ),
+                ]
+            );
         }
 
         return [ 'status' => $result, 'processed' => $processed, 'skipped' => $skipped, 'error' => $error ];
@@ -100,6 +116,8 @@ class DSB_Resync {
             'last_run_at' => get_option( self::OPTION_LAST_RUN_AT ),
             'last_result' => get_option( self::OPTION_LAST_RESULT ),
             'last_error'  => get_option( self::OPTION_LAST_ERROR ),
+            'last_duration_ms' => (int) get_option( self::OPTION_LAST_DURATION, 0 ),
+            'lock_until'       => (int) get_option( self::OPTION_LOCK_UNTIL, 0 ),
         ];
     }
 
@@ -282,12 +300,17 @@ class DSB_Resync {
         delete_option( self::OPTION_LOCK_UNTIL );
     }
 
-    protected function record_status( string $status, string $error = '' ): array {
+    public function clear_lock(): void {
+        delete_option( self::OPTION_LOCK_UNTIL );
+    }
+
+    protected function record_status( string $status, string $error = '', int $duration_ms = 0 ): array {
         update_option( self::OPTION_LAST_RUN_AT, current_time( 'mysql', true ) );
         update_option( self::OPTION_LAST_RESULT, $status );
         update_option( self::OPTION_LAST_ERROR, $error );
+        update_option( self::OPTION_LAST_DURATION, $duration_ms );
 
-        return [ 'status' => $status, 'error' => $error ];
+        return [ 'status' => $status, 'error' => $error, 'duration_ms' => $duration_ms ];
     }
 
     protected function next_run_timestamp( int $hour ): int {
@@ -310,5 +333,15 @@ class DSB_Resync {
             wp_unschedule_event( $timestamp, self::CRON_HOOK );
             $timestamp = wp_next_scheduled( self::CRON_HOOK );
         }
+    }
+
+    protected function format_next_run( array $settings ): string {
+        $scheduled = wp_next_scheduled( self::CRON_HOOK );
+        if ( $scheduled ) {
+            return gmdate( 'Y-m-d H:i:s', (int) $scheduled );
+        }
+
+        $hour = isset( $settings['resync_run_hour'] ) ? (int) $settings['resync_run_hour'] : 3;
+        return gmdate( 'Y-m-d H:i:s', $this->next_run_timestamp( $hour ) );
     }
 }

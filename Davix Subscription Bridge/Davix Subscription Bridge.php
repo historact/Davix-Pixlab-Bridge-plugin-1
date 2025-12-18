@@ -22,6 +22,8 @@ define( 'DSB_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 require_once __DIR__ . '/includes/class-dsb-db.php';
 require_once __DIR__ . '/includes/class-dsb-util.php';
 require_once __DIR__ . '/includes/class-dsb-logger.php';
+require_once __DIR__ . '/includes/class-dsb-cron-logger.php';
+require_once __DIR__ . '/includes/class-dsb-cron-alerts.php';
 require_once __DIR__ . '/includes/class-dsb-client.php';
 require_once __DIR__ . '/includes/class-dsb-resync.php';
 require_once __DIR__ . '/includes/class-dsb-purge-worker.php';
