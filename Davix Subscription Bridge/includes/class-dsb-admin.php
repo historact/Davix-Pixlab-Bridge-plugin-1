@@ -31,6 +31,7 @@ class DSB_Admin {
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
         add_action( 'admin_post_dsb_download_log', [ $this, 'handle_download_log' ] );
         add_action( 'admin_post_dsb_clear_log', [ $this, 'handle_clear_log' ] );
+        add_action( 'admin_post_dsb_clear_db_logs', [ $this, 'handle_clear_db_logs' ] );
         add_action( 'admin_post_dsb_run_resync_now', [ $this, 'handle_run_resync_now' ] );
         add_action( 'admin_post_dsb_run_node_poll_now', [ $this, 'handle_run_node_poll_now' ] );
         add_action( 'wp_ajax_dsb_search_users', [ $this, 'ajax_search_users' ] );
@@ -334,6 +335,15 @@ class DSB_Admin {
                 $this->add_notice( __( 'Debug log cleared.', 'davix-sub-bridge' ) );
             } elseif ( 'error' === $action ) {
                 $this->add_notice( __( 'Debug log action failed.', 'davix-sub-bridge' ), 'error' );
+            }
+        }
+
+        if ( isset( $_GET['dsb_logs_action'] ) ) {
+            $action = sanitize_key( wp_unslash( $_GET['dsb_logs_action'] ) );
+            if ( 'cleared' === $action ) {
+                $this->add_notice( __( 'Bridge logs cleared.', 'davix-sub-bridge' ) );
+            } elseif ( 'error' === $action ) {
+                $this->add_notice( __( 'Could not clear bridge logs.', 'davix-sub-bridge' ), 'error' );
             }
         }
 
@@ -770,11 +780,6 @@ class DSB_Admin {
 
     protected function render_settings_tab(): void {
         $settings = $this->client->get_settings();
-        $plan_products = $this->client->get_plan_products();
-        $plan_candidates = $this->discover_plan_products();
-        $plan_sync = $this->client->get_plan_sync_status();
-        $resync_status = $this->resync->get_last_status();
-        $node_poll_status = $this->node_poll->get_last_status();
         $masked_secret = $this->client->masked_consumer_secret();
         ?>
         <form method="post">
@@ -792,48 +797,14 @@ class DSB_Admin {
                     </td>
                 </tr>
                 <tr>
-                    <th scope="row"><?php esc_html_e( 'Enable logging', 'davix-sub-bridge' ); ?></th>
-                    <td><label><input type="checkbox" name="enable_logging" value="1" <?php checked( $settings['enable_logging'], 1 ); ?> /> <?php esc_html_e( 'Store last 200 events', 'davix-sub-bridge' ); ?></label></td>
-                </tr>
-                <tr>
                     <th scope="row"><?php esc_html_e( 'Delete data on uninstall', 'davix-sub-bridge' ); ?></th>
                     <td><label><input type="checkbox" name="delete_data" value="1" <?php checked( $settings['delete_data'], 1 ); ?> /> <?php esc_html_e( 'Drop plugin tables/options on uninstall', 'davix-sub-bridge' ); ?></label></td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Allow manual provisioning without Subscription/Order', 'davix-sub-bridge' ); ?></th>
-                    <td><label><input type="checkbox" name="allow_provision_without_refs" value="1" <?php checked( $settings['allow_provision_without_refs'], 1 ); ?> /> <?php esc_html_e( 'Permit manual keys without linking to a subscription or order.', 'davix-sub-bridge' ); ?></label></td>
                 </tr>
                 <tr>
                     <th scope="row"><?php esc_html_e( 'WPS Consumer Secret', 'davix-sub-bridge' ); ?></th>
                     <td>
                         <input type="password" name="wps_rest_consumer_secret" class="regular-text" value="<?php echo esc_attr( $settings['wps_rest_consumer_secret'] ); ?>" autocomplete="off" />
                         <p class="description"><?php printf( '%s %s', esc_html__( 'Used to read subscriptions from the WPS REST API.', 'davix-sub-bridge' ), esc_html( $masked_secret ) ); ?></p>
-                    </td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Plan products', 'davix-sub-bridge' ); ?></th>
-                    <td>
-                        <p class="description"><?php esc_html_e( 'Select which WooCommerce products should sync to Node as plans (auto-detected subscription products plus manual selection).', 'davix-sub-bridge' ); ?></p>
-                        <table class="widefat">
-                            <thead><tr><th><?php esc_html_e( 'Sync', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Product', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Plan Slug override', 'davix-sub-bridge' ); ?></th></tr></thead>
-                            <tbody>
-                            <?php if ( empty( $plan_candidates ) ) : ?>
-                                <tr><td colspan="3"><?php esc_html_e( 'No subscription-like products found. Use checkboxes after creating products.', 'davix-sub-bridge' ); ?></td></tr>
-                            <?php else : ?>
-                                <?php foreach ( $plan_candidates as $product ) : ?>
-                                    <?php $pid = $product->get_id();
-                                    $checked = in_array( $pid, $plan_products, true );
-                                    $plan_slug_meta = dsb_normalize_plan_slug( get_post_meta( $pid, '_dsb_plan_slug', true ) );
-                                    ?>
-                                    <tr>
-                                        <td><input type="checkbox" name="plan_products[]" value="<?php echo esc_attr( $pid ); ?>" <?php checked( $checked ); ?> /></td>
-                                        <td><?php echo esc_html( $product->get_name() ); ?> (<?php echo esc_html( $product->get_type() ); ?>) — #<?php echo esc_html( $pid ); ?></td>
-                                        <td><input type="text" name="dsb_plan_slug_meta[<?php echo esc_attr( $pid ); ?>]" value="<?php echo esc_attr( $plan_slug_meta ); ?>" placeholder="custom-plan-slug" /></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                            </tbody>
-                        </table>
                     </td>
                 </tr>
             </table>
@@ -843,27 +814,6 @@ class DSB_Admin {
         <form method="post" style="margin-top:20px;">
             <?php wp_nonce_field( 'dsb_test_connection' ); ?>
             <?php submit_button( __( 'Test Connection', 'davix-sub-bridge' ), 'secondary', 'dsb_test_connection', false ); ?>
-        </form>
-
-        <form method="post" style="margin-top:20px;">
-            <?php wp_nonce_field( 'dsb_sync_plans' ); ?>
-            <?php submit_button( __( 'Sync Plans to Node', 'davix-sub-bridge' ), 'primary', 'dsb_sync_plans', false ); ?>
-            <?php if ( ! empty( $plan_sync ) ) : ?>
-                <p class="description">
-                    <?php
-                    printf(
-                        /* translators: 1: timestamp, 2: success count, 3: failure count */
-                        esc_html__( 'Last sync: %1$s — Success: %2$d, Failed: %3$d', 'davix-sub-bridge' ),
-                        esc_html( $plan_sync['timestamp'] ?? '' ),
-                        (int) ( $plan_sync['count_success'] ?? 0 ),
-                        (int) ( $plan_sync['count_failed'] ?? 0 )
-                    );
-                    if ( ! empty( $plan_sync['errors'] ) && is_array( $plan_sync['errors'] ) ) {
-                        echo '<br />' . esc_html__( 'Errors:', 'davix-sub-bridge' ) . ' ' . esc_html( implode( '; ', $plan_sync['errors'] ) );
-                    }
-                    ?>
-                </p>
-            <?php endif; ?>
         </form>
 
         <h2><?php esc_html_e( 'Request Log Diagnostics', 'davix-sub-bridge' ); ?></h2>
@@ -1377,7 +1327,10 @@ class DSB_Admin {
     }
 
     protected function render_plan_tab(): void {
-        $plans = $this->client->get_product_plans();
+        $plans           = $this->client->get_product_plans();
+        $plan_products   = $this->client->get_plan_products();
+        $plan_candidates = $this->discover_plan_products();
+        $plan_sync       = $this->client->get_plan_sync_status();
         ?>
         <form method="post" id="dsb-plan-form">
             <?php wp_nonce_field( 'dsb_save_plans', 'dsb_plans_nonce' ); ?>
@@ -1416,10 +1369,65 @@ class DSB_Admin {
                 });
             })(jQuery);
         </script>
+
+        <form method="post" style="margin-top:20px;">
+            <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Plan products', 'davix-sub-bridge' ); ?></th>
+                    <td>
+                        <p class="description"><?php esc_html_e( 'Select which WooCommerce products should sync to Node as plans (auto-detected subscription products plus manual selection).', 'davix-sub-bridge' ); ?></p>
+                        <table class="widefat">
+                            <thead><tr><th><?php esc_html_e( 'Sync', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Product', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Plan Slug override', 'davix-sub-bridge' ); ?></th></tr></thead>
+                            <tbody>
+                            <?php if ( empty( $plan_candidates ) ) : ?>
+                                <tr><td colspan="3"><?php esc_html_e( 'No subscription-like products found. Use checkboxes after creating products.', 'davix-sub-bridge' ); ?></td></tr>
+                            <?php else : ?>
+                                <?php foreach ( $plan_candidates as $product ) : ?>
+                                    <?php $pid = $product->get_id();
+                                    $checked = in_array( $pid, $plan_products, true );
+                                    $plan_slug_meta = dsb_normalize_plan_slug( get_post_meta( $pid, '_dsb_plan_slug', true ) );
+                                    ?>
+                                    <tr>
+                                        <td><input type="checkbox" name="plan_products[]" value="<?php echo esc_attr( $pid ); ?>" <?php checked( $checked ); ?> /></td>
+                                        <td><?php echo esc_html( $product->get_name() ); ?> (<?php echo esc_html( $product->get_type() ); ?>) — #<?php echo esc_html( $pid ); ?></td>
+                                        <td><input type="text" name="dsb_plan_slug_meta[<?php echo esc_attr( $pid ); ?>]" value="<?php echo esc_attr( $plan_slug_meta ); ?>" placeholder="custom-plan-slug" /></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+            <?php submit_button(); ?>
+        </form>
+
+        <form method="post" style="margin-top:20px;">
+            <?php wp_nonce_field( 'dsb_sync_plans' ); ?>
+            <?php submit_button( __( 'Sync Plans to Node', 'davix-sub-bridge' ), 'primary', 'dsb_sync_plans', false ); ?>
+            <?php if ( ! empty( $plan_sync ) ) : ?>
+                <p class="description">
+                    <?php
+                    printf(
+                        /* translators: 1: timestamp, 2: success count, 3: failure count */
+                        esc_html__( 'Last sync: %1$s — Success: %2$d, Failed: %3$d', 'davix-sub-bridge' ),
+                        esc_html( $plan_sync['timestamp'] ?? '' ),
+                        (int) ( $plan_sync['count_success'] ?? 0 ),
+                        (int) ( $plan_sync['count_failed'] ?? 0 )
+                    );
+                    if ( ! empty( $plan_sync['errors'] ) && is_array( $plan_sync['errors'] ) ) {
+                        echo '<br />' . esc_html__( 'Errors:', 'davix-sub-bridge' ) . ' ' . esc_html( implode( '; ', $plan_sync['errors'] ) );
+                    }
+                    ?>
+                </p>
+            <?php endif; ?>
+        </form>
         <?php
     }
 
     protected function render_keys_tab(): void {
+        $settings = $this->client->get_settings();
         $page   = isset( $_GET['paged'] ) ? absint( $_GET['paged'] ) : 1;
         $search = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
         $labels = $this->client->get_label_settings();
@@ -1444,6 +1452,11 @@ class DSB_Admin {
             $this->add_notice( $response->get_error_message(), 'error' );
         }
         ?>
+        <form method="post" style="margin-bottom:15px;">
+            <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
+            <label><input type="checkbox" name="allow_provision_without_refs" value="1" <?php checked( $settings['allow_provision_without_refs'], 1 ); ?> /> <?php esc_html_e( 'Allow manual provisioning without Subscription/Order', 'davix-sub-bridge' ); ?></label>
+            <?php submit_button( __( 'Save', 'davix-sub-bridge' ), 'secondary', 'submit', false ); ?>
+        </form>
         <form method="get">
             <input type="hidden" name="page" value="davix-bridge" />
             <input type="hidden" name="tab" value="keys" />
@@ -1596,9 +1609,20 @@ class DSB_Admin {
     }
 
     protected function render_logs_tab(): void {
+        $settings = $this->client->get_settings();
         $logs = $this->db->get_logs();
         ?>
         <h2><?php esc_html_e( 'Bridge Logs', 'davix-sub-bridge' ); ?></h2>
+        <form method="post" style="margin-bottom:10px;display:flex;gap:10px;align-items:center;">
+            <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
+            <label><input type="checkbox" name="enable_logging" value="1" <?php checked( $settings['enable_logging'], 1 ); ?> /> <?php esc_html_e( 'Enable logging (Store last 200 events)', 'davix-sub-bridge' ); ?></label>
+            <?php submit_button( __( 'Save', 'davix-sub-bridge' ), 'secondary', 'submit', false ); ?>
+        </form>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-bottom:15px;display:inline-block;">
+            <?php wp_nonce_field( 'dsb_clear_db_logs', 'dsb_clear_db_logs_nonce' ); ?>
+            <input type="hidden" name="action" value="dsb_clear_db_logs" />
+            <?php submit_button( __( 'Clear all logs', 'davix-sub-bridge' ), 'delete', 'submit', false, [ 'onclick' => "return confirm('" . esc_js( __( 'Are you sure you want to clear all bridge logs?', 'davix-sub-bridge' ) ) . "');" ] ); ?>
+        </form>
         <table class="widefat">
             <thead><tr><th><?php esc_html_e( 'Time', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Event', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Subscription', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Order', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Email', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Response', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'HTTP', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Error', 'davix-sub-bridge' ); ?></th></tr></thead>
             <tbody>
@@ -1751,6 +1775,29 @@ class DSB_Admin {
         dsb_log( 'info', 'Debug log cleared by admin' );
 
         wp_safe_redirect( add_query_arg( [ 'page' => 'davix-bridge', 'tab' => 'debug', 'dsb_log_action' => 'cleared' ], admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    public function handle_clear_db_logs(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'davix-sub-bridge' ) );
+        }
+
+        if ( ! isset( $_POST['dsb_clear_db_logs_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_clear_db_logs_nonce'] ) ), 'dsb_clear_db_logs' ) ) {
+            wp_die( esc_html__( 'Invalid nonce.', 'davix-sub-bridge' ) );
+        }
+
+        global $wpdb;
+        $table      = $wpdb->prefix . 'davix_bridge_logs';
+        $table_sql  = esc_sql( $table );
+        $cleared    = $wpdb->query( "TRUNCATE TABLE {$table_sql}" );
+        $log_action = $cleared === false ? 'error' : 'cleared';
+
+        if ( false !== $cleared ) {
+            dsb_log( 'info', 'Bridge logs table cleared by admin' );
+        }
+
+        wp_safe_redirect( add_query_arg( [ 'page' => 'davix-bridge', 'tab' => 'logs', 'dsb_logs_action' => $log_action ], admin_url( 'admin.php' ) ) );
         exit;
     }
 
@@ -2063,11 +2110,19 @@ class DSB_Admin {
                     </tr>
                     <tr>
                         <th><?php esc_html_e( 'Schedule', 'davix-sub-bridge' ); ?></th>
-                        <td><?php echo esc_html( $schedule ); ?></td>
+                        <td><?php echo $enabled ? esc_html( $schedule ) : esc_html__( 'Disabled', 'davix-sub-bridge' ); ?></td>
                     </tr>
                     <tr>
                         <th><?php esc_html_e( 'Next run time', 'davix-sub-bridge' ); ?></th>
-                        <td><?php echo $next_run ? esc_html( gmdate( 'Y-m-d H:i:s', (int) $next_run ) ) : esc_html__( 'Not scheduled', 'davix-sub-bridge' ); ?></td>
+                        <td>
+                            <?php
+                            if ( $enabled ) {
+                                echo $next_run ? esc_html( gmdate( 'Y-m-d H:i:s', (int) $next_run ) ) : esc_html__( 'Waiting for WP-Cron trigger', 'davix-sub-bridge' );
+                            } else {
+                                esc_html_e( 'Not scheduled', 'davix-sub-bridge' );
+                            }
+                            ?>
+                        </td>
                     </tr>
                     <tr>
                         <th><?php esc_html_e( 'Last run time', 'davix-sub-bridge' ); ?></th>
