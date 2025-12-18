@@ -507,6 +507,32 @@ class DSB_Admin {
             $this->add_notice( __( 'Cron debug log cleared.', 'davix-sub-bridge' ) );
         }
 
+        if ( 'cron' === $tab && isset( $_POST['dsb_clear_node_poll_lock'] ) && check_admin_referer( 'dsb_clear_node_poll_lock' ) ) {
+            $lock_until = (int) get_option( DSB_Node_Poll::OPTION_LOCK_UNTIL, 0 );
+            if ( $lock_until > time() ) {
+                $this->add_notice( __( 'Node poll lock is still active; not cleared.', 'davix-sub-bridge' ), 'error' );
+            } else {
+                $this->node_poll->clear_lock();
+                $this->add_notice( __( 'Node poll lock cleared.', 'davix-sub-bridge' ) );
+            }
+        }
+
+        if ( 'cron' === $tab && isset( $_POST['dsb_clear_resync_lock'] ) && check_admin_referer( 'dsb_clear_resync_lock' ) ) {
+            $lock_until = (int) get_option( DSB_Resync::OPTION_LOCK_UNTIL, 0 );
+            if ( $lock_until > time() ) {
+                $this->add_notice( __( 'Resync lock is still active; not cleared.', 'davix-sub-bridge' ), 'error' );
+            } else {
+                $this->resync->clear_lock();
+                $this->add_notice( __( 'Resync lock cleared.', 'davix-sub-bridge' ) );
+            }
+        }
+
+        if ( 'cron' === $tab && isset( $_POST['dsb_clear_cron_log'] ) && check_admin_referer( 'dsb_clear_cron_log' ) ) {
+            $job = sanitize_key( wp_unslash( $_POST['dsb_clear_cron_log'] ) );
+            DSB_Cron_Logger::clear( $job );
+            $this->add_notice( __( 'Cron debug log cleared.', 'davix-sub-bridge' ) );
+        }
+
         if ( 'keys' === $tab ) {
             $this->handle_key_actions();
         }
