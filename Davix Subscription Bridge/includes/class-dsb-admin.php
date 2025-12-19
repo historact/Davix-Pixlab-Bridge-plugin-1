@@ -273,8 +273,12 @@ class DSB_Admin {
     }
 
     public function save_plan_limits_meta( \WC_Product $product ): void {
+        $normalize_plan_slug = __NAMESPACE__ . '\\dsb_normalize_plan_slug';
+        $plan_slug_callable  = is_callable( $normalize_plan_slug );
+        $logged_missing_cb   = false;
+
         $fields = [
-            '_dsb_plan_slug'             => 'dsb_normalize_plan_slug',
+            '_dsb_plan_slug'             => $normalize_plan_slug,
             '_dsb_monthly_quota_files'   => 'absint',
             '_dsb_max_files_per_request' => 'absint',
             '_dsb_max_total_upload_mb'   => 'absint',
@@ -283,10 +287,30 @@ class DSB_Admin {
         ];
 
         foreach ( $fields as $key => $callback ) {
-            $value = isset( $_POST[ $key ] ) ? call_user_func( $callback, wp_unslash( $_POST[ $key ] ) ) : '';
-            if ( '_dsb_plan_slug' === $key ) {
-                $value = $value ? dsb_normalize_plan_slug( $value ) : dsb_normalize_plan_slug( $product->get_slug() );
+            $raw_value = isset( $_POST[ $key ] ) ? wp_unslash( $_POST[ $key ] ) : '';
+
+            if ( '' !== $raw_value && is_callable( $callback ) ) {
+                $value = call_user_func( $callback, $raw_value );
+            } else {
+                if ( '' !== $raw_value && ! $logged_missing_cb && ! is_callable( $callback ) ) {
+                    dsb_log( 'error', 'Plan limits field callback not callable', [ 'field' => $key, 'callback' => $callback ] );
+                    $logged_missing_cb = true;
+                }
+                $value = '_dsb_plan_slug' === $key ? sanitize_key( $raw_value ) : sanitize_text_field( $raw_value );
             }
+
+            if ( '_dsb_plan_slug' === $key ) {
+                if ( $plan_slug_callable ) {
+                    $value = $value ? call_user_func( $normalize_plan_slug, $value ) : call_user_func( $normalize_plan_slug, $product->get_slug() );
+                } else {
+                    if ( ! $logged_missing_cb ) {
+                        dsb_log( 'error', 'Plan slug normalizer missing; using sanitized slug', [ 'callback' => $normalize_plan_slug ] );
+                        $logged_missing_cb = true;
+                    }
+                    $value = $value ? sanitize_key( $value ) : sanitize_key( $product->get_slug() );
+                }
+            }
+
             $product->update_meta_data( $key, $value );
         }
 
