@@ -101,9 +101,6 @@ class DSB_Plugin {
         load_plugin_textdomain( 'davix-sub-bridge', false, dirname( plugin_basename( DSB_PLUGIN_FILE ) ) . '/languages' );
         $this->db->migrate();
         $this->admin->init();
-        if ( class_exists( '\\WPS_Subscriptions_For_Woocommerce' ) || function_exists( 'wps_sfw' ) ) {
-            $this->events->init();
-        }
         if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
             require_once DSB_PLUGIN_DIR . 'includes/class-dsb-pmpro-events.php';
             DSB_PMPro_Events::init( $this->client, $this->db );

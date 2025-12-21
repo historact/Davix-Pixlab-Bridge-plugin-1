@@ -152,7 +152,7 @@ class DSB_Resync {
         $plan_slug = $this->client->plan_slug_for_level( $level_id );
         $end_ts    = isset( $item['end_ts'] ) ? (int) $item['end_ts'] : 0;
         $is_lifetime = $end_ts <= 0;
-        $valid_from = ! empty( $item['startdate'] ) ? DSB_Util::to_iso_utc( $item['startdate'] ) : null;
+        $valid_from = ! empty( $item['startdate'] ) ? DSB_Util::to_iso_utc( $item['startdate'] ) : gmdate( 'c' );
         $valid_from_ts = $valid_from ? strtotime( $valid_from ) : time();
         $valid_until = null;
 
