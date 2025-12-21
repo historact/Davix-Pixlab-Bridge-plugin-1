@@ -150,9 +150,16 @@ class DSB_Resync {
         }
 
         $plan_slug = $this->client->plan_slug_for_level( $level_id );
+        $end_ts    = isset( $item['end_ts'] ) ? (int) $item['end_ts'] : 0;
+        $is_lifetime = $end_ts <= 0;
+        $valid_from = ! empty( $item['startdate'] ) ? DSB_Util::to_iso_utc( $item['startdate'] ) : null;
+        $valid_from_ts = $valid_from ? strtotime( $valid_from ) : time();
         $valid_until = null;
-        if ( isset( $item['end_ts'] ) && $item['end_ts'] ) {
-            $valid_until = DSB_Util::to_iso_utc( (int) $item['end_ts'] );
+
+        if ( $is_lifetime ) {
+            $valid_until = null;
+        } else {
+            $valid_until = $end_ts > 0 ? DSB_Util::to_iso_utc( $end_ts ) : DSB_Util::to_iso_utc( self::compute_fallback_valid_until_ts( $level_id, $valid_from_ts ) );
         }
 
         $event = 'active' === $status ? 'active' : 'cancelled';
@@ -174,10 +181,11 @@ class DSB_Resync {
             'product_id'          => $level_id,
             'plan_slug'           => $plan_slug,
             'subscription_status' => $event === 'active' ? 'active' : $status,
+            'pmpro_is_lifetime'   => $is_lifetime,
         ];
 
-        if ( ! empty( $item['startdate'] ) ) {
-            $payload['valid_from'] = DSB_Util::to_iso_utc( $item['startdate'] );
+        if ( $valid_from ) {
+            $payload['valid_from'] = $valid_from;
         }
 
         if ( $valid_until ) {
@@ -185,6 +193,18 @@ class DSB_Resync {
         }
 
         $this->client->send_event( $payload );
+        dsb_log(
+            'debug',
+            'PMPro resync payload validity prepared',
+            [
+                'event'             => $event,
+                'user_id'           => $user_id,
+                'level_id'          => $level_id,
+                'pmpro_is_lifetime' => $is_lifetime,
+                'valid_from'        => $payload['valid_from'] ?? null,
+                'valid_until'       => $payload['valid_until'] ?? null,
+            ]
+        );
         return true;
     }
 
@@ -240,6 +260,17 @@ class DSB_Resync {
         }
 
         return $status ? 'active' : '';
+    }
+
+    protected static function compute_fallback_valid_until_ts( int $level_id, int $validFromTs ): int {
+        $level_meta = is_numeric( $level_id ) && $level_id > 0 ? get_option( 'dsb_level_meta_' . $level_id, [] ) : [];
+        $period     = is_array( $level_meta ) && ! empty( $level_meta['billing_period'] ) ? strtolower( (string) $level_meta['billing_period'] ) : 'monthly';
+
+        if ( 'year' === $period || 'yearly' === $period ) {
+            return strtotime( '+1 year', $validFromTs ) ?: ( $validFromTs + ( 365 * DAY_IN_SECONDS ) );
+        }
+
+        return strtotime( '+1 month', $validFromTs ) ?: ( $validFromTs + ( 30 * DAY_IN_SECONDS ) );
     }
 
     protected function resolve_plan_slug( int $product_id, \WC_Order $order, int $subscription_id ): string {

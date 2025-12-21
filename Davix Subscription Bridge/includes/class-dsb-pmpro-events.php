@@ -27,6 +27,7 @@ class DSB_PMPro_Events {
 
         $level_id = self::resolve_level_id_from_order( $morder, $user_id );
         $plan_slug = $level_id ? self::$client->plan_slug_for_level( $level_id ) : '';
+        $valid_from = gmdate( 'c' );
 
         $payload = [
             'event'               => 'activated',
@@ -38,11 +39,31 @@ class DSB_PMPro_Events {
             'product_id'          => $level_id ?: null,
             'plan_slug'           => $plan_slug,
             'subscription_status' => 'active',
-            'valid_from'          => gmdate( 'c' ),
+            'valid_from'          => $valid_from,
         ];
 
-        $valid_until = self::level_valid_until( $user_id );
-        $payload['valid_until'] = self::ensure_valid_until( 'activated', $user_id, $level_id, $payload['valid_from'], $valid_until );
+        $end_ts       = self::get_pmpro_end_ts( $user_id, $level_id );
+        $is_lifetime  = self::is_pmpro_lifetime( $user_id, $level_id, $end_ts );
+        $payload['pmpro_is_lifetime'] = $is_lifetime;
+
+        if ( $is_lifetime ) {
+            $payload['valid_until'] = null;
+        } else {
+            $payload['valid_until'] = $end_ts > 0 ? gmdate( 'c', $end_ts ) : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, strtotime( $valid_from ) ?: time() ) );
+        }
+
+        dsb_log(
+            'debug',
+            'PMPro payload validity prepared',
+            [
+                'event'              => 'activated',
+                'user_id'            => $user_id,
+                'level_id'           => $level_id,
+                'pmpro_is_lifetime'  => $is_lifetime,
+                'valid_from'         => $payload['valid_from'],
+                'valid_until'        => $payload['valid_until'],
+            ]
+        );
 
         if ( ! $plan_slug ) {
             dsb_log( 'error', 'PMPro event skipped: missing plan_slug', [ 'event' => 'activated', 'user_id' => $user_id, 'level_id' => $level_id ] );
@@ -68,6 +89,7 @@ class DSB_PMPro_Events {
         }
 
         $plan_slug = self::$client->plan_slug_for_level( $level_id );
+        $valid_from = gmdate( 'c' );
         $payload   = [
             'event'               => 'active',
             'wp_user_id'          => $user_id,
@@ -77,11 +99,31 @@ class DSB_PMPro_Events {
             'product_id'          => $level_id,
             'plan_slug'           => $plan_slug,
             'subscription_status' => 'active',
-            'valid_from'          => gmdate( 'c' ),
+            'valid_from'          => $valid_from,
         ];
 
-        $valid_until = self::level_valid_until( $user_id );
-        $payload['valid_until'] = self::ensure_valid_until( 'active', $user_id, $level_id, $payload['valid_from'], $valid_until );
+        $end_ts       = self::get_pmpro_end_ts( $user_id, $level_id );
+        $is_lifetime  = self::is_pmpro_lifetime( $user_id, $level_id, $end_ts );
+        $payload['pmpro_is_lifetime'] = $is_lifetime;
+
+        if ( $is_lifetime ) {
+            $payload['valid_until'] = null;
+        } else {
+            $payload['valid_until'] = $end_ts > 0 ? gmdate( 'c', $end_ts ) : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, strtotime( $valid_from ) ?: time() ) );
+        }
+
+        dsb_log(
+            'debug',
+            'PMPro payload validity prepared',
+            [
+                'event'              => 'active',
+                'user_id'            => $user_id,
+                'level_id'           => $level_id,
+                'pmpro_is_lifetime'  => $is_lifetime,
+                'valid_from'         => $payload['valid_from'],
+                'valid_until'        => $payload['valid_until'],
+            ]
+        );
 
         if ( ! $plan_slug ) {
             dsb_log( 'error', 'PMPro event skipped: missing plan_slug', [ 'event' => 'active', 'user_id' => $user_id, 'level_id' => $level_id ] );
@@ -106,6 +148,7 @@ class DSB_PMPro_Events {
             return;
         }
 
+        $valid_from = 'renewed' === $event ? gmdate( 'c' ) : null;
         $payload = [
             'event'               => $event,
             'wp_user_id'          => $user_id,
@@ -121,8 +164,37 @@ class DSB_PMPro_Events {
             $payload['plan_slug'] = self::$client->plan_slug_for_level( $level_id );
         }
 
-        $valid_until = self::level_valid_until( $user_id );
-        $payload['valid_until'] = self::ensure_valid_until( $event, $user_id, $level_id, $payload['valid_from'] ?? null, $valid_until );
+        if ( $valid_from ) {
+            $payload['valid_from'] = $valid_from;
+        }
+
+        if ( in_array( $event, [ 'activated', 'active', 'renewed', 'reactivated' ], true ) ) {
+            $end_ts      = self::get_pmpro_end_ts( $user_id, $level_id );
+            $is_lifetime = self::is_pmpro_lifetime( $user_id, $level_id, $end_ts );
+            $payload['pmpro_is_lifetime'] = $is_lifetime;
+
+            if ( $is_lifetime ) {
+                $payload['valid_until'] = null;
+            } else {
+                $valid_from_ts          = $valid_from ? strtotime( $valid_from ) : time();
+                $payload['valid_until'] = $end_ts > 0 ? gmdate( 'c', $end_ts ) : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, $valid_from_ts ?: time() ) );
+            }
+
+            dsb_log(
+                'debug',
+                'PMPro payload validity prepared',
+                [
+                    'event'              => $event,
+                    'user_id'            => $user_id,
+                    'level_id'           => $level_id,
+                    'pmpro_is_lifetime'  => $is_lifetime,
+                    'valid_from'         => $payload['valid_from'] ?? null,
+                    'valid_until'        => $payload['valid_until'] ?? null,
+                ]
+            );
+        } else {
+            $payload['valid_until'] = null;
+        }
 
         if ( in_array( $event, [ 'activated', 'active', 'renewed', 'reactivated' ], true ) && empty( $payload['plan_slug'] ) ) {
             dsb_log( 'error', 'PMPro event skipped: missing plan_slug', [ 'event' => $event, 'user_id' => $user_id, 'level_id' => $level_id ] );
@@ -198,28 +270,45 @@ class DSB_PMPro_Events {
     }
 
     protected static function ensure_valid_until( string $event, int $user_id, int $level_id, ?string $valid_from_iso, ?string $valid_until_iso ): ?string {
-        $activation_events = [ 'activated', 'active', 'renewed', 'reactivated' ];
-        if ( ! in_array( strtolower( $event ), $activation_events, true ) ) {
-            return $valid_until_iso ?: null;
+        return $valid_until_iso ?: null;
+    }
+
+    private static function get_pmpro_end_ts( int $user_id, int $level_id ): int {
+        if ( ! function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
+            return 0;
         }
 
-        $now          = time();
-        $valid_from_ts = $valid_from_iso ? strtotime( $valid_from_iso ) : $now;
-        $candidate    = $valid_until_iso;
-
-        if ( ! $candidate ) {
-            $level_meta  = is_numeric( $level_id ) && $level_id > 0 ? get_option( 'dsb_level_meta_' . $level_id, [] ) : [];
-            $period      = is_array( $level_meta ) && ! empty( $level_meta['billing_period'] ) ? strtolower( (string) $level_meta['billing_period'] ) : 'monthly';
-            $days_to_add = ( 'year' === $period || 'yearly' === $period ) ? 366 : 31;
-            $candidate   = gmdate( 'c', $now + ( $days_to_add * DAY_IN_SECONDS ) );
+        $level = pmpro_getMembershipLevelForUser( $user_id );
+        if ( empty( $level ) || ! isset( $level->id ) || (int) $level->id !== (int) $level_id ) {
+            return 0;
         }
 
-        $valid_until_ts = strtotime( $candidate );
-        if ( $valid_until_ts && $valid_until_ts <= $valid_from_ts ) {
-            $valid_until_ts = $valid_from_ts + ( 31 * DAY_IN_SECONDS );
-            $candidate      = gmdate( 'c', $valid_until_ts );
+        if ( ! empty( $level->enddate ) ) {
+            if ( is_numeric( $level->enddate ) && (int) $level->enddate > 0 ) {
+                return (int) $level->enddate;
+            }
+
+            if ( is_string( $level->enddate ) ) {
+                $ts = strtotime( $level->enddate );
+                return $ts && $ts > 0 ? $ts : 0;
+            }
         }
 
-        return $candidate ?: null;
+        return 0;
+    }
+
+    private static function is_pmpro_lifetime( int $user_id, int $level_id, int $endTs ): bool {
+        return $endTs <= 0;
+    }
+
+    private static function compute_fallback_valid_until_ts( int $level_id, int $validFromTs ): int {
+        $level_meta = is_numeric( $level_id ) && $level_id > 0 ? get_option( 'dsb_level_meta_' . $level_id, [] ) : [];
+        $period     = is_array( $level_meta ) && ! empty( $level_meta['billing_period'] ) ? strtolower( (string) $level_meta['billing_period'] ) : 'monthly';
+
+        if ( 'year' === $period || 'yearly' === $period ) {
+            return strtotime( '+1 year', $validFromTs ) ?: ( $validFromTs + ( 365 * DAY_IN_SECONDS ) );
+        }
+
+        return strtotime( '+1 month', $validFromTs ) ?: ( $validFromTs + ( 30 * DAY_IN_SECONDS ) );
     }
 }
