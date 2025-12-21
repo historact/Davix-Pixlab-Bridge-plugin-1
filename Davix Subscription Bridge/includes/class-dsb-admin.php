@@ -15,6 +15,9 @@ class DSB_Admin {
     protected $notices = [];
     protected $synced_product_ids = [];
     protected $diagnostics_result = null;
+    protected static function woocommerce_active(): bool {
+        return function_exists( 'wc_get_product' ) || function_exists( 'WC' ) || class_exists( '\\WooCommerce' );
+    }
 
     public function __construct( DSB_Client $client, DSB_DB $db, DSB_Events $events, DSB_Resync $resync, DSB_Purge_Worker $purge_worker, DSB_Node_Poll $node_poll ) {
         $this->client       = $client;
@@ -151,6 +154,10 @@ class DSB_Admin {
     }
 
     public function render_plan_limits_panel(): void {
+        if ( ! self::woocommerce_active() ) {
+            dsb_log( 'debug', 'WooCommerce inactive; skipping plan limits panel render' );
+            return;
+        }
         global $post;
         $product = wc_get_product( $post );
         if ( ! $product instanceof \WC_Product ) {
@@ -1403,6 +1410,10 @@ class DSB_Admin {
     }
 
     public function maybe_sync_product_by_post( int $post_id, $post = null, bool $update = false ): void {
+        if ( ! self::woocommerce_active() ) {
+            dsb_log( 'debug', 'WooCommerce inactive; skipping product sync by post', [ 'post_id' => $post_id ] );
+            return;
+        }
         if ( ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) || wp_is_post_revision( $post_id ) ) {
             return;
         }
@@ -1411,6 +1422,10 @@ class DSB_Admin {
     }
 
     public function maybe_sync_product( $product ): void {
+        if ( ! self::woocommerce_active() ) {
+            dsb_log( 'debug', 'WooCommerce inactive; skipping product sync', [ 'product' => $product ] );
+            return;
+        }
         if ( is_numeric( $product ) ) {
             $product = wc_get_product( $product );
         }
@@ -1458,6 +1473,10 @@ class DSB_Admin {
     }
 
     protected function discover_plan_products(): array {
+        if ( ! self::woocommerce_active() ) {
+            dsb_log( 'debug', 'WooCommerce inactive; skipping product discovery' );
+            return [];
+        }
         $products = [];
 
         $query = new \WC_Product_Query(
@@ -2084,6 +2103,9 @@ class DSB_Admin {
     }
 
     public function ajax_search_subscriptions(): void {
+        if ( ! self::woocommerce_active() ) {
+            wp_send_json_error( [ 'message' => __( 'WooCommerce is not active.', 'davix-sub-bridge' ) ] );
+        }
         check_ajax_referer( 'dsb_admin_ajax', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error();
@@ -2456,6 +2478,9 @@ class DSB_Admin {
     }
 
     public function ajax_search_orders(): void {
+        if ( ! self::woocommerce_active() ) {
+            wp_send_json_error( [ 'message' => __( 'WooCommerce is not active.', 'davix-sub-bridge' ) ] );
+        }
         check_ajax_referer( 'dsb_admin_ajax', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error();
