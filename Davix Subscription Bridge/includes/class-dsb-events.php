@@ -23,6 +23,11 @@ class DSB_Events {
     }
 
     public function init(): void {
+        if ( ! defined( 'DSB_ENABLE_WPS_LEGACY' ) || true !== DSB_ENABLE_WPS_LEGACY ) {
+            dsb_log( 'debug', 'WPS legacy hooks disabled by default; skipping WPS event registration' );
+            return;
+        }
+
         add_action( 'wps_sfw_after_renewal_payment', [ $this, 'handle_wps_renewal' ], 10, 2 );
         add_action( 'wps_sfw_expire_subscription_scheduler', [ $this, 'handle_wps_expire' ], 10, 1 );
         add_action( 'wps_sfw_subscription_cancel', [ $this, 'handle_wps_cancel' ], 10, 1 );

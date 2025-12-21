@@ -32,7 +32,6 @@ class DSB_Client {
                 'resync_lock_minutes' => 30,
                 'resync_run_hour' => 3,
                 'resync_disable_non_active' => 1,
-                'wps_rest_consumer_secret' => '',
                 'free_level_id' => '',
                 'enable_node_poll_sync' => 0,
                 'node_poll_interval_minutes' => 10,
@@ -298,7 +297,6 @@ class DSB_Client {
             'resync_lock_minutes' => isset( $data['resync_lock_minutes'] ) ? (int) $data['resync_lock_minutes'] : ( $existing['resync_lock_minutes'] ?? 30 ),
             'resync_run_hour' => isset( $data['resync_run_hour'] ) ? (int) $data['resync_run_hour'] : ( $existing['resync_run_hour'] ?? 3 ),
             'resync_disable_non_active' => $bool_from_post( $data, 'resync_disable_non_active', $existing['resync_disable_non_active'] ?? 1 ),
-            'wps_rest_consumer_secret' => isset( $data['wps_rest_consumer_secret'] ) ? sanitize_text_field( $data['wps_rest_consumer_secret'] ) : ( $existing['wps_rest_consumer_secret'] ?? '' ),
             'free_level_id' => isset( $data['free_level_id'] ) ? sanitize_text_field( $data['free_level_id'] ) : ( $existing['free_level_id'] ?? '' ),
             'enable_node_poll_sync' => $bool_from_post( $data, 'enable_node_poll_sync', $existing['enable_node_poll_sync'] ?? 0 ),
             'node_poll_interval_minutes' => isset( $data['node_poll_interval_minutes'] ) ? (int) $data['node_poll_interval_minutes'] : ( $existing['node_poll_interval_minutes'] ?? 10 ),
@@ -428,21 +426,6 @@ class DSB_Client {
             return str_repeat( '*', $len );
         }
         return substr( $token, 0, 3 ) . str_repeat( '*', $len - 6 ) . substr( $token, -3 );
-    }
-
-    public function masked_consumer_secret(): string {
-        $settings = $this->get_settings();
-        $secret   = $settings['wps_rest_consumer_secret'] ?? '';
-        if ( ! $secret ) {
-            return __( 'Not set', 'davix-sub-bridge' );
-        }
-
-        $len = strlen( $secret );
-        if ( $len <= 6 ) {
-            return str_repeat( '*', $len );
-        }
-
-        return substr( $secret, 0, 3 ) . str_repeat( '*', $len - 6 ) . substr( $secret, -3 );
     }
 
     protected function request( string $path, string $method = 'GET', ?array $body = [], array $query = [] ) {

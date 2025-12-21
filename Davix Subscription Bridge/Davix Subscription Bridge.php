@@ -18,6 +18,7 @@ define( 'DSB_VERSION', '1.0.0' );
 define( 'DSB_PLUGIN_FILE', __FILE__ );
 define( 'DSB_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DSB_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
+defined( 'DSB_ENABLE_WPS_LEGACY' ) || define( 'DSB_ENABLE_WPS_LEGACY', false );
 
 require_once __DIR__ . '/includes/class-dsb-db.php';
 require_once __DIR__ . '/includes/class-dsb-util.php';
