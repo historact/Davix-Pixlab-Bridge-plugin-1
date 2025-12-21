@@ -25,7 +25,7 @@ class DSB_Plugin {
     public static function activate(): void {
         if ( ! self::dependencies_met() ) {
             deactivate_plugins( plugin_basename( DSB_PLUGIN_FILE ) );
-            wp_die( esc_html__( 'Davix Subscription Bridge requires WooCommerce and Subscriptions for WooCommerce.', 'davix-sub-bridge' ) );
+            wp_die( esc_html__( 'Davix Subscription Bridge requires Paid Memberships Pro to be active.', 'davix-sub-bridge' ) );
         }
         $db = new DSB_DB( $GLOBALS['wpdb'] );
         $db->migrate();
@@ -48,6 +48,7 @@ class DSB_Plugin {
             delete_option( DSB_Client::OPTION_SETTINGS );
             delete_option( DSB_Client::OPTION_PRODUCT_PLANS );
             delete_option( DSB_Client::OPTION_PLAN_PRODUCTS );
+            delete_option( DSB_Client::OPTION_LEVEL_PLANS );
             delete_option( DSB_Client::OPTION_PLAN_SYNC );
             delete_option( DSB_Resync::OPTION_LOCK_UNTIL );
             delete_option( DSB_Resync::OPTION_LAST_RUN_AT );
@@ -70,7 +71,7 @@ class DSB_Plugin {
     }
 
     protected static function dependencies_met(): bool {
-        return class_exists( 'WooCommerce' ) && ( class_exists( '\\WPS_Subscriptions_For_Woocommerce' ) || defined( 'SUBSCRIPTIONS_FOR_WOOCOMMERCE_VERSION' ) );
+        return function_exists( 'pmpro_getMembershipLevelForUser' ) || class_exists( '\\MemberOrder' );
     }
 
     public function __construct() {
@@ -100,7 +101,13 @@ class DSB_Plugin {
         load_plugin_textdomain( 'davix-sub-bridge', false, dirname( plugin_basename( DSB_PLUGIN_FILE ) ) . '/languages' );
         $this->db->migrate();
         $this->admin->init();
-        $this->events->init();
+        if ( class_exists( '\\WPS_Subscriptions_For_Woocommerce' ) || function_exists( 'wps_sfw' ) ) {
+            $this->events->init();
+        }
+        if ( function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
+            require_once DSB_PLUGIN_DIR . 'includes/class-dsb-pmpro-events.php';
+            DSB_PMPro_Events::init( $this->client, $this->db );
+        }
         $this->resync->init();
         $this->node_poll->init();
         $this->purge_worker->init();
@@ -109,13 +116,18 @@ class DSB_Plugin {
     }
 
     public function dependency_notice(): void {
-        echo '<div class="notice notice-error"><p>' . esc_html__( 'Davix Subscription Bridge requires WooCommerce and WPSwings Subscriptions for WooCommerce to be active.', 'davix-sub-bridge' ) . '</p></div>';
+        echo '<div class="notice notice-error"><p>' . esc_html__( 'Davix Subscription Bridge requires Paid Memberships Pro to be active.', 'davix-sub-bridge' ) . '</p></div>';
     }
 
     public function handle_user_register_free( int $user_id ): void {
         $user = get_userdata( $user_id );
 
         if ( ! $user instanceof \WP_User ) {
+            return;
+        }
+
+        if ( ! function_exists( 'pmpro_changeMembershipLevel' ) ) {
+            dsb_log( 'warning', 'PMPro not active; cannot assign free membership on signup', [ 'user_id' => $user_id ] );
             return;
         }
 
@@ -126,9 +138,19 @@ class DSB_Plugin {
             return;
         }
 
-        $plan_slug       = dsb_normalize_plan_slug( 'free' );
-        $now_mysql       = current_time( 'mysql', true );
-        $subscription_id = 'free-' . $user_id;
+        $free_level_id = $this->find_free_level_id();
+        if ( ! $free_level_id ) {
+            dsb_log( 'warning', 'No free PMPro level configured; skipping free assignment', [ 'user_id' => $user_id ] );
+            return;
+        }
+
+        $current_level = function_exists( 'pmpro_getMembershipLevelForUser' ) ? pmpro_getMembershipLevelForUser( $user_id ) : null;
+        if ( ! $current_level || ( (int) $current_level->id !== (int) $free_level_id ) ) {
+            pmpro_changeMembershipLevel( (int) $free_level_id, $user_id );
+        }
+
+        $plan_slug       = $this->client->plan_slug_for_level( (int) $free_level_id ) ?: dsb_normalize_plan_slug( 'free' );
+        $subscription_id = 'pmpro-' . $user_id . '-' . (int) $free_level_id;
 
         $name = trim( (string) ( $user->first_name ?? '' ) . ' ' . ( $user->last_name ?? '' ) );
         if ( ! $name ) {
@@ -137,104 +159,72 @@ class DSB_Plugin {
         $customer_name = $name ? sanitize_text_field( $name ) : '';
 
         $payload = [
-            'customer_email' => $email,
-            'plan_slug'      => $plan_slug,
-            'wp_user_id'     => $user_id,
+            'event'               => 'activated',
+            'customer_email'      => strtolower( $email ),
+            'plan_slug'           => $plan_slug,
+            'wp_user_id'          => $user_id,
+            'customer_name'       => $customer_name,
+            'subscription_id'     => $subscription_id,
+            'product_id'          => (int) $free_level_id,
+            'subscription_status' => 'active',
+            'valid_from'          => gmdate( 'c' ),
         ];
 
-        if ( $customer_name ) {
-            $payload['customer_name'] = $customer_name;
+        $valid_until = $this->pmpro_level_valid_until( $user_id );
+        if ( $valid_until ) {
+            $payload['valid_until'] = $valid_until;
         }
 
-        dsb_log(
-            'debug',
-            'Free provision payload sent',
-            [
-                'user_id' => $user_id,
-                'email'   => $email,
-            ]
-        );
+        $this->client->send_event( $payload );
 
-        $response    = $this->client->provision_key( $payload );
-        $code        = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
-        $decoded     = is_wp_error( $response ) ? null : json_decode( wp_remote_retrieve_body( $response ), true );
-        $status_ok   = ! is_wp_error( $response ) && $code >= 200 && $code < 300 && is_array( $decoded ) && ( $decoded['status'] ?? '' ) === 'ok';
-        $valid_from  = $this->normalize_mysql_datetime( $decoded['key']['valid_from'] ?? $decoded['valid_from'] ?? $now_mysql ) ?? $now_mysql;
-        $valid_until = $this->normalize_mysql_datetime(
-            $decoded['key']['valid_until']
-                ?? $decoded['key']['valid_to']
-                ?? $decoded['key']['expires_at']
-                ?? $decoded['key']['expires_on']
-                ?? $decoded['valid_until']
-                ?? $decoded['valid_to']
-                ?? $decoded['expires_at']
-                ?? $decoded['expires_on']
-                ?? null
-        );
+        dsb_log( 'info', 'Provisioned free PMPro level on user registration', [ 'user_id' => $user_id, 'email' => $email, 'level_id' => $free_level_id ] );
+    }
 
-        $this->db->upsert_key(
-            [
-                'subscription_id'     => $subscription_id,
-                'customer_email'      => $email,
-                'wp_user_id'          => $user_id,
-                'plan_slug'           => $plan_slug,
-                'status'              => $status_ok ? 'active' : 'error',
-                'subscription_status' => $status_ok ? 'active' : 'pending',
-                'key_prefix'          => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], 0, 10 ) : ( $decoded['key_prefix'] ?? null ),
-                'key_last4'           => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], -4 ) : ( $decoded['key_last4'] ?? null ),
-                'valid_from'          => $valid_from,
-                'valid_until'         => $valid_until,
-                'node_plan_id'        => $decoded['plan_id'] ?? null,
-                'last_action'         => 'auto_free_register',
-                'last_http_code'      => $code ?: null,
-                'last_error'          => $status_ok ? null : ( is_wp_error( $response ) ? $response->get_error_message() : ( $decoded['status'] ?? wp_remote_retrieve_body( $response ) ) ),
-            ]
-        );
-
-        $this->db->upsert_user(
-            [
-                'wp_user_id'      => $user_id,
-                'customer_email'  => $email,
-                'subscription_id' => null,
-                'order_id'        => null,
-                'product_id'      => null,
-                'plan_slug'       => $plan_slug,
-                'status'          => 'active',
-                'valid_from'      => $valid_from,
-                'valid_until'     => null,
-                'source'          => 'auto_free_register',
-                'last_sync_at'    => $now_mysql,
-            ]
-        );
-
+    protected function find_free_level_id(): int {
         $settings = $this->client->get_settings();
-        if ( ! empty( $settings['enable_logging'] ) ) {
-            $this->db->log_event(
-                [
-                    'event'           => 'free_user_register',
-                    'customer_email'  => $email,
-                    'plan_slug'       => $plan_slug,
-                    'subscription_id' => $subscription_id,
-                    'response_action' => $decoded['action'] ?? null,
-                    'http_code'       => $code,
-                    'error_excerpt'   => is_wp_error( $response ) ? $response->get_error_message() : ( $decoded['status'] ?? '' ),
-                ]
-            );
+        $configured = isset( $settings['free_level_id'] ) ? absint( $settings['free_level_id'] ) : 0;
+        if ( $configured > 0 ) {
+            return $configured;
         }
 
-        if ( $status_ok ) {
-            dsb_log( 'info', 'Provisioned free plan on user registration', [ 'user_id' => $user_id, 'email' => $email ] );
-        } else {
-            dsb_log(
-                'error',
-                'Provisioning free plan on user registration failed',
-                [
-                    'user_id' => $user_id,
-                    'email'   => $email,
-                    'code'    => $code,
-                    'body'    => is_wp_error( $response ) ? $response->get_error_message() : wp_remote_retrieve_body( $response ),
-                ]
-            );
+        if ( function_exists( 'pmpro_getAllLevels' ) ) {
+            $levels = pmpro_getAllLevels( true, true );
+            if ( is_array( $levels ) ) {
+                foreach ( $levels as $level ) {
+                    $level_id = isset( $level->id ) ? (int) $level->id : 0;
+                    if ( ! $level_id ) {
+                        continue;
+                    }
+                    $meta = get_option( 'dsb_level_meta_' . $level_id, [] );
+                    if ( is_array( $meta ) && ! empty( $meta['is_free'] ) ) {
+                        return $level_id;
+                    }
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    protected function pmpro_level_valid_until( int $user_id ): ?string {
+        if ( ! function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
+            return null;
+        }
+
+        $level = pmpro_getMembershipLevelForUser( $user_id );
+        if ( empty( $level ) || empty( $level->enddate ) ) {
+            return null;
+        }
+
+        if ( is_numeric( $level->enddate ) ) {
+            return gmdate( 'c', (int) $level->enddate );
+        }
+
+        try {
+            $dt = new \DateTimeImmutable( is_string( $level->enddate ) ? $level->enddate : '' );
+            return $dt->setTimezone( new \DateTimeZone( 'UTC' ) )->format( 'c' );
+        } catch ( \Throwable $e ) {
+            return null;
         }
     }
 

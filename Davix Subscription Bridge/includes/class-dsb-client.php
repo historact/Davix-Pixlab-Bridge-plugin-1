@@ -8,6 +8,7 @@ class DSB_Client {
     const OPTION_PRODUCT_PLANS = 'dsb_product_plans';
     const OPTION_PLAN_PRODUCTS = 'dsb_plan_products';
     const OPTION_PLAN_SYNC     = 'dsb_plan_sync';
+    const OPTION_LEVEL_PLANS   = 'dsb_level_plans';
 
     protected $db;
 
@@ -32,6 +33,7 @@ class DSB_Client {
                 'resync_run_hour' => 3,
                 'resync_disable_non_active' => 1,
                 'wps_rest_consumer_secret' => '',
+                'free_level_id' => '',
                 'enable_node_poll_sync' => 0,
                 'node_poll_interval_minutes' => 10,
                 'node_poll_per_page' => 200,
@@ -200,6 +202,60 @@ class DSB_Client {
         return array_values( array_filter( array_map( 'absint', $products ) ) );
     }
 
+    public function get_level_plans(): array {
+        $plans = get_option( self::OPTION_LEVEL_PLANS, [] );
+        if ( ! is_array( $plans ) ) {
+            return [];
+        }
+
+        $clean = [];
+        foreach ( $plans as $level_id => $plan_slug ) {
+            $lid = absint( $level_id );
+            if ( $lid <= 0 ) {
+                continue;
+            }
+            $clean[ $lid ] = dsb_normalize_plan_slug( $plan_slug );
+        }
+
+        if ( $clean !== $plans ) {
+            update_option( self::OPTION_LEVEL_PLANS, $clean );
+        }
+
+        return $clean;
+    }
+
+    public function save_level_plans( array $map ): void {
+        $clean = [];
+        foreach ( $map as $level_id => $plan_slug ) {
+            $lid = absint( $level_id );
+            if ( $lid <= 0 ) {
+                continue;
+            }
+            $slug = dsb_normalize_plan_slug( $plan_slug );
+            if ( '' !== $slug ) {
+                $clean[ $lid ] = $slug;
+            }
+        }
+
+        update_option( self::OPTION_LEVEL_PLANS, $clean );
+    }
+
+    public function plan_slug_for_level( int $level_id ): string {
+        $plans = $this->get_level_plans();
+        if ( isset( $plans[ $level_id ] ) ) {
+            return $plans[ $level_id ];
+        }
+
+        if ( function_exists( 'pmpro_getLevel' ) ) {
+            $level = pmpro_getLevel( $level_id );
+            if ( $level && isset( $level->name ) ) {
+                return dsb_normalize_plan_slug( sanitize_text_field( (string) $level->name ) );
+            }
+        }
+
+        return '';
+    }
+
     public function get_plan_sync_status(): array {
         $status = get_option( self::OPTION_PLAN_SYNC, [] );
         if ( ! is_array( $status ) ) {
@@ -243,6 +299,7 @@ class DSB_Client {
             'resync_run_hour' => isset( $data['resync_run_hour'] ) ? (int) $data['resync_run_hour'] : ( $existing['resync_run_hour'] ?? 3 ),
             'resync_disable_non_active' => $bool_from_post( $data, 'resync_disable_non_active', $existing['resync_disable_non_active'] ?? 1 ),
             'wps_rest_consumer_secret' => isset( $data['wps_rest_consumer_secret'] ) ? sanitize_text_field( $data['wps_rest_consumer_secret'] ) : ( $existing['wps_rest_consumer_secret'] ?? '' ),
+            'free_level_id' => isset( $data['free_level_id'] ) ? sanitize_text_field( $data['free_level_id'] ) : ( $existing['free_level_id'] ?? '' ),
             'enable_node_poll_sync' => $bool_from_post( $data, 'enable_node_poll_sync', $existing['enable_node_poll_sync'] ?? 0 ),
             'node_poll_interval_minutes' => isset( $data['node_poll_interval_minutes'] ) ? (int) $data['node_poll_interval_minutes'] : ( $existing['node_poll_interval_minutes'] ?? 10 ),
             'node_poll_per_page' => isset( $data['node_poll_per_page'] ) ? (int) $data['node_poll_per_page'] : ( $existing['node_poll_per_page'] ?? 200 ),
@@ -285,11 +342,11 @@ class DSB_Client {
         $clean['alert_threshold']            = max( 1, (int) $clean['alert_threshold'] );
         $clean['alert_cooldown_minutes']     = max( 1, (int) $clean['alert_cooldown_minutes'] );
 
-        $plan_slug_meta = isset( $data['dsb_plan_slug_meta'] ) && is_array( $data['dsb_plan_slug_meta'] ) ? $data['dsb_plan_slug_meta'] : [];
-        $plan_products = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : $this->get_plan_products();
-        $plan_products = array_filter( array_map( 'absint', $plan_products ) );
-
+        $plan_slug_meta        = isset( $data['dsb_plan_slug_meta'] ) && is_array( $data['dsb_plan_slug_meta'] ) ? $data['dsb_plan_slug_meta'] : [];
+        $plan_products         = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : $this->get_plan_products();
+        $plan_products         = array_filter( array_map( 'absint', $plan_products ) );
         $existing_product_plans = $this->get_product_plans();
+        $existing_level_plans   = $this->get_level_plans();
 
         $style_defaults = $this->get_style_defaults();
         foreach ( $style_defaults as $key => $default ) {
@@ -315,30 +372,48 @@ class DSB_Client {
             }
         }
 
-        foreach ( $plan_products as $pid ) {
-            $slug = isset( $plan_slug_meta[ $pid ] ) ? dsb_normalize_plan_slug( sanitize_text_field( $plan_slug_meta[ $pid ] ) ) : '';
-
-            if ( ! $slug ) {
-                $existing_slug = dsb_normalize_plan_slug( get_post_meta( $pid, '_dsb_plan_slug', true ) );
-                $slug          = $existing_slug ? $existing_slug : '';
-            }
-
-            if ( ! $slug ) {
-                $product = wc_get_product( $pid );
-                if ( $product ) {
-                    $slug = dsb_normalize_plan_slug( $product->get_slug() );
+        $level_plans = $existing_level_plans;
+        if ( isset( $data['level_plans'] ) && is_array( $data['level_plans'] ) ) {
+            $level_plans = [];
+            foreach ( $data['level_plans'] as $level_id => $plan_slug ) {
+                $lid = absint( $level_id );
+                if ( $lid <= 0 ) {
+                    continue;
+                }
+                $normalized = dsb_normalize_plan_slug( sanitize_text_field( $plan_slug ) );
+                if ( '' !== $normalized ) {
+                    $level_plans[ $lid ] = $normalized;
                 }
             }
+        }
 
-            if ( $slug ) {
-                update_post_meta( $pid, '_dsb_plan_slug', $slug );
-                $plans[ $pid ] = $slug;
+        if ( function_exists( 'wc_get_product' ) ) {
+            foreach ( $plan_products as $pid ) {
+                $slug = isset( $plan_slug_meta[ $pid ] ) ? dsb_normalize_plan_slug( sanitize_text_field( $plan_slug_meta[ $pid ] ) ) : '';
+
+                if ( ! $slug ) {
+                    $existing_slug = dsb_normalize_plan_slug( get_post_meta( $pid, '_dsb_plan_slug', true ) );
+                    $slug          = $existing_slug ? $existing_slug : '';
+                }
+
+                if ( ! $slug ) {
+                    $product = wc_get_product( $pid );
+                    if ( $product ) {
+                        $slug = dsb_normalize_plan_slug( $product->get_slug() );
+                    }
+                }
+
+                if ( $slug ) {
+                    update_post_meta( $pid, '_dsb_plan_slug', $slug );
+                    $plans[ $pid ] = $slug;
+                }
             }
         }
 
         update_option( self::OPTION_SETTINGS, $clean );
         update_option( self::OPTION_PRODUCT_PLANS, $plans );
         update_option( self::OPTION_PLAN_PRODUCTS, $plan_products );
+        update_option( self::OPTION_LEVEL_PLANS, $level_plans );
         update_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL, $clean['delete_data'] );
     }
 
@@ -589,42 +664,66 @@ class DSB_Client {
     }
 
     public function fetch_wps_subscriptions_all() {
-        $settings = $this->get_settings();
-        $secret   = $settings['wps_rest_consumer_secret'] ?? '';
+        return new \WP_Error( 'dsb_wps_deprecated', __( 'WPS integration removed in favor of Paid Memberships Pro.', 'davix-sub-bridge' ) );
+    }
 
-        if ( ! $secret ) {
-            return new \WP_Error( 'dsb_missing_wps_secret', __( 'WPS consumer secret missing', 'davix-sub-bridge' ) );
+    public function fetch_pmpro_memberships_all() {
+        global $wpdb;
+
+        if ( ! function_exists( 'pmpro_getMembershipLevelForUser' ) && ! class_exists( '\\MemberOrder' ) ) {
+            return new \WP_Error( 'dsb_pmpro_missing', __( 'Paid Memberships Pro is not active.', 'davix-sub-bridge' ) );
         }
 
-        $url = add_query_arg( 'consumer_secret', rawurlencode( $secret ), home_url( '/wp-json/wsp-route/v1/wsp-view-subscription' ) );
+        $table = $wpdb->prefix . 'pmpro_memberships_users';
+        $exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
 
-        $response = wp_remote_get(
-            $url,
-            [
-                'timeout' => 15,
-            ]
-        );
-
-        if ( is_wp_error( $response ) ) {
-            return $response;
+        if ( ! $exists ) {
+            return new \WP_Error( 'dsb_pmpro_table_missing', __( 'PMPro membership table missing.', 'davix-sub-bridge' ) );
         }
 
-        $body    = wp_remote_retrieve_body( $response );
-        $decoded = $body ? json_decode( $body, true ) : null;
+        $rows = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY user_id ASC, startdate DESC, id DESC", ARRAY_A );
+        $members = [];
 
-        if ( ! is_array( $decoded ) ) {
-            return new \WP_Error( 'dsb_wps_invalid_body', __( 'Unexpected WPS response', 'davix-sub-bridge' ) );
+        foreach ( $rows as $row ) {
+            $user_id = absint( $row['user_id'] ?? 0 );
+            $level_id = absint( $row['membership_id'] ?? 0 );
+            if ( $user_id <= 0 ) {
+                continue;
+            }
+
+            if ( isset( $members[ $user_id ] ) && ( $members[ $user_id ]['status'] ?? '' ) === 'active' ) {
+                continue;
+            }
+
+            $status = strtolower( (string) ( $row['status'] ?? '' ) );
+            $user   = get_userdata( $user_id );
+            $email  = $user instanceof \WP_User ? $user->user_email : '';
+            $end    = $row['enddate'] ?? null;
+            $end_ts = null;
+
+            if ( is_numeric( $end ) && (int) $end > 0 ) {
+                $end_ts = (int) $end;
+            } elseif ( is_string( $end ) && '' !== $end ) {
+                try {
+                    $dt     = new \DateTimeImmutable( $end );
+                    $end_ts = $dt->getTimestamp();
+                } catch ( \Throwable $e ) {
+                    $end_ts = null;
+                }
+            }
+
+            $members[ $user_id ] = [
+                'user_id'    => $user_id,
+                'email'      => $email ? sanitize_email( $email ) : '',
+                'level_id'   => $level_id,
+                'status'     => $status ?: 'active',
+                'startdate'  => $row['startdate'] ?? null,
+                'enddate'    => $end,
+                'end_ts'     => $end_ts,
+            ];
         }
 
-        $status = $decoded['status'] ?? ( $decoded['success'] ?? '' );
-        $data   = $decoded['data'] ?? [];
-
-        if ( is_array( $data ) && ( 'success' === $status || true === $status ) ) {
-            dsb_log( 'info', 'Fetched WPS subscriptions', [ 'count' => count( $data ), 'status' => $status ? 'success' : 'unknown' ] );
-            return $data;
-        }
-
-        return new \WP_Error( 'dsb_wps_invalid_status', __( 'WPS subscription fetch failed', 'davix-sub-bridge' ) );
+        return array_values( $members );
     }
 
     public function fetch_keys( int $page = 1, int $per_page = 20, string $search = '' ) {

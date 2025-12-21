@@ -66,25 +66,30 @@ class DSB_Resync {
         DSB_Cron_Logger::log( 'resync', 'Daily resync started', [ 'manual' => $is_manual ] );
 
         try {
-            $subscriptions = $this->client->fetch_wps_subscriptions_all();
+            $memberships = $this->client->fetch_pmpro_memberships_all();
 
-            if ( is_wp_error( $subscriptions ) ) {
+            if ( is_wp_error( $memberships ) ) {
                 $result = 'error';
-                $error  = $subscriptions->get_error_message();
-            } elseif ( ! is_array( $subscriptions ) ) {
+                $error  = $memberships->get_error_message();
+            } elseif ( ! is_array( $memberships ) ) {
                 $result = 'error';
-                $error  = __( 'Unexpected subscription payload', 'davix-sub-bridge' );
+                $error  = __( 'Unexpected membership payload', 'davix-sub-bridge' );
             } else {
-                $batch_size = max( 20, min( 500, (int) ( $settings['resync_batch_size'] ?? 100 ) ) );
-                foreach ( array_chunk( $subscriptions, $batch_size ) as $chunk ) {
+                $batch_size      = max( 20, min( 500, (int) ( $settings['resync_batch_size'] ?? 100 ) ) );
+                $active_user_ids = [];
+                foreach ( array_chunk( $memberships, $batch_size ) as $chunk ) {
                     foreach ( $chunk as $item ) {
-                        $ok = $this->process_subscription_item( $item, $settings );
+                        $ok = $this->process_membership_item( $item, $settings, $active_user_ids );
                         if ( $ok ) {
                             $processed ++;
                         } else {
                             $skipped ++;
                         }
                     }
+                }
+
+                if ( ! empty( $settings['resync_disable_non_active'] ) ) {
+                    $processed += $this->process_missing_memberships( $active_user_ids );
                 }
             }
         } catch ( \Throwable $e ) {
@@ -121,104 +126,95 @@ class DSB_Resync {
         ];
     }
 
-    protected function process_subscription_item( $item, array $settings ): bool {
-        $subscription_id = isset( $item['subscription_id'] ) ? absint( $item['subscription_id'] ) : ( isset( $item['id'] ) ? absint( $item['id'] ) : 0 );
-        $order_id        = isset( $item['parent_order_id'] ) ? absint( $item['parent_order_id'] ) : ( isset( $item['order_id'] ) ? absint( $item['order_id'] ) : 0 );
-        $status          = isset( $item['status'] ) ? strtolower( (string) $item['status'] ) : '';
+    protected function process_membership_item( $item, array $settings, array &$active_user_ids ): bool {
+        $user_id  = isset( $item['user_id'] ) ? absint( $item['user_id'] ) : 0;
+        $level_id = isset( $item['level_id'] ) ? absint( $item['level_id'] ) : 0;
+        $status   = isset( $item['status'] ) ? strtolower( (string) $item['status'] ) : 'active';
 
-        if ( ! $order_id ) {
-            dsb_log( 'warning', 'Resync skipped: missing parent order', [ 'subscription_id' => $subscription_id ?: null ] );
+        if ( $user_id <= 0 || $level_id <= 0 ) {
             return false;
         }
 
-        $order = wc_get_order( $order_id );
-        if ( ! $order instanceof \WC_Order ) {
-            dsb_log( 'warning', 'Resync skipped: order not found', [ 'order_id' => $order_id, 'subscription_id' => $subscription_id ?: null ] );
-            return false;
-        }
-
-        $wp_user_id = (int) $order->get_user_id();
-        if ( $wp_user_id <= 0 ) {
-            dsb_log( 'warning', 'Resync skipped: user missing on order', [ 'order_id' => $order_id, 'subscription_id' => $subscription_id ?: null ] );
-            return false;
-        }
-
-        $customer_email = $order->get_billing_email();
-        $product_id     = 0;
-
-        foreach ( $order->get_items() as $item_obj ) {
-            $product_id = $item_obj->get_variation_id() ?: $item_obj->get_product_id();
-            if ( $product_id ) {
-                break;
+        $user = get_userdata( $user_id );
+        $email = $user instanceof \WP_User ? $user->user_email : '';
+        $name  = '';
+        if ( $user instanceof \WP_User ) {
+            $name = trim( (string) $user->first_name . ' ' . (string) $user->last_name );
+            if ( ! $name ) {
+                $name = $user->display_name ?? '';
             }
         }
 
-        $plan_slug = $this->resolve_plan_slug( $product_id, $order, $subscription_id );
-
-        $valid_from  = $order->get_date_created() instanceof \WC_DateTime ? $order->get_date_created()->getTimestamp() : null;
-        $valid_until = $this->normalize_mysql_datetime( $item['subscriptions_expiry_date'] ?? ( $item['expiry_date'] ?? null ) );
-
-        if ( ! $valid_until ) {
-            $valid_until = $this->normalize_mysql_datetime( get_post_meta( $subscription_id, '_dsb_valid_until', true ) ?: get_post_meta( $subscription_id, '_dsb_wps_valid_until', true ) );
+        if ( 'active' === $status ) {
+            $active_user_ids[] = $user_id;
         }
 
-        if ( ! $valid_until ) {
-            $valid_until = $this->normalize_mysql_datetime( $order->get_meta( DSB_Events::ORDER_META_VALID_UNTIL ) );
+        $plan_slug = $this->client->plan_slug_for_level( $level_id );
+        $valid_until = null;
+        if ( isset( $item['end_ts'] ) && $item['end_ts'] ) {
+            $valid_until = DSB_Util::to_iso_utc( (int) $item['end_ts'] );
         }
 
-        $this->db->upsert_user(
-            [
-                'wp_user_id'      => $wp_user_id,
-                'customer_email'  => $customer_email,
-                'subscription_id' => $subscription_id ?: null,
-                'order_id'        => $order_id,
-                'product_id'      => $product_id ?: null,
-                'plan_slug'       => $plan_slug,
-                'status'          => $status ?: null,
-                'valid_from'      => $valid_from ? gmdate( 'Y-m-d H:i:s', $valid_from ) : null,
-                'valid_until'     => $valid_until,
-                'source'          => 'wps_rest',
-                'last_sync_at'    => current_time( 'mysql', true ),
-            ]
-        );
-
-        $event = $this->map_status_to_event( $status );
-        if ( ! $event ) {
+        $event = 'active' === $status ? 'active' : 'cancelled';
+        if ( 'active' !== $status && empty( $settings['resync_disable_non_active'] ) ) {
             return true;
         }
 
-        $inactive_events = [ 'cancelled', 'expired', 'paused', 'payment_failed', 'disabled' ];
-        if ( in_array( $event, $inactive_events, true ) && empty( $settings['resync_disable_non_active'] ) ) {
-            return true;
-        }
-
-        if ( in_array( $event, [ 'active', 'activated', 'renewed', 'reactivated' ], true ) && ! $plan_slug ) {
-            dsb_log( 'warning', 'Resync skip send_event: plan missing', [ 'order_id' => $order_id, 'subscription_id' => $subscription_id ?: null ] );
+        if ( 'active' === $event && ! $plan_slug ) {
+            dsb_log( 'warning', 'Resync skip send_event: plan missing for PMPro level', [ 'user_id' => $user_id, 'level_id' => $level_id ] );
             return true;
         }
 
         $payload = [
             'event'               => $event,
-            'wp_user_id'          => $wp_user_id,
-            'customer_email'      => $customer_email,
-            'subscription_id'     => $subscription_id ? (string) $subscription_id : '',
-            'order_id'            => (string) $order_id,
+            'wp_user_id'          => $user_id,
+            'customer_email'      => $email ? strtolower( sanitize_email( $email ) ) : '',
+            'customer_name'       => $name ? sanitize_text_field( $name ) : '',
+            'subscription_id'     => 'pmpro-' . $user_id . '-' . $level_id,
+            'product_id'          => $level_id,
             'plan_slug'           => $plan_slug,
-            'subscription_status' => $status,
-            'product_id'          => $product_id ?: null,
+            'subscription_status' => $event === 'active' ? 'active' : $status,
         ];
 
-        if ( $valid_from ) {
-            $payload['valid_from'] = DSB_Util::to_iso_utc( $valid_from );
+        if ( ! empty( $item['startdate'] ) ) {
+            $payload['valid_from'] = DSB_Util::to_iso_utc( $item['startdate'] );
         }
 
         if ( $valid_until ) {
-            $payload['valid_until'] = DSB_Util::to_iso_utc( $valid_until );
+            $payload['valid_until'] = $valid_until;
         }
 
         $this->client->send_event( $payload );
-
         return true;
+    }
+
+    protected function process_missing_memberships( array $active_user_ids ): int {
+        $active_user_ids = array_values( array_filter( array_map( 'absint', array_unique( $active_user_ids ) ) ) );
+        $tracked_users   = $this->db->get_tracked_user_ids();
+        $processed       = 0;
+
+        foreach ( $tracked_users as $user_id ) {
+            $user_id = absint( $user_id );
+            if ( $user_id <= 0 || in_array( $user_id, $active_user_ids, true ) ) {
+                continue;
+            }
+
+            $user  = get_userdata( $user_id );
+            $email = $user instanceof \WP_User ? $user->user_email : '';
+
+            $payload = [
+                'event'               => 'cancelled',
+                'wp_user_id'          => $user_id,
+                'customer_email'      => $email ? strtolower( sanitize_email( $email ) ) : '',
+                'subscription_id'     => 'pmpro-' . $user_id . '-0',
+                'subscription_status' => 'cancelled',
+            ];
+
+            $this->client->send_event( $payload );
+            $processed ++;
+        }
+
+        return $processed;
     }
 
     protected function map_status_to_event( string $status ): string {
