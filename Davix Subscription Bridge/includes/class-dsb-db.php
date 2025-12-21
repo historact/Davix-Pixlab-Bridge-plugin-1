@@ -467,6 +467,11 @@ class DSB_DB {
         return (int) $this->wpdb->query( $this->wpdb->prepare( $sql, ...$params ) );
     }
 
+    public function get_tracked_user_ids(): array {
+        $ids = $this->wpdb->get_col( "SELECT wp_user_id FROM {$this->table_user}" );
+        return array_values( array_filter( array_map( 'absint', (array) $ids ) ) );
+    }
+
     public function upsert_user( array $data ): void {
         $defaults = [
             'wp_user_id'      => 0,

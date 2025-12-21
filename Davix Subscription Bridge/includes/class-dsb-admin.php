@@ -38,11 +38,10 @@ class DSB_Admin {
         add_action( 'wp_ajax_dsb_search_subscriptions', [ $this, 'ajax_search_subscriptions' ] );
         add_action( 'wp_ajax_dsb_search_orders', [ $this, 'ajax_search_orders' ] );
         add_action( 'wp_ajax_dsb_js_log', __NAMESPACE__ . '\\dsb_handle_js_log' );
-        add_filter( 'woocommerce_product_data_tabs', [ $this, 'add_plan_limits_tab' ] );
-        add_action( 'woocommerce_product_data_panels', [ $this, 'render_plan_limits_panel' ] );
-        add_action( 'woocommerce_admin_process_product_object', [ $this, 'save_plan_limits_meta' ] );
-        add_action( 'save_post_product', [ $this, 'maybe_sync_product_by_post' ], 20, 3 );
-        add_action( 'woocommerce_update_product', [ $this, 'maybe_sync_product' ], 20, 1 );
+        if ( function_exists( 'pmpro_getLevel' ) ) {
+            add_action( 'pmpro_membership_level_after_other_settings', [ $this, 'render_level_plan_fields' ], 10, 1 );
+            add_action( 'pmpro_save_membership_level', [ $this, 'save_level_plan_meta' ], 10, 1 );
+        }
     }
 
     public function register_menu(): void {
@@ -272,6 +271,192 @@ class DSB_Admin {
         <?php
     }
 
+    public function render_level_plan_fields( $level ): void {
+        $level_id = isset( $level->id ) ? (int) $level->id : 0;
+        $meta     = $this->get_level_meta_defaults( $level_id );
+        ?>
+        <h3><?php esc_html_e( 'Davix Plan Limits', 'davix-sub-bridge' ); ?></h3>
+        <table class="form-table">
+            <tr>
+                <th scope="row"><label for="dsb_level_plan_slug"><?php esc_html_e( 'Plan Slug', 'davix-sub-bridge' ); ?></label></th>
+                <td><input type="text" name="dsb_level_meta[plan_slug]" id="dsb_level_plan_slug" value="<?php echo esc_attr( $meta['plan_slug'] ); ?>" class="regular-text" required />
+                <p class="description"><?php esc_html_e( 'Slug sent to Node for this membership level.', 'davix-sub-bridge' ); ?></p></td>
+            </tr>
+            <tr>
+                <th scope="row"><label for="dsb_level_billing_period"><?php esc_html_e( 'Billing period', 'davix-sub-bridge' ); ?></label></th>
+                <td>
+                    <select name="dsb_level_meta[billing_period]" id="dsb_level_billing_period">
+                        <option value="monthly" <?php selected( $meta['billing_period'], 'monthly' ); ?>><?php esc_html_e( 'Monthly', 'davix-sub-bridge' ); ?></option>
+                        <option value="yearly" <?php selected( $meta['billing_period'], 'yearly' ); ?>><?php esc_html_e( 'Yearly', 'davix-sub-bridge' ); ?></option>
+                    </select>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Monthly quota (files)', 'davix-sub-bridge' ); ?></th>
+                <td><input type="number" min="1" name="dsb_level_meta[monthly_quota_files]" value="<?php echo esc_attr( $meta['monthly_quota_files'] ); ?>" /></td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Max files per request', 'davix-sub-bridge' ); ?></th>
+                <td><input type="number" min="1" name="dsb_level_meta[max_files_per_request]" value="<?php echo esc_attr( $meta['max_files_per_request'] ); ?>" /></td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Max total upload (MB)', 'davix-sub-bridge' ); ?></th>
+                <td><input type="number" min="1" name="dsb_level_meta[max_total_upload_mb]" value="<?php echo esc_attr( $meta['max_total_upload_mb'] ); ?>" /></td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Max dimension (px)', 'davix-sub-bridge' ); ?></th>
+                <td><input type="number" min="100" name="dsb_level_meta[max_dimension_px]" value="<?php echo esc_attr( $meta['max_dimension_px'] ); ?>" /></td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Timeout (seconds)', 'davix-sub-bridge' ); ?></th>
+                <td><input type="number" min="5" name="dsb_level_meta[timeout_seconds]" value="<?php echo esc_attr( $meta['timeout_seconds'] ); ?>" /></td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Capabilities', 'davix-sub-bridge' ); ?></th>
+                <td>
+                    <label><input type="checkbox" name="dsb_level_meta[allow_h2i]" value="1" <?php checked( $meta['allow_h2i'], 1 ); ?> /> <?php esc_html_e( 'Allow H2I', 'davix-sub-bridge' ); ?></label><br/>
+                    <label><input type="checkbox" name="dsb_level_meta[allow_image]" value="1" <?php checked( $meta['allow_image'], 1 ); ?> /> <?php esc_html_e( 'Allow image', 'davix-sub-bridge' ); ?></label><br/>
+                    <label><input type="checkbox" name="dsb_level_meta[allow_pdf]" value="1" <?php checked( $meta['allow_pdf'], 1 ); ?> /> <?php esc_html_e( 'Allow PDF', 'davix-sub-bridge' ); ?></label><br/>
+                    <label><input type="checkbox" name="dsb_level_meta[allow_tools]" value="1" <?php checked( $meta['allow_tools'], 1 ); ?> /> <?php esc_html_e( 'Allow tools', 'davix-sub-bridge' ); ?></label>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Free plan', 'davix-sub-bridge' ); ?></th>
+                <td><label><input type="checkbox" name="dsb_level_meta[is_free]" value="1" <?php checked( $meta['is_free'], 1 ); ?> /> <?php esc_html_e( 'Mark this membership as free', 'davix-sub-bridge' ); ?></label></td>
+            </tr>
+            <tr>
+                <th scope="row"><label for="dsb_level_description"><?php esc_html_e( 'Description', 'davix-sub-bridge' ); ?></label></th>
+                <td><textarea name="dsb_level_meta[description]" id="dsb_level_description" rows="3" class="large-text"><?php echo esc_textarea( $meta['description'] ); ?></textarea></td>
+            </tr>
+        </table>
+        <?php
+    }
+
+    public function save_level_plan_meta( int $level_id ): void {
+        $level_id = absint( $level_id );
+        if ( $level_id <= 0 ) {
+            return;
+        }
+
+        $posted_meta = isset( $_REQUEST['dsb_level_meta'] ) && is_array( $_REQUEST['dsb_level_meta'] ) ? wp_unslash( $_REQUEST['dsb_level_meta'] ) : [];
+        $meta        = $this->get_level_meta_defaults( $level_id );
+
+        foreach ( [ 'plan_slug', 'billing_period', 'description' ] as $text_field ) {
+            if ( isset( $posted_meta[ $text_field ] ) ) {
+                $value = sanitize_text_field( $posted_meta[ $text_field ] );
+                if ( 'plan_slug' === $text_field ) {
+                    $value = dsb_normalize_plan_slug( $value );
+                }
+                $meta[ $text_field ] = $value;
+            }
+        }
+
+        foreach ( [ 'monthly_quota_files', 'max_files_per_request', 'max_total_upload_mb', 'max_dimension_px', 'timeout_seconds' ] as $int_field ) {
+            if ( isset( $posted_meta[ $int_field ] ) ) {
+                $meta[ $int_field ] = max( 0, (int) $posted_meta[ $int_field ] );
+            }
+        }
+
+        foreach ( [ 'allow_h2i', 'allow_image', 'allow_pdf', 'allow_tools', 'is_free' ] as $flag_field ) {
+            $meta[ $flag_field ] = isset( $posted_meta[ $flag_field ] ) ? 1 : 0;
+        }
+
+        update_option( 'dsb_level_meta_' . $level_id, $meta );
+
+        $level_plans          = $this->client->get_level_plans();
+        $level_plans[ $level_id ] = $meta['plan_slug'];
+        $this->client->save_level_plans( $level_plans );
+
+        $this->sync_level_to_node( $level_id, $meta );
+    }
+
+    protected function get_level_meta_defaults( int $level_id ): array {
+        $level = function_exists( 'pmpro_getLevel' ) ? pmpro_getLevel( $level_id ) : null;
+        $stored = get_option( 'dsb_level_meta_' . $level_id, [] );
+        $defaults = [
+            'plan_slug'             => $this->client->plan_slug_for_level( $level_id ) ?: ( $level && isset( $level->name ) ? dsb_normalize_plan_slug( $level->name ) : '' ),
+            'billing_period'        => $level && isset( $level->cycle_period ) && in_array( strtolower( (string) $level->cycle_period ), [ 'year', 'yearly', 'annual', 'annually' ], true ) ? 'yearly' : 'monthly',
+            'monthly_quota_files'   => 1000,
+            'max_files_per_request' => 10,
+            'max_total_upload_mb'   => 10,
+            'max_dimension_px'      => 2000,
+            'timeout_seconds'       => 30,
+            'allow_h2i'             => 1,
+            'allow_image'           => 1,
+            'allow_pdf'             => 1,
+            'allow_tools'           => 1,
+            'is_free'               => 0,
+            'description'           => $level && isset( $level->description ) ? wp_strip_all_tags( $level->description ) : '',
+        ];
+
+        if ( is_array( $stored ) ) {
+            $meta = wp_parse_args( $stored, $defaults );
+        } else {
+            $meta = $defaults;
+        }
+
+        $meta['plan_slug'] = dsb_normalize_plan_slug( $meta['plan_slug'] );
+
+        return $meta;
+    }
+
+    protected function sync_level_to_node( int $level_id, array $meta = [] ): void {
+        $payload = $this->get_plan_payload_for_level( $level_id, $meta );
+        if ( empty( $payload['plan_slug'] ) ) {
+            $this->db->log_event(
+                [
+                    'event'         => 'plan_sync',
+                    'plan_slug'     => '',
+                    'error_excerpt' => __( 'Missing plan slug; sync skipped.', 'davix-sub-bridge' ),
+                ]
+            );
+            return;
+        }
+
+        $response = $this->client->sync_plan( $payload );
+        $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+        $decoded  = is_wp_error( $response ) ? null : json_decode( wp_remote_retrieve_body( $response ), true );
+        $this->db->log_event(
+            [
+                'event'           => 'plan_sync',
+                'plan_slug'       => $payload['plan_slug'],
+                'subscription_id' => '',
+                'order_id'        => '',
+                'response_action' => $decoded['action'] ?? '',
+                'http_code'       => $code,
+                'error_excerpt'   => is_wp_error( $response ) ? $response->get_error_message() : ( $decoded['status'] ?? '' ),
+            ]
+        );
+    }
+
+    protected function get_plan_payload_for_level( int $level_id, array $meta = [] ): array {
+        $meta  = $meta ?: $this->get_level_meta_defaults( $level_id );
+        $level = function_exists( 'pmpro_getLevel' ) ? pmpro_getLevel( $level_id ) : null;
+
+        $plan_slug   = $meta['plan_slug'];
+        $name        = $level && isset( $level->name ) ? $level->name : sprintf( __( 'Level %d', 'davix-sub-bridge' ), $level_id );
+        $description = $meta['description'] ?: ( $level && isset( $level->description ) ? wp_strip_all_tags( $level->description ) : '' );
+        $billing_period = in_array( $meta['billing_period'], [ 'monthly', 'yearly' ], true ) ? $meta['billing_period'] : 'monthly';
+
+        return [
+            'plan_slug'             => $plan_slug,
+            'name'                  => $name,
+            'billing_period'        => $billing_period,
+            'monthly_quota_files'   => (int) $meta['monthly_quota_files'],
+            'max_files_per_request' => (int) $meta['max_files_per_request'],
+            'max_total_upload_mb'   => (int) $meta['max_total_upload_mb'],
+            'max_dimension_px'      => (int) $meta['max_dimension_px'],
+            'timeout_seconds'       => (int) $meta['timeout_seconds'],
+            'allow_h2i'             => (int) $meta['allow_h2i'],
+            'allow_image'           => (int) $meta['allow_image'],
+            'allow_pdf'             => (int) $meta['allow_pdf'],
+            'allow_tools'           => (int) $meta['allow_tools'],
+            'is_free'               => (int) $meta['is_free'],
+            'description'           => $description,
+            'wp_level_id'           => $level_id,
+        ];
+    }
+
     public function save_plan_limits_meta( \WC_Product $product ): void {
         $normalize_plan_slug = __NAMESPACE__ . '\\dsb_normalize_plan_slug';
         $plan_slug_callable  = is_callable( $normalize_plan_slug );
@@ -490,28 +675,28 @@ class DSB_Admin {
         $plan_mapping_nonce_valid = isset( $_POST['dsb_plans_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_plans_nonce'] ) ), 'dsb_save_plans' );
 
         if ( 'plan-mapping' === $tab && ( $plan_mapping_nonce_valid || ( isset( $_POST['dsb_settings_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_settings_nonce'] ) ), 'dsb_save_settings' ) ) ) ) {
-            $plans      = [];
-            $ids        = isset( $_POST['product_ids'] ) && is_array( $_POST['product_ids'] ) ? array_values( $_POST['product_ids'] ) : [];
-            $slugs      = isset( $_POST['plan_slugs'] ) && is_array( $_POST['plan_slugs'] ) ? array_values( $_POST['plan_slugs'] ) : [];
-            $pair_count = min( count( $ids ), count( $slugs ) );
-            for ( $i = 0; $i < $pair_count; $i ++ ) {
-                $pid  = sanitize_text_field( $ids[ $i ] );
-                $slug = dsb_normalize_plan_slug( sanitize_text_field( $slugs[ $i ] ) );
-                if ( '' !== $pid && '' !== $slug ) {
-                    $plans[ $pid ] = $slug;
+            $plans = [];
+            if ( isset( $_POST['level_plans'] ) && is_array( $_POST['level_plans'] ) ) {
+                foreach ( $_POST['level_plans'] as $level_id => $plan_slug ) {
+                    $lid = absint( $level_id );
+                    $slug = dsb_normalize_plan_slug( sanitize_text_field( wp_unslash( $plan_slug ) ) );
+                    if ( $lid > 0 && '' !== $slug ) {
+                        $plans[ $lid ] = $slug;
+                    }
                 }
             }
 
             $settings = $this->client->get_settings();
-            $this->client->save_settings( [
-                'product_plans' => $plans,
-                'node_base_url' => $settings['node_base_url'],
-                'bridge_token'  => $settings['bridge_token'],
-                'enable_logging'=> $settings['enable_logging'],
-                'delete_data'   => $settings['delete_data'],
-                'allow_provision_without_refs' => $settings['allow_provision_without_refs'],
-                'plan_products' => $this->client->get_plan_products(),
-            ] );
+            $this->client->save_settings(
+                [
+                    'level_plans' => $plans,
+                    'node_base_url' => $settings['node_base_url'],
+                    'bridge_token'  => $settings['bridge_token'],
+                    'enable_logging'=> $settings['enable_logging'],
+                    'delete_data'   => $settings['delete_data'],
+                    'allow_provision_without_refs' => $settings['allow_provision_without_refs'],
+                ]
+            );
             $this->add_notice( __( 'Plan mappings saved.', 'davix-sub-bridge' ) );
         }
 
@@ -829,7 +1014,6 @@ class DSB_Admin {
 
     protected function render_settings_tab(): void {
         $settings = $this->client->get_settings();
-        $masked_secret = $this->client->masked_consumer_secret();
         ?>
         <form method="post">
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
@@ -853,10 +1037,10 @@ class DSB_Admin {
                     </td>
                 </tr>
                 <tr>
-                    <th scope="row"><?php esc_html_e( 'WPS Consumer Secret', 'davix-sub-bridge' ); ?></th>
+                    <th scope="row"><?php esc_html_e( 'Free Level ID', 'davix-sub-bridge' ); ?></th>
                     <td>
-                        <input type="password" name="wps_rest_consumer_secret" class="regular-text" value="<?php echo esc_attr( $settings['wps_rest_consumer_secret'] ); ?>" autocomplete="off" />
-                        <p class="description"><?php printf( '%s %s', esc_html__( 'Used to read subscriptions from the WPS REST API.', 'davix-sub-bridge' ), esc_html( $masked_secret ) ); ?></p>
+                        <input type="number" name="free_level_id" class="regular-text" value="<?php echo esc_attr( $settings['free_level_id'] ); ?>" placeholder="<?php esc_attr_e( 'e.g. 1', 'davix-sub-bridge' ); ?>" />
+                        <p class="description"><?php esc_html_e( 'PMPro level ID to assign automatically on user signup. Leave blank to use the first level marked as Free.', 'davix-sub-bridge' ); ?></p>
                     </td>
                 </tr>
             </table>
@@ -1071,34 +1255,26 @@ class DSB_Admin {
     }
 
     protected function sync_plans_to_node(): array {
-        $products = [];
-        $selected_ids = $this->client->get_plan_products();
-        if ( ! empty( $selected_ids ) ) {
-            foreach ( $selected_ids as $pid ) {
-                $product = wc_get_product( $pid );
-                if ( $product ) {
-                    $products[] = $product;
-                }
-            }
-        }
-
-        if ( empty( $products ) ) {
-            $products = $this->discover_plan_products();
-        }
+        $levels = function_exists( 'pmpro_getAllLevels' ) ? pmpro_getAllLevels( true, true ) : [];
 
         $summary = [
-            'count_total'   => count( $products ),
+            'count_total'   => is_array( $levels ) ? count( $levels ) : 0,
             'count_success' => 0,
             'count_failed'  => 0,
             'errors'        => [],
             'timestamp'     => current_time( 'mysql' ),
         ];
 
-        foreach ( $products as $product ) {
-            $payload = $this->get_plan_payload_for_product( $product );
+        if ( ! is_array( $levels ) ) {
+            $summary['errors'][] = __( 'Paid Memberships Pro levels not available.', 'davix-sub-bridge' );
+            return $summary;
+        }
+
+        foreach ( $levels as $level ) {
+            $payload = $this->get_plan_payload_for_level( (int) $level->id );
             if ( empty( $payload['plan_slug'] ) ) {
                 $summary['count_failed'] ++;
-                $summary['errors'][] = sprintf( __( 'Missing plan slug for product %d', 'davix-sub-bridge' ), $product->get_id() );
+                $summary['errors'][] = sprintf( __( 'Missing plan slug for level %d', 'davix-sub-bridge' ), (int) $level->id );
                 continue;
             }
 
@@ -1335,7 +1511,7 @@ class DSB_Admin {
         }
 
         if ( empty( $options ) ) {
-            $mappings = $this->client->get_product_plans();
+            $mappings = $this->client->get_level_plans();
             foreach ( $mappings as $plan_slug ) {
                 $options[ $plan_slug ] = $plan_slug;
             }
@@ -1379,82 +1555,36 @@ class DSB_Admin {
     }
 
     protected function render_plan_tab(): void {
-        $plans           = $this->client->get_product_plans();
-        $plan_products   = $this->client->get_plan_products();
-        $plan_candidates = $this->discover_plan_products();
-        $plan_sync       = $this->client->get_plan_sync_status();
+        $plan_sync   = $this->client->get_plan_sync_status();
+        $level_plans = $this->client->get_level_plans();
+        $levels      = function_exists( 'pmpro_getAllLevels' ) ? pmpro_getAllLevels( true, true ) : [];
         ?>
         <form method="post" id="dsb-plan-form">
             <?php wp_nonce_field( 'dsb_save_plans', 'dsb_plans_nonce' ); ?>
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
-            <p><?php esc_html_e( 'Map WooCommerce product IDs to Davix plan slugs.', 'davix-sub-bridge' ); ?></p>
+            <p><?php esc_html_e( 'Map Paid Memberships Pro levels to Davix plan slugs.', 'davix-sub-bridge' ); ?></p>
             <table class="widefat" id="dsb-plan-table">
-                <thead><tr><th><?php esc_html_e( 'Product ID', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Plan Slug', 'davix-sub-bridge' ); ?></th><th></th></tr></thead>
+                <thead><tr><th><?php esc_html_e( 'Level', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Plan Slug', 'davix-sub-bridge' ); ?></th></tr></thead>
                 <tbody>
-                <?php if ( ! empty( $plans ) ) : ?>
-                    <?php foreach ( $plans as $product_id => $plan_slug ) : ?>
+                <?php if ( ! empty( $levels ) ) : ?>
+                    <?php foreach ( $levels as $level ) : ?>
+                        <?php $level_id = isset( $level->id ) ? (int) $level->id : 0; ?>
                         <tr>
-                            <td><input type="number" name="product_ids[]" value="<?php echo esc_attr( $product_id ); ?>" required /></td>
-                            <td><input type="text" name="plan_slugs[]" value="<?php echo esc_attr( $plan_slug ); ?>" required /></td>
-                            <td><button type="button" class="button dsb-remove-row">&times;</button></td>
+                            <td><?php echo esc_html( $level->name ?? __( 'Untitled', 'davix-sub-bridge' ) ); ?> — #<?php echo esc_html( $level_id ); ?></td>
+                            <td><input type="text" name="level_plans[<?php echo esc_attr( $level_id ); ?>]" value="<?php echo esc_attr( $level_plans[ $level_id ] ?? dsb_normalize_plan_slug( $level->name ?? '' ) ); ?>" placeholder="plan-slug" /></td>
                         </tr>
                     <?php endforeach; ?>
+                <?php else : ?>
+                    <tr><td colspan="2"><?php esc_html_e( 'No PMPro levels found. Create a membership level first.', 'davix-sub-bridge' ); ?></td></tr>
                 <?php endif; ?>
-                <tr class="dsb-empty" <?php echo empty( $plans ) ? '' : 'style="display:none;"'; ?>><td colspan="3"><?php esc_html_e( 'No mappings yet.', 'davix-sub-bridge' ); ?></td></tr>
                 </tbody>
-            </table>
-            <p><button type="button" class="button" id="dsb-add-row"><?php esc_html_e( 'Add mapping', 'davix-sub-bridge' ); ?></button></p>
-
-            <table class="form-table" role="presentation" style="margin-top:20px;">
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Plan products', 'davix-sub-bridge' ); ?></th>
-                    <td>
-                        <p class="description"><?php esc_html_e( 'Select which WooCommerce products should sync to Node as plans (auto-detected subscription products plus manual selection).', 'davix-sub-bridge' ); ?></p>
-                        <table class="widefat">
-                            <thead><tr><th><?php esc_html_e( 'Sync', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Product', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Plan Slug override', 'davix-sub-bridge' ); ?></th></tr></thead>
-                            <tbody>
-                            <?php if ( empty( $plan_candidates ) ) : ?>
-                                <tr><td colspan="3"><?php esc_html_e( 'No subscription-like products found. Use checkboxes after creating products.', 'davix-sub-bridge' ); ?></td></tr>
-                            <?php else : ?>
-                                <?php foreach ( $plan_candidates as $product ) : ?>
-                                    <?php $pid = $product->get_id();
-                                    $checked = in_array( $pid, $plan_products, true );
-                                    $plan_slug_meta = dsb_normalize_plan_slug( get_post_meta( $pid, '_dsb_plan_slug', true ) );
-                                    ?>
-                                    <tr>
-                                        <td><input type="checkbox" name="plan_products[]" value="<?php echo esc_attr( $pid ); ?>" <?php checked( $checked ); ?> /></td>
-                                        <td><?php echo esc_html( $product->get_name() ); ?> (<?php echo esc_html( $product->get_type() ); ?>) — #<?php echo esc_html( $pid ); ?></td>
-                                        <td><input type="text" name="dsb_plan_slug_meta[<?php echo esc_attr( $pid ); ?>]" value="<?php echo esc_attr( $plan_slug_meta ); ?>" placeholder="custom-plan-slug" /></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                            </tbody>
-                        </table>
-                    </td>
-                </tr>
             </table>
             <?php submit_button( __( 'Save Changes', 'davix-sub-bridge' ) ); ?>
         </form>
-        <script>
-            (function($){
-                $('#dsb-add-row').on('click', function(){
-                    var row = '<tr><td><input type="number" name="product_ids[]" value="" required /></td><td><input type="text" name="plan_slugs[]" value="" placeholder="plan_slug" required /></td><td><button type="button" class="button dsb-remove-row">&times;</button></td></tr>';
-                    $('#dsb-plan-table tbody .dsb-empty').hide();
-                    $('#dsb-plan-table tbody').append(row);
-                });
-                $(document).on('click', '.dsb-remove-row', function(){
-                    $(this).closest('tr').remove();
-                    var rows = $('#dsb-plan-table tbody tr').not('.dsb-empty');
-                    if (rows.length === 0){
-                        $('#dsb-plan-table tbody .dsb-empty').show();
-                    }
-                });
-            })(jQuery);
-        </script>
 
         <form method="post" style="margin-top:20px;">
             <?php wp_nonce_field( 'dsb_sync_plans' ); ?>
-            <?php submit_button( __( 'Sync Plans to Node', 'davix-sub-bridge' ), 'primary', 'dsb_sync_plans', false ); ?>
+            <?php submit_button( __( 'Sync Levels to Node', 'davix-sub-bridge' ), 'primary', 'dsb_sync_plans', false ); ?>
             <?php if ( ! empty( $plan_sync ) ) : ?>
                 <p class="description">
                     <?php
