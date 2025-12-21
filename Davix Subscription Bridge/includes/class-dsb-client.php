@@ -538,6 +538,23 @@ class DSB_Client {
             $this->db->log_event( $log );
         }
 
+        if ( $code < 200 || $code >= 300 ) {
+            $body_excerpt = $body ? substr( $body, 0, 500 ) : '';
+            dsb_log(
+                'debug',
+                'Node send_event non-2xx response',
+                [
+                    'http_code'       => $code,
+                    'response_body'   => $body_excerpt,
+                    'event'           => $payload['event'] ?? '',
+                    'subscription_id' => $payload['subscription_id'] ?? '',
+                    'plan_slug'       => $payload['plan_slug'] ?? '',
+                    'wp_user_id'      => isset( $payload['wp_user_id'] ) ? (int) $payload['wp_user_id'] : null,
+                    'customer_email'  => $payload['customer_email'] ?? '',
+                ]
+            );
+        }
+
         $subscription_identifier = sanitize_text_field( $payload['subscription_id'] ?? '' );
         if ( ! $subscription_identifier && isset( $payload['order_id'] ) ) {
             $subscription_identifier = sanitize_text_field( (string) $payload['order_id'] );
