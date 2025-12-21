@@ -42,10 +42,12 @@ class DSB_PMPro_Events {
         ];
 
         $valid_until = self::level_valid_until( $user_id );
-        if ( $valid_until ) {
-            $payload['valid_until'] = $valid_until;
-        }
+        $payload['valid_until'] = self::ensure_valid_until( 'activated', $user_id, $level_id, $payload['valid_from'], $valid_until );
 
+        if ( ! $plan_slug ) {
+            dsb_log( 'error', 'PMPro event skipped: missing plan_slug', [ 'event' => 'activated', 'user_id' => $user_id, 'level_id' => $level_id ] );
+            return;
+        }
         self::$client->send_event( $payload );
     }
 
@@ -79,10 +81,12 @@ class DSB_PMPro_Events {
         ];
 
         $valid_until = self::level_valid_until( $user_id );
-        if ( $valid_until ) {
-            $payload['valid_until'] = $valid_until;
-        }
+        $payload['valid_until'] = self::ensure_valid_until( 'active', $user_id, $level_id, $payload['valid_from'], $valid_until );
 
+        if ( ! $plan_slug ) {
+            dsb_log( 'error', 'PMPro event skipped: missing plan_slug', [ 'event' => 'active', 'user_id' => $user_id, 'level_id' => $level_id ] );
+            return;
+        }
         self::$client->send_event( $payload );
     }
 
@@ -118,8 +122,11 @@ class DSB_PMPro_Events {
         }
 
         $valid_until = self::level_valid_until( $user_id );
-        if ( $valid_until ) {
-            $payload['valid_until'] = $valid_until;
+        $payload['valid_until'] = self::ensure_valid_until( $event, $user_id, $level_id, $payload['valid_from'] ?? null, $valid_until );
+
+        if ( in_array( $event, [ 'activated', 'active', 'renewed', 'reactivated' ], true ) && empty( $payload['plan_slug'] ) ) {
+            dsb_log( 'error', 'PMPro event skipped: missing plan_slug', [ 'event' => $event, 'user_id' => $user_id, 'level_id' => $level_id ] );
+            return;
         }
 
         self::$client->send_event( $payload );
@@ -188,5 +195,31 @@ class DSB_PMPro_Events {
         }
 
         return 0;
+    }
+
+    protected static function ensure_valid_until( string $event, int $user_id, int $level_id, ?string $valid_from_iso, ?string $valid_until_iso ): ?string {
+        $activation_events = [ 'activated', 'active', 'renewed', 'reactivated' ];
+        if ( ! in_array( strtolower( $event ), $activation_events, true ) ) {
+            return $valid_until_iso ?: null;
+        }
+
+        $now          = time();
+        $valid_from_ts = $valid_from_iso ? strtotime( $valid_from_iso ) : $now;
+        $candidate    = $valid_until_iso;
+
+        if ( ! $candidate ) {
+            $level_meta  = is_numeric( $level_id ) && $level_id > 0 ? get_option( 'dsb_level_meta_' . $level_id, [] ) : [];
+            $period      = is_array( $level_meta ) && ! empty( $level_meta['billing_period'] ) ? strtolower( (string) $level_meta['billing_period'] ) : 'monthly';
+            $days_to_add = ( 'year' === $period || 'yearly' === $period ) ? 366 : 31;
+            $candidate   = gmdate( 'c', $now + ( $days_to_add * DAY_IN_SECONDS ) );
+        }
+
+        $valid_until_ts = strtotime( $candidate );
+        if ( $valid_until_ts && $valid_until_ts <= $valid_from_ts ) {
+            $valid_until_ts = $valid_from_ts + ( 31 * DAY_IN_SECONDS );
+            $candidate      = gmdate( 'c', $valid_until_ts );
+        }
+
+        return $candidate ?: null;
     }
 }
