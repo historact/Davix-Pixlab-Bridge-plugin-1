@@ -35,8 +35,6 @@ class DSB_Admin {
         add_action( 'admin_post_dsb_run_resync_now', [ $this, 'handle_run_resync_now' ] );
         add_action( 'admin_post_dsb_run_node_poll_now', [ $this, 'handle_run_node_poll_now' ] );
         add_action( 'wp_ajax_dsb_search_users', [ $this, 'ajax_search_users' ] );
-        add_action( 'wp_ajax_dsb_search_subscriptions', [ $this, 'ajax_search_subscriptions' ] );
-        add_action( 'wp_ajax_dsb_search_orders', [ $this, 'ajax_search_orders' ] );
         add_action( 'wp_ajax_dsb_js_log', __NAMESPACE__ . '\\dsb_handle_js_log' );
         if ( function_exists( 'pmpro_getLevel' ) ) {
             add_action( 'pmpro_membership_level_after_other_settings', [ $this, 'render_level_plan_fields' ], 10, 1 );
@@ -100,10 +98,6 @@ class DSB_Admin {
             $css_ver
         );
         wp_enqueue_style( 'dsb-admin-styles' );
-
-        if ( function_exists( 'wc' ) ) {
-            wp_enqueue_style( 'woocommerce_admin_styles' );
-        }
 
         $js_path = plugin_dir_path( __FILE__ ) . '../assets/js/dsb-admin.js';
         $js_ver  = file_exists( $js_path ) ? filemtime( $js_path ) : DSB_VERSION;
@@ -833,17 +827,8 @@ class DSB_Admin {
 
     protected function handle_key_actions(): void {
         if ( isset( $_POST['dsb_manual_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_manual_nonce'] ) ), 'dsb_manual_key' ) ) {
-            $user_id        = isset( $_POST['customer_user_id'] ) ? absint( $_POST['customer_user_id'] ) : 0;
-            $email          = isset( $_POST['customer_email'] ) ? sanitize_email( wp_unslash( $_POST['customer_email'] ) ) : '';
-            if ( ! $email && $user_id ) {
-                $user = get_userdata( $user_id );
-                if ( $user ) {
-                    $email = $user->user_email;
-                }
-            }
-            $plan_slug      = isset( $_POST['plan_slug'] ) ? dsb_normalize_plan_slug( sanitize_text_field( wp_unslash( $_POST['plan_slug'] ) ) ) : '';
-            $subscriptionId = isset( $_POST['subscription_id'] ) ? sanitize_text_field( wp_unslash( $_POST['subscription_id'] ) ) : '';
-            $order_id       = isset( $_POST['order_id'] ) ? sanitize_text_field( wp_unslash( $_POST['order_id'] ) ) : '';
+            $wp_user_id   = isset( $_POST['wp_user_id'] ) ? absint( $_POST['wp_user_id'] ) : 0;
+            $level_id     = isset( $_POST['pmpro_level_id'] ) ? absint( $_POST['pmpro_level_id'] ) : 0;
             $valid_from_raw  = isset( $_POST['valid_from'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_from'] ) ) : '';
             $valid_until_raw = isset( $_POST['valid_until'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_until'] ) ) : '';
 
@@ -865,35 +850,48 @@ class DSB_Admin {
                 return;
             }
 
-            $settings = $this->client->get_settings();
-
-            if ( ! $email || ! $plan_slug ) {
-                $this->add_notice( __( 'Customer and plan are required.', 'davix-sub-bridge' ), 'error' );
+            if ( $wp_user_id <= 0 || $level_id <= 0 ) {
+                $this->add_notice( __( 'User and membership level are required.', 'davix-sub-bridge' ), 'error' );
                 return;
             }
 
-            $allow_without_refs = ! empty( $settings['allow_provision_without_refs'] );
-            // Manual provisioning scenarios:
-            // 1) customer + plan + order (subscription empty)
-            // 2) customer + plan + subscription (order empty)
-            // 3) customer + plan only (allowed when setting is enabled)
-            if ( ! $allow_without_refs && '' === $subscriptionId && '' === $order_id ) {
-                $this->add_notice( __( 'Please provide a subscription or order, or enable provisioning without references in settings.', 'davix-sub-bridge' ), 'error' );
+            $user = get_user_by( 'id', $wp_user_id );
+            if ( ! $user instanceof \WP_User || ! $user->user_email ) {
+                $this->add_notice( __( 'Selected user is invalid or missing an email.', 'davix-sub-bridge' ), 'error' );
                 return;
             }
 
-            $payload = [
-                'customer_email' => $email,
-                'plan_slug'      => $plan_slug,
+            $customer_email = sanitize_email( (string) $user->user_email );
+            if ( ! $customer_email ) {
+                $this->add_notice( __( 'Unable to determine customer email for the selected user.', 'davix-sub-bridge' ), 'error' );
+                return;
+            }
+
+            $plan_slug = $this->client->plan_slug_for_level( $level_id );
+            if ( '' === $plan_slug ) {
+                $this->add_notice( __( 'No plan slug is mapped to the selected PMPro level. Please configure Plan Mapping.', 'davix-sub-bridge' ), 'error' );
+                return;
+            }
+
+            if ( ! function_exists( 'pmpro_changeMembershipLevel' ) ) {
+                $this->add_notice( __( 'Paid Memberships Pro is required to change membership levels.', 'davix-sub-bridge' ), 'error' );
+                return;
+            }
+
+            $membership_changed = pmpro_changeMembershipLevel( $level_id, $wp_user_id );
+            if ( is_wp_error( $membership_changed ) || ! $membership_changed ) {
+                $message = is_wp_error( $membership_changed ) ? $membership_changed->get_error_message() : __( 'Unable to change membership level.', 'davix-sub-bridge' );
+                $this->add_notice( $message, 'error' );
+                return;
+            }
+
+            $subscription_id = sprintf( 'pmpro-%d-%d', $wp_user_id, $level_id );
+            $payload         = [
+                'customer_email'  => strtolower( $customer_email ),
+                'plan_slug'       => $plan_slug,
+                'wp_user_id'      => $wp_user_id,
+                'subscription_id' => $subscription_id,
             ];
-
-            if ( '' !== $subscriptionId ) {
-                $payload['subscription_id'] = $subscriptionId;
-            }
-
-            if ( '' !== $order_id ) {
-                $payload['order_id'] = $order_id;
-            }
 
             if ( $valid_from ) {
                 $payload['valid_from'] = $valid_from;
@@ -904,7 +902,36 @@ class DSB_Admin {
             }
 
             $response = $this->client->provision_key( $payload );
-            $this->handle_key_response( $response, __( 'Provisioned', 'davix-sub-bridge' ) );
+            $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+            $decoded  = is_wp_error( $response ) ? null : json_decode( wp_remote_retrieve_body( $response ), true );
+            $status_value = is_array( $decoded ) && isset( $decoded['status'] ) ? strtolower( (string) $decoded['status'] ) : '';
+            $success_statuses = [ 'ok', 'active', 'disabled' ];
+
+            if ( ! is_wp_error( $response ) && $code >= 200 && $code < 300 && in_array( $status_value, $success_statuses, true ) ) {
+                $message = __( 'PMPro level updated and API key provisioned.', 'davix-sub-bridge' );
+                if ( ! empty( $decoded['key'] ) ) {
+                    $message .= ' ' . __( 'Copy now:', 'davix-sub-bridge' ) . ' ' . sanitize_text_field( $decoded['key'] );
+                }
+                $this->add_notice( $message );
+            } else {
+                $error_message = __( 'PMPro level updated but API key provisioning failed.', 'davix-sub-bridge' );
+                if ( is_wp_error( $response ) ) {
+                    $error_message .= ' ' . $response->get_error_message();
+                } elseif ( is_array( $decoded ) ) {
+                    $error_message .= ' ' . wp_json_encode( $decoded );
+                }
+                $this->add_notice( $error_message, 'error' );
+                dsb_log(
+                    'error',
+                    'Manual provisioning failed after membership change',
+                    [
+                        'user_id'   => $wp_user_id,
+                        'level_id'  => $level_id,
+                        'http_code' => $code,
+                        'decoded'   => $decoded,
+                    ]
+                );
+            }
         }
 
         if ( isset( $_POST['dsb_key_action_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_key_action_nonce'] ) ), 'dsb_key_action' ) ) {
@@ -1614,9 +1641,9 @@ class DSB_Admin {
         $items    = [];
         $total    = 0;
         $per_page = 20;
-        $plan_options = $this->get_plan_options();
         $valid_from_value  = isset( $_POST['valid_from'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_from'] ) ) : '';
         $valid_until_value = isset( $_POST['valid_until'] ) ? sanitize_text_field( wp_unslash( $_POST['valid_until'] ) ) : '';
+        $levels = function_exists( 'pmpro_getAllLevels' ) ? pmpro_getAllLevels( true, true ) : [];
         if ( ! is_wp_error( $response ) ) {
             $code    = wp_remote_retrieve_response_code( $response );
             $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
@@ -1735,50 +1762,45 @@ class DSB_Admin {
                     <?php wp_nonce_field( 'dsb_manual_key', 'dsb_manual_nonce' ); ?>
                     <table class="form-table" role="presentation">
                         <tr>
-                            <th><?php esc_html_e( 'Customer', 'davix-sub-bridge' ); ?></th>
+                            <th><?php esc_html_e( 'WordPress User', 'davix-sub-bridge' ); ?></th>
                             <td>
-                                <select id="dsb-customer" name="customer_user_id" class="dsb-select-ajax" data-action="dsb_search_users" data-placeholder="<?php esc_attr_e( 'Search by email', 'davix-sub-bridge' ); ?>" style="width:300px"></select>
-                                <input type="hidden" name="customer_email" id="dsb-customer-email" />
-                                <p class="description"><?php esc_html_e( 'Select the customer who will own the API key.', 'davix-sub-bridge' ); ?></p>
+                                <select id="dsb-user" name="wp_user_id" class="dsb-select-ajax" data-action="dsb_search_users" data-placeholder="<?php esc_attr_e( 'Search by email', 'davix-sub-bridge' ); ?>" style="width:300px"></select>
+                                <p class="description"><?php esc_html_e( 'Choose the WordPress user who will own the API key.', 'davix-sub-bridge' ); ?></p>
                             </td>
                         </tr>
                         <tr>
-                            <th><?php esc_html_e( 'Subscription', 'davix-sub-bridge' ); ?></th>
-                            <td><select id="dsb-subscription" name="subscription_id" class="dsb-select-ajax" data-action="dsb_search_subscriptions" data-placeholder="<?php esc_attr_e( 'Search subscriptions', 'davix-sub-bridge' ); ?>" style="width:300px"></select>
-                                <p class="description"><?php esc_html_e( 'Link the key to an existing subscription (recommended).', 'davix-sub-bridge' ); ?></p>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th><?php esc_html_e( 'Order', 'davix-sub-bridge' ); ?></th>
+                            <th><?php esc_html_e( 'PMPro Level', 'davix-sub-bridge' ); ?></th>
                             <td>
-                                <select id="dsb-order" name="order_id" class="dsb-select-ajax" data-action="dsb_search_orders" data-placeholder="<?php esc_attr_e( 'Search orders by ID/email', 'davix-sub-bridge' ); ?>" style="width:300px"></select>
-                                <p class="description"><?php esc_html_e( 'Optional: helps Node associate the key with a WooCommerce order.', 'davix-sub-bridge' ); ?></p>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th><?php esc_html_e( 'Plan', 'davix-sub-bridge' ); ?></th>
-                            <td>
-                                <select id="dsb-plan" name="plan_slug" style="width:300px" required>
-                                    <option value=""><?php esc_html_e( 'Select plan', 'davix-sub-bridge' ); ?></option>
-                                    <?php foreach ( $plan_options as $slug => $label ) : ?>
-                                        <option value="<?php echo esc_attr( $slug ); ?>"><?php echo esc_html( $label ); ?></option>
-                                    <?php endforeach; ?>
+                                <select id="dsb-level" name="pmpro_level_id" style="width:300px">
+                                    <option value=""><?php esc_html_e( 'Select membership level', 'davix-sub-bridge' ); ?></option>
+                                    <?php if ( is_array( $levels ) ) : ?>
+                                        <?php foreach ( $levels as $level ) : ?>
+                                            <?php
+                                            $level_id   = isset( $level->id ) ? (int) $level->id : 0;
+                                            $level_name = isset( $level->name ) ? (string) $level->name : '';
+                                            if ( $level_id <= 0 || '' === $level_name ) {
+                                                continue;
+                                            }
+                                            ?>
+                                            <option value="<?php echo esc_attr( $level_id ); ?>"><?php echo esc_html( $level_name ); ?></option>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
                                 </select>
-                                <p class="description"><?php esc_html_e( 'Choose which Davix plan the API key should use.', 'davix-sub-bridge' ); ?></p>
+                                <p class="description"><?php esc_html_e( 'Assign this PMPro level before provisioning the API key.', 'davix-sub-bridge' ); ?></p>
                             </td>
                         </tr>
                         <tr>
                             <th><?php esc_html_e( 'Valid From', 'davix-sub-bridge' ); ?></th>
                             <td>
                                 <input type="datetime-local" name="valid_from" value="<?php echo esc_attr( $valid_from_value ); ?>" />
-                                <p class="description"><?php esc_html_e( 'Optional start of the validity window (WordPress timezone).', 'davix-sub-bridge' ); ?></p>
+                                <p class="description"><?php esc_html_e( 'Optional start of the validity window (WordPress timezone). These dates override PMPro billing dates for API access.', 'davix-sub-bridge' ); ?></p>
                             </td>
                         </tr>
                         <tr>
                             <th><?php esc_html_e( 'Valid Until', 'davix-sub-bridge' ); ?></th>
                             <td>
                                 <input type="datetime-local" name="valid_until" value="<?php echo esc_attr( $valid_until_value ); ?>" />
-                                <p class="description"><?php esc_html_e( 'Optional end/expiry of the validity window (WordPress timezone).', 'davix-sub-bridge' ); ?></p>
+                                <p class="description"><?php esc_html_e( 'Optional end/expiry of the validity window (WordPress timezone). These dates override PMPro billing dates for API access.', 'davix-sub-bridge' ); ?></p>
                             </td>
                         </tr>
                     </table>

@@ -92,17 +92,8 @@
                 initAjaxSelect($(this));
             });
 
-            $('#dsb-plan').each(function(){
+            $('#dsb-level').each(function(){
                 initStaticSelect($(this));
-            });
-
-            $('#dsb-customer').on('select2:select selectWoo:select', function(e){
-                var data = e.params && e.params.data ? e.params.data : {};
-                $('#dsb-customer-email').val(data.email || data.text || '');
-            }).on('change', function(){
-                if(!$(this).val()){
-                    $('#dsb-customer-email').val('');
-                }
             });
         }
 
