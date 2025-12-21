@@ -46,13 +46,13 @@ class DSB_PMPro_Events {
         $is_lifetime  = self::is_pmpro_lifetime( $user_id, $level_id, $end_ts );
         $payload['pmpro_is_lifetime'] = $is_lifetime;
 
-        if ( $is_lifetime ) {
-            $payload['valid_until'] = null;
-        } else {
-            $payload['valid_until'] = $end_ts > 0
-                ? gmdate( 'c', $end_ts )
-                : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, strtotime( $valid_from ) ?: time() ) );
-        }
+        $payload['valid_until'] = $is_lifetime
+            ? null
+            : (
+                $end_ts > 0
+                    ? gmdate( 'c', $end_ts )
+                    : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, strtotime( $valid_from ) ?: time() ) )
+            );
 
         dsb_log(
             'debug',
@@ -108,13 +108,13 @@ class DSB_PMPro_Events {
         $is_lifetime  = self::is_pmpro_lifetime( $user_id, $level_id, $end_ts );
         $payload['pmpro_is_lifetime'] = $is_lifetime;
 
-        if ( $is_lifetime ) {
-            $payload['valid_until'] = null;
-        } else {
-            $payload['valid_until'] = $end_ts > 0
-                ? gmdate( 'c', $end_ts )
-                : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, strtotime( $valid_from ) ?: time() ) );
-        }
+        $payload['valid_until'] = $is_lifetime
+            ? null
+            : (
+                $end_ts > 0
+                    ? gmdate( 'c', $end_ts )
+                    : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, strtotime( $valid_from ) ?: time() ) )
+            );
 
         dsb_log(
             'debug',
@@ -177,14 +177,14 @@ class DSB_PMPro_Events {
             $is_lifetime = self::is_pmpro_lifetime( $user_id, $level_id, $end_ts );
             $payload['pmpro_is_lifetime'] = $is_lifetime;
 
-            if ( $is_lifetime ) {
-                $payload['valid_until'] = null;
-            } else {
-                $valid_from_ts          = $valid_from ? strtotime( $valid_from ) : time();
-                $payload['valid_until'] = $end_ts > 0
-                    ? gmdate( 'c', $end_ts )
-                    : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, $valid_from_ts ?: time() ) );
-            }
+            $valid_from_ts          = $valid_from ? strtotime( $valid_from ) : time();
+            $payload['valid_until'] = $is_lifetime
+                ? null
+                : (
+                    $end_ts > 0
+                        ? gmdate( 'c', $end_ts )
+                        : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, $valid_from_ts ?: time() ) )
+                );
 
             dsb_log(
                 'debug',
