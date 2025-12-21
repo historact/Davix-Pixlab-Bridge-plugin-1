@@ -49,7 +49,9 @@ class DSB_PMPro_Events {
         if ( $is_lifetime ) {
             $payload['valid_until'] = null;
         } else {
-            $payload['valid_until'] = $end_ts > 0 ? gmdate( 'c', $end_ts ) : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, strtotime( $valid_from ) ?: time() ) );
+            $payload['valid_until'] = $end_ts > 0
+                ? gmdate( 'c', $end_ts )
+                : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, strtotime( $valid_from ) ?: time() ) );
         }
 
         dsb_log(
@@ -109,7 +111,9 @@ class DSB_PMPro_Events {
         if ( $is_lifetime ) {
             $payload['valid_until'] = null;
         } else {
-            $payload['valid_until'] = $end_ts > 0 ? gmdate( 'c', $end_ts ) : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, strtotime( $valid_from ) ?: time() ) );
+            $payload['valid_until'] = $end_ts > 0
+                ? gmdate( 'c', $end_ts )
+                : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, strtotime( $valid_from ) ?: time() ) );
         }
 
         dsb_log(
@@ -177,7 +181,9 @@ class DSB_PMPro_Events {
                 $payload['valid_until'] = null;
             } else {
                 $valid_from_ts          = $valid_from ? strtotime( $valid_from ) : time();
-                $payload['valid_until'] = $end_ts > 0 ? gmdate( 'c', $end_ts ) : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, $valid_from_ts ?: time() ) );
+                $payload['valid_until'] = $end_ts > 0
+                    ? gmdate( 'c', $end_ts )
+                    : gmdate( 'c', self::compute_fallback_valid_until_ts( $level_id, $valid_from_ts ?: time() ) );
             }
 
             dsb_log(
@@ -269,17 +275,17 @@ class DSB_PMPro_Events {
         return 0;
     }
 
-    protected static function ensure_valid_until( string $event, int $user_id, int $level_id, ?string $valid_from_iso, ?string $valid_until_iso ): ?string {
-        return $valid_until_iso ?: null;
-    }
-
     private static function get_pmpro_end_ts( int $user_id, int $level_id ): int {
         if ( ! function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
             return 0;
         }
 
         $level = pmpro_getMembershipLevelForUser( $user_id );
-        if ( empty( $level ) || ! isset( $level->id ) || (int) $level->id !== (int) $level_id ) {
+        if ( empty( $level ) || ! isset( $level->id ) ) {
+            return 0;
+        }
+
+        if ( $level_id > 0 && (int) $level->id !== (int) $level_id ) {
             return 0;
         }
 
