@@ -507,16 +507,21 @@ class DSB_DB {
 
         $existing = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_user} WHERE wp_user_id = %d", $data['wp_user_id'] ), ARRAY_A );
 
+        $force_clear = ( 'disabled' === $data['status'] );
+
         if ( $existing ) {
-            if ( ( null === $data['valid_until'] || '' === $data['valid_until'] ) && ! empty( $existing['valid_until'] ) ) {
+            if ( ! $force_clear && ( null === $data['valid_until'] || '' === $data['valid_until'] ) && ! empty( $existing['valid_until'] ) ) {
                 $data['valid_until'] = $existing['valid_until'];
             }
 
-            if ( ( null === $data['valid_from'] || '' === $data['valid_from'] ) && ! empty( $existing['valid_from'] ) ) {
+            if ( ! $force_clear && ( null === $data['valid_from'] || '' === $data['valid_from'] ) && ! empty( $existing['valid_from'] ) ) {
                 $data['valid_from'] = $existing['valid_from'];
             }
 
             foreach ( [ 'customer_email', 'subscription_id', 'order_id', 'product_id', 'plan_slug', 'status', 'source' ] as $field ) {
+                if ( $force_clear && in_array( $field, [ 'plan_slug', 'status' ], true ) ) {
+                    continue;
+                }
                 if ( ( null === $data[ $field ] || '' === $data[ $field ] ) && isset( $existing[ $field ] ) ) {
                     $data[ $field ] = $existing[ $field ];
                 }
@@ -662,8 +667,10 @@ class DSB_DB {
             $identity_value = $data['subscription_id'];
         }
 
+        $force_clear = ( 'disabled' === $data['status'] ) || in_array( (string) $data['subscription_status'], [ 'expired', 'disabled' ], true );
+
         if ( $existing ) {
-            if ( ( null === $data['valid_until'] || '' === $data['valid_until'] ) && ! empty( $existing['valid_until'] ) ) {
+            if ( ! $force_clear && ( null === $data['valid_until'] || '' === $data['valid_until'] ) && ! empty( $existing['valid_until'] ) ) {
                 dsb_log(
                     'debug',
                     'Key valid_until retained',
@@ -686,7 +693,7 @@ class DSB_DB {
                 );
             }
 
-            if ( ( null === $data['valid_from'] || '' === $data['valid_from'] ) && ! empty( $existing['valid_from'] ) ) {
+            if ( ! $force_clear && ( null === $data['valid_from'] || '' === $data['valid_from'] ) && ! empty( $existing['valid_from'] ) ) {
                 dsb_log(
                     'debug',
                     'Key valid_from retained',
@@ -720,6 +727,9 @@ class DSB_DB {
             }
 
             foreach ( [ 'customer_email', 'customer_name', 'subscription_status', 'plan_slug' ] as $field ) {
+                if ( $force_clear && in_array( $field, [ 'plan_slug', 'subscription_status' ], true ) ) {
+                    continue;
+                }
                 if ( empty( $data[ $field ] ) && ! empty( $existing[ $field ] ) ) {
                     $data[ $field ] = $existing[ $field ];
                 }

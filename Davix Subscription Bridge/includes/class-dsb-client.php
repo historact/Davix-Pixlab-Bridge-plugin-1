@@ -571,11 +571,14 @@ class DSB_Client {
             $should_clear_fields = in_array( $event_name, [ 'expired', 'disabled' ], true )
                 || ( 'disabled' === $key_status && in_array( $subscription_status, [ 'expired', 'disabled' ], true ) );
 
+            // For expired/disabled, always clear plan/validity regardless of existing values.
             if ( $should_clear_fields ) {
                 $payload['plan_slug']   = '';
+                $payload['product_id']  = null;
                 $valid_from             = null;
                 $valid_until            = null;
                 $key_status             = 'disabled';
+                $subscription_status    = $subscription_status ?: 'expired';
             } elseif ( 'cancelled' === $event_name && $valid_until ) {
                 $key_status = 'active';
             }
@@ -609,7 +612,7 @@ class DSB_Client {
                         'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
                         'subscription_id' => $subscription_identifier,
                         'order_id'        => isset( $payload['order_id'] ) ? absint( $payload['order_id'] ) : null,
-                        'product_id'      => isset( $payload['product_id'] ) ? absint( $payload['product_id'] ) : null,
+                        'product_id'      => $should_clear_fields ? null : ( isset( $payload['product_id'] ) ? absint( $payload['product_id'] ) : null ),
                         'plan_slug'       => $should_clear_fields ? null : sanitize_text_field( $payload['plan_slug'] ?? '' ),
                         'status'          => $user_status,
                         'valid_from'      => $should_clear_fields ? null : $valid_from,
@@ -659,6 +662,24 @@ class DSB_Client {
                         'last_error'      => is_wp_error( $response ) ? $response->get_error_message() : ( is_array( $decoded ) ? ( $decoded['status'] ?? '' ) : ( $body ? substr( $body, 0, 200 ) : '' ) ),
                     ]
                 );
+
+                if ( in_array( $event_name, [ 'expired', 'disabled' ], true ) ) {
+                    $this->db->upsert_user(
+                        [
+                            'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : 0,
+                            'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
+                            'subscription_id' => $subscription_identifier,
+                            'order_id'        => isset( $payload['order_id'] ) ? absint( $payload['order_id'] ) : null,
+                            'product_id'      => null,
+                            'plan_slug'       => null,
+                            'status'          => 'disabled',
+                            'valid_from'      => null,
+                            'valid_until'     => null,
+                            'source'          => 'subscription_event',
+                            'last_sync_at'    => current_time( 'mysql', true ),
+                        ]
+                    );
+                }
             }
         }
 
@@ -710,17 +731,20 @@ class DSB_Client {
         foreach ( $rows as $row ) {
             $user_id = absint( $row['user_id'] ?? 0 );
             $level_id = absint( $row['membership_id'] ?? 0 );
-            if ( $user_id <= 0 ) {
+            if ( $user_id <= 0 || $level_id <= 0 ) {
                 continue;
             }
 
             $status = strtolower( (string) ( $row['status'] ?? '' ) );
             $status = $has_status_column ? $status : ( $status ?: 'active' );
-            $user   = get_userdata( $user_id );
-            $email  = $user instanceof \WP_User ? $user->user_email : '';
+
+            // Only consider active rows.
+            if ( 'active' !== $status ) {
+                continue;
+            }
+
             $end    = $row['enddate'] ?? null;
             $end_ts = null;
-            $skip_reason = '';
 
             if ( is_numeric( $end ) && (int) $end > 0 ) {
                 $end_ts = (int) $end;
@@ -733,28 +757,20 @@ class DSB_Client {
                 }
             }
 
-            $is_lifetime = null === $end_ts || $end_ts <= 0;
+            $is_lifetime  = null === $end_ts || $end_ts <= 0;
+            $is_time_valid = $is_lifetime || ( $end_ts > $now_ts );
 
-            if ( $skip_reason ) {
-                dsb_log(
-                    'debug',
-                    'PMPro resync skip membership',
-                    [
-                        'user_id'        => $user_id,
-                        'membership_id'  => $level_id,
-                        'status'         => $status,
-                        'enddate'        => $end,
-                        'end_ts'         => $end_ts,
-                        'skip_reason'    => $skip_reason,
-                    ]
-                );
+            if ( ! $is_time_valid ) {
                 continue;
             }
 
             if ( isset( $members[ $user_id ] ) ) {
-                // Latest (by startdate DESC, id DESC) already stored; keep first active/valid row.
+                // First active+valid row per user (ordered by startdate DESC, id DESC).
                 continue;
             }
+
+            $user  = get_userdata( $user_id );
+            $email = $user instanceof \WP_User ? $user->user_email : '';
 
             dsb_log(
                 'debug',
@@ -773,7 +789,7 @@ class DSB_Client {
                 'user_id'    => $user_id,
                 'email'      => $email ? sanitize_email( $email ) : '',
                 'level_id'   => $level_id,
-                'status'     => $status ?: 'active',
+                'status'     => $status,
                 'startdate'  => $row['startdate'] ?? null,
                 'enddate'    => $end,
                 'end_ts'     => $end_ts,
