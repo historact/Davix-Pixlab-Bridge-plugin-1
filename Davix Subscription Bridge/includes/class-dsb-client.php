@@ -681,8 +681,15 @@ class DSB_Client {
             return new \WP_Error( 'dsb_pmpro_table_missing', __( 'PMPro membership table missing.', 'davix-sub-bridge' ) );
         }
 
-        $rows = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY user_id ASC, startdate DESC, id DESC", ARRAY_A );
+        $has_status_column = (bool) $wpdb->get_var( $wpdb->prepare( "SHOW COLUMNS FROM {$table} LIKE %s", 'status' ) );
+        $order_sql         = "ORDER BY user_id ASC, startdate DESC, id DESC";
+        $query             = $has_status_column
+            ? "SELECT * FROM {$table} WHERE LOWER(status) = 'active' {$order_sql}"
+            : "SELECT * FROM {$table} {$order_sql}";
+
+        $rows    = $wpdb->get_results( $query, ARRAY_A );
         $members = [];
+        $now_ts  = time();
 
         foreach ( $rows as $row ) {
             $user_id = absint( $row['user_id'] ?? 0 );
@@ -691,15 +698,13 @@ class DSB_Client {
                 continue;
             }
 
-            if ( isset( $members[ $user_id ] ) && ( $members[ $user_id ]['status'] ?? '' ) === 'active' ) {
-                continue;
-            }
-
             $status = strtolower( (string) ( $row['status'] ?? '' ) );
+            $status = $has_status_column ? $status : ( $status ?: 'active' );
             $user   = get_userdata( $user_id );
             $email  = $user instanceof \WP_User ? $user->user_email : '';
             $end    = $row['enddate'] ?? null;
             $end_ts = null;
+            $skip_reason = '';
 
             if ( is_numeric( $end ) && (int) $end > 0 ) {
                 $end_ts = (int) $end;
@@ -711,6 +716,48 @@ class DSB_Client {
                     $end_ts = null;
                 }
             }
+
+            $is_lifetime = null === $end_ts || $end_ts <= 0;
+
+            if ( $has_status_column && 'active' !== $status ) {
+                $skip_reason = 'inactive_status';
+            } elseif ( ! $is_lifetime && $end_ts <= $now_ts ) {
+                $skip_reason = 'expired_enddate';
+            }
+
+            if ( $skip_reason ) {
+                dsb_log(
+                    'debug',
+                    'PMPro resync skip membership',
+                    [
+                        'user_id'        => $user_id,
+                        'membership_id'  => $level_id,
+                        'status'         => $status,
+                        'enddate'        => $end,
+                        'end_ts'         => $end_ts,
+                        'skip_reason'    => $skip_reason,
+                    ]
+                );
+                continue;
+            }
+
+            if ( isset( $members[ $user_id ] ) ) {
+                // Latest (by startdate DESC, id DESC) already stored; keep first active/valid row.
+                continue;
+            }
+
+            dsb_log(
+                'debug',
+                'PMPro resync include membership',
+                [
+                    'user_id'        => $user_id,
+                    'membership_id'  => $level_id,
+                    'status'         => $status,
+                    'is_lifetime'    => $is_lifetime,
+                    'valid_from'     => $row['startdate'] ?? null,
+                    'valid_until_ts' => $is_lifetime ? null : $end_ts,
+                ]
+            );
 
             $members[ $user_id ] = [
                 'user_id'    => $user_id,
