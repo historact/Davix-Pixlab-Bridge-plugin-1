@@ -1129,6 +1129,14 @@ class DSB_Admin {
                 <p class="description"><?php esc_html_e( 'Customize plan title, eyebrow labels, and card header typography.', 'davix-sub-bridge' ); ?></p>
                 <table class="form-table" role="presentation">
                     <?php
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Header (Top Area)', 'davix-sub-bridge' ) . '</strong></th></tr>';
+                    $this->render_color_input_field( 'style_header_plan_title_color', __( 'Header Plan Title Color', 'davix-sub-bridge' ), $styles['style_header_plan_title_color'], __( 'Specific color for the plan/level name in the dashboard header. Falls back to Plan Title Color when unset.', 'davix-sub-bridge' ) );
+                    $this->render_number_input_field( 'style_header_plan_title_opacity', __( 'Header Plan Title Opacity', 'davix-sub-bridge' ), $styles['style_header_plan_title_opacity'], __( 'Opacity (0–1) applied to the plan/level name in the header.', 'davix-sub-bridge' ), 0.05, 0, 1, '' );
+                    $this->render_color_input_field( 'style_header_eyebrow_color', __( 'Header Eyebrow Color', 'davix-sub-bridge' ), $styles['style_header_eyebrow_color'], __( 'Color for header eyebrow labels such as “Current Plan”.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_header_meta_color', __( 'Header Meta Color', 'davix-sub-bridge' ), $styles['style_header_meta_color'], __( 'Color for plan limit and helper meta lines in the header.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_header_billing_color', __( 'Header Billing Color', 'davix-sub-bridge' ), $styles['style_header_billing_color'], __( 'Color for billing window text in the header.', 'davix-sub-bridge' ) );
+
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Legacy Header Keys (still applied)', 'davix-sub-bridge' ) . '</strong></th></tr>';
                     $this->render_color_input_field( 'style_plan_title_color', __( 'Plan Title Color', 'davix-sub-bridge' ), $styles['style_plan_title_color'], __( 'Color for the active plan/level name in the dashboard header.', 'davix-sub-bridge' ) );
                     $this->render_number_input_field( 'style_plan_title_size', __( 'Plan Title Size', 'davix-sub-bridge' ), $styles['style_plan_title_size'], __( 'Font size (px) of the plan/level name.', 'davix-sub-bridge' ), 1, 10, 80 );
                     $this->render_select_input_field( 'style_plan_title_weight', __( 'Plan Title Weight', 'davix-sub-bridge' ), $styles['style_plan_title_weight'], [
@@ -1175,9 +1183,16 @@ class DSB_Admin {
                 <p class="description"><?php esc_html_e( 'Tune heading, body, and helper text colors used throughout the dashboard.', 'davix-sub-bridge' ); ?></p>
                 <table class="form-table" role="presentation">
                     <?php
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Base Text', 'davix-sub-bridge' ) . '</strong></th></tr>';
                     $this->render_color_input_field( 'style_text_primary', __( 'Primary Text Color', 'davix-sub-bridge' ), $styles['style_text_primary'], __( 'Affects headings and key labels in the [PIXLAB_DASHBOARD] shortcode.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_text_secondary', __( 'Secondary Text Color', 'davix-sub-bridge' ), $styles['style_text_secondary'], __( 'Applies to description text such as plan limits and billing periods.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_text_muted', __( 'Muted Text Color', 'davix-sub-bridge' ), $styles['style_text_muted'], __( 'Used for helper labels, small captions, and placeholder hints across the dashboard.', 'davix-sub-bridge' ) );
+
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Cards & Endpoints', 'davix-sub-bridge' ) . '</strong></th></tr>';
+                    $this->render_color_input_field( 'style_card_text_color', __( 'Card Text Color', 'davix-sub-bridge' ), $styles['style_card_text_color'], __( 'Default text color for card bodies, including inputs and values.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_card_label_color', __( 'Card Label Color', 'davix-sub-bridge' ), $styles['style_card_label_color'], __( 'Label color for form labels inside cards. Falls back to Card Text Color when left empty.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_card_hint_color', __( 'Card Hint Color', 'davix-sub-bridge' ), $styles['style_card_hint_color'], __( 'Helper/hint text color inside cards. Falls back to Card Text Color when left empty.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_endpoint_eyebrow_color', __( 'Endpoint Eyebrow Color', 'davix-sub-bridge' ), $styles['style_endpoint_eyebrow_color'], __( 'Uppercase eyebrow color for endpoint cards.', 'davix-sub-bridge' ) );
                     ?>
                 </table>
             </div>
@@ -1272,6 +1287,7 @@ class DSB_Admin {
                     $this->render_color_input_field( 'style_table_row_text', __( 'Table Row Text Color', 'davix-sub-bridge' ), $styles['style_table_row_text'], __( 'Text color for table rows.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_table_row_border', __( 'Table Row Border Color', 'davix-sub-bridge' ), $styles['style_table_row_border'], __( 'Border color for row dividers.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_table_row_hover_bg', __( 'Table Row Hover Background Color', 'davix-sub-bridge' ), $styles['style_table_row_hover_bg'], __( 'Background color when hovering over a history row.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_table_empty_text_color', __( 'Table Empty/Loading Text Color', 'davix-sub-bridge' ), $styles['style_table_empty_text_color'], __( 'Text color for loading or empty states shown in the history table.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_table_error_text', __( 'Error Text Color', 'davix-sub-bridge' ), $styles['style_table_error_text'], __( 'Text color for error messages inside the Error column.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_status_success_text', __( 'Status “Success” Text Color', 'davix-sub-bridge' ), $styles['style_status_success_text'], __( 'Text color used for Success statuses in the history table.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_status_error_text', __( 'Status “Error” Text Color', 'davix-sub-bridge' ), $styles['style_status_error_text'], __( 'Text color used for Error statuses in the history table.', 'davix-sub-bridge' ) );
