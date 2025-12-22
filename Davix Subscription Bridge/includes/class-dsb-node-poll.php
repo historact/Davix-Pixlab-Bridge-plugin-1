@@ -99,6 +99,7 @@ class DSB_Node_Poll {
 
         $wp_user_ids      = [];
         $remote_node_ids  = [];
+        $remote_subscription_ids = [];
         $user_winners     = [];
         $has_stable_id    = true;
         $missing_id_items = [];
@@ -185,6 +186,10 @@ class DSB_Node_Poll {
 
                     $summary['key_upserts']  += $processed['key_upserted'] ? 1 : 0;
                     $summary['user_upserts'] += $processed['user_upserted'] ? 1 : 0;
+
+                    if ( ! empty( $processed['subscription_id'] ) ) {
+                        $remote_subscription_ids[] = sanitize_text_field( (string) $processed['subscription_id'] );
+                    }
                 }
 
                 $total_pages = isset( $decoded['total_pages'] ) ? (int) $decoded['total_pages'] : 0;
@@ -194,6 +199,7 @@ class DSB_Node_Poll {
 
             $remote_node_ids = array_values( array_unique( array_filter( array_map( 'absint', $remote_node_ids ) ) ) );
             $wp_user_ids     = array_values( array_unique( array_filter( array_map( 'absint', $wp_user_ids ) ) ) );
+            $remote_subscription_ids = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', $remote_subscription_ids ) ) ) );
 
             if ( $has_stable_id && $delete_stale_enabled ) {
                 if ( $wp_user_ids ) {
@@ -203,6 +209,10 @@ class DSB_Node_Poll {
                 if ( $remote_node_ids ) {
                     $summary['deleted_users'] += $this->db->delete_users_by_node_ids_not_in( $remote_node_ids );
                     $summary['deleted_keys']  += $this->db->delete_keys_by_node_ids_not_in( $remote_node_ids );
+                }
+
+                if ( $remote_subscription_ids ) {
+                    $summary['deleted_keys'] += $this->db->delete_keys_without_node_id_not_in_subs( $remote_subscription_ids );
                 }
 
                 DSB_Cron_Logger::log( 'node_poll', 'Node poll deletions executed', [
@@ -224,8 +234,7 @@ class DSB_Node_Poll {
                 $this->db->upsert_user( [
                     'wp_user_id'          => $winner['wp_user_id'],
                     'customer_email'      => $winner['customer_email'],
-                    'subscription_id'     => is_numeric( $winner['subscription_id'] ) ? (int) $winner['subscription_id'] : null,
-                    'subscription_id_str' => $winner['subscription_id'],
+                    'subscription_id'     => $winner['subscription_id'],
                     'order_id'            => $winner['order_id'],
                     'product_id'          => $winner['product_id'],
                     'plan_slug'           => $winner['plan_slug'],
