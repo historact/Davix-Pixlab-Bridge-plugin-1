@@ -1,8 +1,11 @@
 .dsb-dashboard {
+    --dsb-header-bg: #0f172a;
+    --dsb-header-border: transparent;
+    --dsb-header-shadow: rgba(0,0,0,0);
+    --dsb-header-text: #f8fafc;
     --dsb-plan-title-color: #f8fafc;
     --dsb-plan-title-size: 24px;
     --dsb-plan-title-weight: 700;
-    --dsb-header-plan-title-color: #f8fafc;
     --dsb-header-plan-title-opacity: 1;
     --dsb-header-eyebrow-color: #94a3b8;
     --dsb-header-meta-color: #cbd5e1;
@@ -28,15 +31,13 @@
     --dsb-text-primary: #f8fafc;
     --dsb-text-secondary: #cbd5e1;
     --dsb-text-muted: #94a3b8;
-    --dsb-button-bg: #0ea5e9;
-    --dsb-button-text: #0b1220;
-    --dsb-button-border: #0ea5e9;
-    --dsb-button-hover-bg: #0ea5e9;
-    --dsb-button-hover-border: #0ea5e9;
     --dsb-button-active-bg: #0ea5e9;
     --dsb-btn-primary-bg: #0ea5e9;
     --dsb-btn-primary-text: #0b1220;
     --dsb-btn-primary-border: #0ea5e9;
+    --dsb-btn-primary-active-bg: #0ea5e9;
+    --dsb-btn-primary-active-text: #0b1220;
+    --dsb-btn-primary-active-border: #0ea5e9;
     --dsb-btn-primary-hover-bg: #0ea5e9;
     --dsb-btn-primary-hover-text: #0b1220;
     --dsb-btn-primary-hover-border: #0ea5e9;
@@ -48,22 +49,28 @@
     --dsb-btn-outline-hover-bg: #0ea5e9;
     --dsb-btn-outline-hover-text: #0b1220;
     --dsb-btn-outline-hover-border: #0ea5e9;
+    --dsb-btn-outline-active-bg: #0ea5e9;
+    --dsb-btn-outline-active-text: #0b1220;
+    --dsb-btn-outline-active-border: #0ea5e9;
     --dsb-btn-ghost-bg: transparent;
     --dsb-btn-ghost-text: #f8fafc;
     --dsb-btn-ghost-border: #0ea5e9;
     --dsb-btn-ghost-hover-bg: #0ea5e9;
     --dsb-btn-ghost-hover-text: #0b1220;
     --dsb-btn-ghost-hover-border: #0ea5e9;
+    --dsb-btn-ghost-active-bg: #0ea5e9;
+    --dsb-btn-ghost-active-text: #0b1220;
+    --dsb-btn-ghost-active-border: #0ea5e9;
     --dsb-input-bg: #0f172a;
     --dsb-input-text: #e2e8f0;
     --dsb-input-border: #1f2a3d;
     --dsb-input-focus-border: #0ea5e9;
-    --dsb-badge-active-bg: #0ea5e9;
-    --dsb-badge-active-border: #0ea5e9;
-    --dsb-badge-active-text: #0b1220;
-    --dsb-badge-disabled-bg: #1f2937;
-    --dsb-badge-disabled-border: #1f2937;
-    --dsb-badge-disabled-text: #e2e8f0;
+    --dsb-status-active-bg: #0ea5e9;
+    --dsb-status-active-border: #0ea5e9;
+    --dsb-status-active-text: #0b1220;
+    --dsb-status-disabled-bg: #1f2937;
+    --dsb-status-disabled-border: #1f2937;
+    --dsb-status-disabled-text: #e2e8f0;
     --dsb-progress-track: #111827;
     --dsb-progress-fill: #22c55e;
     --dsb-progress-fill-hover: #22c55e;
@@ -77,6 +84,7 @@
     --dsb-table-row-text: #f8fafc;
     --dsb-table-row-border: #1e293b;
     --dsb-table-row-hover-bg: #111827;
+    --dsb-table-body-text: #f8fafc;
     --dsb-table-empty-text: #94a3b8;
     --dsb-table-error-text: #f87171;
     --dsb-status-success-text: #22c55e;
@@ -103,19 +111,24 @@
     justify-content: space-between;
     align-items: flex-start;
     margin-bottom: 24px;
+    background: var(--dsb-header-bg, var(--dsb-bg));
+    border: 1px solid var(--dsb-header-border, transparent);
+    box-shadow: 0 8px var(--dsb-card-shadow-blur, 16px) var(--dsb-card-shadow-spread, 0px) var(--dsb-header-shadow, transparent);
+    border-radius: var(--dsb-card-radius, 12px);
+    padding: 16px;
 }
 
 .dsb-dashboard__eyebrow {
     text-transform: uppercase;
     letter-spacing: var(--dsb-eyebrow-spacing, 0.08em);
-    color: var(--dsb-header-eyebrow-color, var(--dsb-eyebrow-color, var(--dsb-text-muted)));
+    color: var(--dsb-header-text, var(--dsb-header-eyebrow-color, var(--dsb-eyebrow-color, var(--dsb-text-muted))));
     font-size: var(--dsb-eyebrow-size, 12px);
     margin: 0 0 4px;
 }
 
 .dsb-dashboard__plan-name {
     margin: 0;
-    color: var(--dsb-header-plan-title-color, var(--dsb-plan-title-color, var(--dsb-text-primary)));
+    color: var(--dsb-header-text, var(--dsb-header-plan-title-color, var(--dsb-plan-title-color, var(--dsb-text-primary))));
     font-size: var(--dsb-plan-title-size, 24px);
     font-weight: var(--dsb-plan-title-weight, 700);
     opacity: var(--dsb-header-plan-title-opacity, 1);
@@ -124,11 +137,11 @@
 .dsb-dashboard__plan-meta,
 .dsb-dashboard__billing {
     margin: 4px 0;
-    color: var(--dsb-header-meta-color, var(--dsb-text-secondary));
+    color: var(--dsb-header-text, var(--dsb-header-meta-color, var(--dsb-text-secondary)));
 }
 
 .dsb-dashboard__billing {
-    color: var(--dsb-header-billing-color, var(--dsb-header-meta-color, var(--dsb-text-secondary)));
+    color: var(--dsb-header-text, var(--dsb-header-billing-color, var(--dsb-header-meta-color, var(--dsb-text-secondary))));
 }
 
 .dsb-dashboard__grid {
@@ -152,19 +165,19 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
-    color: var(--dsb-card-header-color, var(--dsb-text-primary));
+    color: var(--dsb-card-header-color, var(--dsb-card-text, var(--dsb-text-primary)));
 }
 
 .dsb-card__header h3 {
     margin: 0;
     font-size: var(--dsb-card-header-size, 18px);
     font-weight: var(--dsb-card-header-weight, 700);
-    color: var(--dsb-card-header-color, var(--dsb-text-primary));
+    color: var(--dsb-card-header-color, var(--dsb-card-text, var(--dsb-text-primary)));
 }
 
 .dsb-card__row label {
     display: block;
-    color: var(--dsb-card-label, var(--dsb-text-muted));
+    color: var(--dsb-card-label, var(--dsb-card-text, var(--dsb-text-muted)));
     margin-bottom: 6px;
     font-size: 13px;
 }
@@ -190,7 +203,7 @@
 }
 
 .dsb-card__hint {
-    color: var(--dsb-card-hint, var(--dsb-text-muted));
+    color: var(--dsb-card-hint, var(--dsb-card-text, var(--dsb-text-muted)));
     font-size: 12px;
     margin-top: 6px;
 }
@@ -220,7 +233,9 @@
 }
 
 .dsb-button:active {
-    background: var(--dsb-button-active-bg);
+    background: var(--dsb-btn-primary-active-bg, var(--dsb-button-active-bg, var(--dsb-btn-primary-hover-bg)));
+    color: var(--dsb-btn-primary-active-text, var(--dsb-btn-primary-hover-text, var(--dsb-btn-primary-text)));
+    border-color: var(--dsb-btn-primary-active-border, var(--dsb-btn-primary-hover-border, var(--dsb-btn-primary-border)));
 }
 
 .dsb-button--ghost {
@@ -238,8 +253,8 @@
 }
 
 .dsb-button.is-active {
-    border-color: var(--dsb-button-border);
-    color: var(--dsb-button-border);
+    border-color: var(--dsb-btn-primary-active-border, var(--dsb-btn-primary-border, var(--dsb-button-border)));
+    color: var(--dsb-btn-primary-active-text, var(--dsb-btn-primary-text, var(--dsb-button-border)));
 }
 .dsb-button--outline:hover {
     background: var(--dsb-btn-outline-hover-bg, var(--dsb-btn-outline-bg, transparent));
@@ -253,25 +268,37 @@
     border-color: var(--dsb-btn-ghost-hover-border, var(--dsb-btn-ghost-border, var(--dsb-button-border)));
 }
 
+.dsb-button--outline:active {
+    background: var(--dsb-btn-outline-active-bg, var(--dsb-btn-outline-hover-bg, var(--dsb-btn-outline-bg, transparent)));
+    color: var(--dsb-btn-outline-active-text, var(--dsb-btn-outline-hover-text, var(--dsb-btn-outline-text, var(--dsb-text-primary))));
+    border-color: var(--dsb-btn-outline-active-border, var(--dsb-btn-outline-hover-border, var(--dsb-btn-outline-border, var(--dsb-button-border))));
+}
+
+.dsb-button--ghost:active {
+    background: var(--dsb-btn-ghost-active-bg, var(--dsb-btn-ghost-hover-bg, var(--dsb-btn-ghost-bg, transparent)));
+    color: var(--dsb-btn-ghost-active-text, var(--dsb-btn-ghost-hover-text, var(--dsb-btn-ghost-text, var(--dsb-text-primary))));
+    border-color: var(--dsb-btn-ghost-active-border, var(--dsb-btn-ghost-hover-border, var(--dsb-btn-ghost-border, var(--dsb-button-border))));
+}
+
 .dsb-status {
     padding: 4px 8px;
     border-radius: 12px;
     font-size: 12px;
-    background: var(--dsb-badge-disabled-bg);
-    color: var(--dsb-badge-disabled-text);
-    border: 1px solid var(--dsb-badge-disabled-border);
+    background: var(--dsb-status-disabled-bg);
+    color: var(--dsb-status-disabled-text);
+    border: 1px solid var(--dsb-status-disabled-border);
 }
 
 .dsb-status.is-success {
-    background: var(--dsb-badge-active-bg);
-    color: var(--dsb-badge-active-text);
-    border-color: var(--dsb-badge-active-border);
+    background: var(--dsb-status-active-bg);
+    color: var(--dsb-status-active-text);
+    border-color: var(--dsb-status-active-border);
 }
 
 .dsb-status.is-muted {
-    background: var(--dsb-badge-disabled-bg);
-    color: var(--dsb-badge-disabled-text);
-    border-color: var(--dsb-badge-disabled-border);
+    background: var(--dsb-status-disabled-bg);
+    color: var(--dsb-status-disabled-text);
+    border-color: var(--dsb-status-disabled-border);
 }
 
 .dsb-progress {
@@ -281,7 +308,7 @@
 .dsb-progress__labels {
     display: flex;
     justify-content: space-between;
-    color: var(--dsb-progress-text);
+    color: var(--dsb-progress-text, var(--dsb-card-text, var(--dsb-text-primary)));
     margin-bottom: 6px;
 }
 
@@ -313,7 +340,7 @@
 .dsb-card__eyebrow {
     text-transform: uppercase;
     letter-spacing: var(--dsb-eyebrow-spacing, 0.05em);
-    color: var(--dsb-endpoint-eyebrow, var(--dsb-card-label, var(--dsb-text-muted)));
+    color: var(--dsb-endpoint-eyebrow, var(--dsb-card-text, var(--dsb-text-muted)));
     font-size: var(--dsb-eyebrow-size, 12px);
     margin: 0 0 4px;
 }
@@ -321,7 +348,7 @@
 .dsb-card--endpoint h4 {
     margin: 0;
     font-size: 20px;
-    color: var(--dsb-text-primary);
+    color: var(--dsb-card-text, var(--dsb-text-primary));
 }
 
 .dsb-card--history {
@@ -335,7 +362,7 @@
 .dsb-table__loading,
 .dsb-table__empty {
     text-align: center;
-    color: var(--dsb-table-empty-text, var(--dsb-text-muted));
+    color: var(--dsb-table-empty-text);
     padding: 12px 0;
 }
 
@@ -355,12 +382,12 @@
     padding: 10px 12px;
     text-align: left;
     border-bottom: 1px solid var(--dsb-table-row-border, var(--dsb-table-border));
-    color: var(--dsb-table-row-text, var(--dsb-text-primary));
+    color: var(--dsb-table-body-text, var(--dsb-table-row-text, var(--dsb-text-primary)));
     font-size: 14px;
 }
 
 .dsb-table th {
-    color: var(--dsb-table-header-text, var(--dsb-table-row-text));
+    color: var(--dsb-table-header-text, var(--dsb-table-body-text));
     font-weight: 600;
     background: var(--dsb-table-header-bg, var(--dsb-table-bg));
     position: sticky;
