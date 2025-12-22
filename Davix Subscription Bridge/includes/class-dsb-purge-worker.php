@@ -157,8 +157,6 @@ class DSB_Purge_Worker {
         $code         = (int) ( $response['code'] ?? 0 );
         $decoded      = $response['decoded'] ?? null;
 
-        $this->db->delete_user_rows_local( $wp_user_id, $emails, $subs );
-
         $status_value = is_array( $decoded ) && isset( $decoded['status'] ) ? strtolower( (string) $decoded['status'] ) : '';
         $status_ok = $code >= 200 && $code < 300 && ( ! is_array( $decoded ) || ! isset( $decoded['status'] ) || in_array( $status_value, [ 'ok', 'active', 'disabled' ], true ) );
         $error     = '';
@@ -184,6 +182,7 @@ class DSB_Purge_Worker {
         $this->db->log_event( $log_data );
 
         if ( $status_ok ) {
+            $this->db->delete_user_rows_local( $wp_user_id, $emails, $subs );
             $this->db->mark_job_done( $job_id );
             dsb_log( 'info', 'Purge job completed', [ 'job_id' => $job_id, 'code' => $code, 'wp_user_id' => $wp_user_id ?: null ] );
         } else {
