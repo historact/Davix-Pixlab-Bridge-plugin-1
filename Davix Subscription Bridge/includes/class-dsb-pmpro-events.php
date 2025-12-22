@@ -79,12 +79,53 @@ class DSB_PMPro_Events {
         $level_id = absint( $level_id );
 
         if ( $level_id <= 0 ) {
+            $membership = self::get_latest_membership_row( $user_id );
+            $now_ts     = time();
+            $end_ts     = isset( $membership['end_ts'] ) ? (int) $membership['end_ts'] : 0;
+            $prev_level = isset( $membership['level_id'] ) ? absint( $membership['level_id'] ) : 0;
+            $is_lifetime = $end_ts <= 0;
+            $has_remaining = $is_lifetime || $end_ts > $now_ts;
+
+            if ( $has_remaining && $prev_level > 0 ) {
+                $plan_slug = self::$client->plan_slug_for_level( $prev_level );
+                $payload   = [
+                    'event'               => 'cancelled',
+                    'wp_user_id'          => $user_id,
+                    'customer_email'      => self::user_email( $user_id ),
+                    'customer_name'       => self::user_name( $user_id ),
+                    'subscription_id'     => self::subscription_id( $user_id, $prev_level ),
+                    'product_id'          => $prev_level,
+                    'plan_slug'           => $plan_slug,
+                    'subscription_status' => 'cancelled',
+                    'pmpro_is_lifetime'   => $is_lifetime,
+                ];
+
+                if ( ! empty( $membership['startdate'] ) ) {
+                    $payload['valid_from'] = DSB_Util::to_iso_utc( $membership['startdate'] );
+                }
+
+                if ( ! $is_lifetime && $end_ts > 0 ) {
+                    $payload['valid_until'] = gmdate( 'c', $end_ts );
+                }
+
+                dsb_log( 'debug', 'PMPro cancellation with remaining time', [
+                    'user_id'     => $user_id,
+                    'level_id'    => $prev_level,
+                    'end_ts'      => $end_ts,
+                    'plan_slug'   => $plan_slug,
+                    'valid_until' => $payload['valid_until'] ?? null,
+                ] );
+
+                self::$client->send_event( $payload );
+                return;
+            }
+
             $payload = [
-                'event'               => 'cancelled',
+                'event'               => 'expired',
                 'wp_user_id'          => $user_id,
                 'customer_email'      => self::user_email( $user_id ),
                 'subscription_id'     => self::subscription_id( $user_id, 0 ),
-                'subscription_status' => 'cancelled',
+                'subscription_status' => 'expired',
             ];
             self::$client->send_event( $payload );
             return;
@@ -316,5 +357,36 @@ class DSB_PMPro_Events {
         }
 
         return strtotime( '+1 month', $validFromTs ) ?: ( $validFromTs + ( 30 * DAY_IN_SECONDS ) );
+    }
+
+    private static function get_latest_membership_row( int $user_id ): ?array {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'pmpro_memberships_users';
+        $exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+        if ( ! $exists ) {
+            return null;
+        }
+
+        $row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE user_id = %d ORDER BY startdate DESC, id DESC LIMIT 1", $user_id ), ARRAY_A );
+        if ( ! $row ) {
+            return null;
+        }
+
+        $end_ts = 0;
+        if ( isset( $row['enddate'] ) ) {
+            if ( is_numeric( $row['enddate'] ) ) {
+                $end_ts = (int) $row['enddate'];
+            } elseif ( is_string( $row['enddate'] ) && '' !== $row['enddate'] ) {
+                $parsed = strtotime( $row['enddate'] );
+                $end_ts = $parsed && $parsed > 0 ? $parsed : 0;
+            }
+        }
+
+        return [
+            'level_id'  => isset( $row['membership_id'] ) ? absint( $row['membership_id'] ) : 0,
+            'startdate' => $row['startdate'] ?? null,
+            'end_ts'    => $end_ts,
+        ];
     }
 }

@@ -543,6 +543,9 @@ class DSB_Client {
             $subscription_identifier = sanitize_text_field( (string) $payload['order_id'] );
         }
 
+        $event_name = isset( $payload['event'] ) ? strtolower( (string) $payload['event'] ) : '';
+        $disable_like_events = [ 'cancelled', 'expired', 'disabled', 'payment_failed', 'payment-failed', 'paused' ];
+
         if ( $success ) {
             $valid_from  = $this->normalize_mysql_datetime(
                 $decoded['key']['valid_from']
@@ -564,13 +567,26 @@ class DSB_Client {
                 ? $status_value
                 : ( isset( $payload['event'] ) && in_array( $payload['event'], [ 'cancelled', 'disabled' ], true ) ? 'disabled' : 'active' );
 
+            $subscription_status = isset( $payload['subscription_status'] ) ? sanitize_text_field( $payload['subscription_status'] ) : null;
+            $should_clear_fields = in_array( $event_name, [ 'expired', 'disabled' ], true )
+                || ( 'disabled' === $key_status && in_array( $subscription_status, [ 'expired', 'disabled' ], true ) );
+
+            if ( $should_clear_fields ) {
+                $payload['plan_slug']   = '';
+                $valid_from             = null;
+                $valid_until            = null;
+                $key_status             = 'disabled';
+            } elseif ( 'cancelled' === $event_name && $valid_until ) {
+                $key_status = 'active';
+            }
+
             $this->db->upsert_key(
                 [
                     'subscription_id' => $subscription_identifier,
                     'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
                     'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : null,
                     'customer_name'   => isset( $payload['customer_name'] ) ? sanitize_text_field( $payload['customer_name'] ) : null,
-                    'subscription_status' => isset( $payload['subscription_status'] ) ? sanitize_text_field( $payload['subscription_status'] ) : null,
+                    'subscription_status' => $subscription_status,
                     'plan_slug'       => sanitize_text_field( $payload['plan_slug'] ?? '' ),
                     'status'          => $key_status,
                     'key_prefix'      => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], 0, 10 ) : ( $decoded['key_prefix'] ?? null ),
@@ -584,7 +600,9 @@ class DSB_Client {
                 ]
             );
 
-            if ( isset( $payload['event'] ) && in_array( $payload['event'], [ 'activated', 'renewed', 'reactivated', 'active' ], true ) ) {
+            if ( isset( $payload['event'] ) && ( in_array( $payload['event'], [ 'activated', 'renewed', 'reactivated', 'active' ], true ) || in_array( $event_name, $disable_like_events, true ) ) ) {
+                $user_status = $should_clear_fields ? 'disabled' : ( 'cancelled' === $event_name ? 'active' : ( in_array( $event_name, $disable_like_events, true ) ? 'disabled' : 'active' ) );
+
                 $this->db->upsert_user(
                     [
                         'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : 0,
@@ -592,10 +610,10 @@ class DSB_Client {
                         'subscription_id' => $subscription_identifier,
                         'order_id'        => isset( $payload['order_id'] ) ? absint( $payload['order_id'] ) : null,
                         'product_id'      => isset( $payload['product_id'] ) ? absint( $payload['product_id'] ) : null,
-                        'plan_slug'       => sanitize_text_field( $payload['plan_slug'] ?? '' ),
-                        'status'          => isset( $payload['event'] ) && in_array( $payload['event'], [ 'cancelled', 'disabled' ], true ) ? 'disabled' : 'active',
-                        'valid_from'      => $valid_from,
-                        'valid_until'     => $valid_until,
+                        'plan_slug'       => $should_clear_fields ? null : sanitize_text_field( $payload['plan_slug'] ?? '' ),
+                        'status'          => $user_status,
+                        'valid_from'      => $should_clear_fields ? null : $valid_from,
+                        'valid_until'     => $should_clear_fields ? null : $valid_until,
                         'source'          => 'subscription_event',
                         'last_sync_at'    => current_time( 'mysql', true ),
                     ]
@@ -683,9 +701,7 @@ class DSB_Client {
 
         $has_status_column = (bool) $wpdb->get_var( $wpdb->prepare( "SHOW COLUMNS FROM {$table} LIKE %s", 'status' ) );
         $order_sql         = "ORDER BY user_id ASC, startdate DESC, id DESC";
-        $query             = $has_status_column
-            ? "SELECT * FROM {$table} WHERE LOWER(status) = 'active' {$order_sql}"
-            : "SELECT * FROM {$table} {$order_sql}";
+        $query             = "SELECT * FROM {$table} {$order_sql}";
 
         $rows    = $wpdb->get_results( $query, ARRAY_A );
         $members = [];
@@ -718,12 +734,6 @@ class DSB_Client {
             }
 
             $is_lifetime = null === $end_ts || $end_ts <= 0;
-
-            if ( $has_status_column && 'active' !== $status ) {
-                $skip_reason = 'inactive_status';
-            } elseif ( ! $is_lifetime && $end_ts <= $now_ts ) {
-                $skip_reason = 'expired_enddate';
-            }
 
             if ( $skip_reason ) {
                 dsb_log(
