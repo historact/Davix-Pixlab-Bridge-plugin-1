@@ -443,7 +443,7 @@ class DSB_Client {
         $url = $this->build_url( $path, $query );
 
         $args = [
-            'timeout' => 15,
+            'timeout' => 25,
             'headers' => [
                 'x-davix-bridge-token' => $settings['bridge_token'],
             ],
@@ -816,10 +816,24 @@ class DSB_Client {
         $page     = max( 1, $page );
         $per_page = max( 1, min( 500, $per_page ) );
 
-        $response = $this->request( '/internal/admin/keys/export', 'GET', null, [
+        $attempts  = 0;
+        $response  = null;
+        $last_args = [
             'page'     => $page,
             'per_page' => $per_page,
-        ] );
+        ];
+
+        while ( $attempts < 2 ) {
+            $attempts ++;
+            $response = $this->request( '/internal/admin/keys/export', 'GET', null, $last_args );
+
+            if ( ! is_wp_error( $response ) ) {
+                break;
+            }
+
+            // Retry once on transport errors such as cURL 28 (DNS/timeout).
+            sleep( 1 );
+        }
 
         return $this->prepare_response( $response );
     }
