@@ -327,6 +327,7 @@ class DSB_Client {
     }
 
     public function save_settings( array $data ): void {
+        $existing_raw = get_option( self::OPTION_SETTINGS, [] );
         $existing = $this->get_settings();
 
         $debug_enabled = 0;
@@ -410,7 +411,17 @@ class DSB_Client {
         $existing_level_plans   = $this->get_level_plans();
 
         $style_defaults = $this->get_style_defaults();
+        $optional_override_keys = [
+            'style_header_plan_title_color',
+            'style_header_plan_title_opacity',
+            'style_header_eyebrow_color',
+            'style_header_meta_color',
+            'style_header_billing_color',
+        ];
         foreach ( $style_defaults as $key => $default ) {
+            if ( in_array( $key, $optional_override_keys, true ) && ! array_key_exists( $key, $data ) && ! array_key_exists( $key, $existing_raw ?? [] ) ) {
+                continue;
+            }
             $raw   = isset( $data[ $key ] ) ? $data[ $key ] : ( $existing[ $key ] ?? $default );
             $clean[ $key ] = $this->sanitize_style_value( $key, $raw, $default );
         }
