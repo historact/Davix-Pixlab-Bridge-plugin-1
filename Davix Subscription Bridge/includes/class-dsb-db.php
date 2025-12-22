@@ -6,7 +6,7 @@ defined( 'ABSPATH' ) || exit;
 class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
     const OPTION_DB_VERSION          = 'dsb_db_version';
-    const DB_VERSION                 = '1.5.0';
+    const DB_VERSION                 = '1.6.1';
 
     /** @var \wpdb */
     protected $wpdb;
@@ -94,7 +94,7 @@ class DSB_DB {
             updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             UNIQUE KEY subscription_id (subscription_id),
-            UNIQUE KEY wp_user_id (wp_user_id),
+            KEY wp_user_id (wp_user_id),
             UNIQUE KEY node_api_key_id (node_api_key_id),
             KEY customer_email (customer_email)
         ) $charset_collate;";
@@ -103,8 +103,7 @@ class DSB_DB {
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             wp_user_id BIGINT UNSIGNED NOT NULL,
             customer_email VARCHAR(190) DEFAULT NULL,
-            subscription_id BIGINT UNSIGNED DEFAULT NULL,
-            subscription_id_str VARCHAR(191) DEFAULT NULL,
+            subscription_id VARCHAR(191) DEFAULT NULL,
             order_id BIGINT UNSIGNED DEFAULT NULL,
             product_id BIGINT UNSIGNED DEFAULT NULL,
             plan_slug VARCHAR(190) DEFAULT NULL,
@@ -122,8 +121,7 @@ class DSB_DB {
             KEY idx_sub (subscription_id),
             KEY idx_status (status),
             KEY idx_plan (plan_slug),
-            KEY idx_node_api_key_id (node_api_key_id),
-            KEY idx_subscription_id_str (subscription_id_str)
+            KEY idx_node_api_key_id (node_api_key_id)
         ) $charset_collate;";
 
         dsb_log( 'debug', 'Running dbDelta for davix_bridge_logs', [ 'sql' => $sql_logs ] );
@@ -162,6 +160,16 @@ class DSB_DB {
             if ( version_compare( (string) $stored_version, '1.5.0', '<' ) ) {
                 require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.5.0.php';
                 DSB_Migration_150::run( $this->wpdb, $this->table_keys, $this->table_user );
+            }
+
+            if ( version_compare( (string) $stored_version, '1.6.0', '<' ) ) {
+                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.6.0.php';
+                DSB_Migration_160::run( $this->wpdb, $this->table_user );
+            }
+
+            if ( version_compare( (string) $stored_version, '1.6.1', '<' ) ) {
+                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.6.1.php';
+                DSB_Migration_161::run( $this->wpdb, $this->table_keys );
             }
 
             update_option( self::OPTION_DB_VERSION, self::DB_VERSION );
@@ -477,6 +485,17 @@ class DSB_DB {
         return $deleted;
     }
 
+    public function delete_keys_without_node_id_not_in_subs( array $remote_subscription_ids ): int {
+        $remote_subscription_ids = array_values( array_filter( array_map( 'sanitize_text_field', $remote_subscription_ids ) ) );
+
+        if ( empty( $remote_subscription_ids ) ) {
+            return 0;
+        }
+
+        $placeholders = implode( ',', array_fill( 0, count( $remote_subscription_ids ), '%s' ) );
+        return (int) $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_keys} WHERE node_api_key_id IS NULL AND subscription_id NOT IN ($placeholders)", ...$remote_subscription_ids ) );
+    }
+
     public function get_tracked_user_ids(): array {
         $ids = $this->wpdb->get_col( "SELECT wp_user_id FROM {$this->table_user}" );
         return array_values( array_filter( array_map( 'absint', (array) $ids ) ) );
@@ -492,7 +511,6 @@ class DSB_DB {
             'wp_user_id'      => 0,
             'customer_email'  => null,
             'subscription_id' => null,
-            'subscription_id_str' => null,
             'order_id'        => null,
             'product_id'      => null,
             'plan_slug'       => null,
@@ -508,8 +526,7 @@ class DSB_DB {
 
         $data['wp_user_id']      = absint( $data['wp_user_id'] );
         $data['customer_email']  = $data['customer_email'] ? sanitize_email( $data['customer_email'] ) : null;
-        $data['subscription_id'] = is_numeric( $data['subscription_id'] ) ? absint( $data['subscription_id'] ) : null;
-        $data['subscription_id_str'] = $data['subscription_id_str'] ? sanitize_text_field( $data['subscription_id_str'] ) : null;
+        $data['subscription_id'] = $data['subscription_id'] ? sanitize_text_field( (string) $data['subscription_id'] ) : null;
         $data['order_id']        = $data['order_id'] ? absint( $data['order_id'] ) : null;
         $data['product_id']      = $data['product_id'] ? absint( $data['product_id'] ) : null;
         $data['plan_slug']       = $data['plan_slug'] ? sanitize_text_field( dsb_normalize_plan_slug( $data['plan_slug'] ) ) : null;
@@ -666,6 +683,18 @@ class DSB_DB {
         } else {
             $this->wpdb->insert( $this->table_keys, $data );
             dsb_log( 'info', 'Inserted key record via strict mirror', [ 'match_by' => $match_by, 'node_api_key_id' => $data['node_api_key_id'], 'subscription_id' => $data['subscription_id'] ] );
+        }
+
+        if ( $this->wpdb->last_error ) {
+            dsb_log( 'error', 'Key upsert failed', [
+                'match_by'   => $match_by,
+                'error'      => $this->wpdb->last_error,
+                'data'       => [
+                    'subscription_id' => $data['subscription_id'],
+                    'node_api_key_id' => $data['node_api_key_id'],
+                    'wp_user_id'      => $data['wp_user_id'],
+                ],
+            ] );
         }
     }
 
