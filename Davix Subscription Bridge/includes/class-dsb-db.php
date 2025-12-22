@@ -6,7 +6,7 @@ defined( 'ABSPATH' ) || exit;
 class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
     const OPTION_DB_VERSION          = 'dsb_db_version';
-    const DB_VERSION                 = '1.4.0';
+    const DB_VERSION                 = '1.5.0';
 
     /** @var \wpdb */
     protected $wpdb;
@@ -86,6 +86,7 @@ class DSB_DB {
             valid_from datetime DEFAULT NULL,
             valid_until datetime DEFAULT NULL,
             node_plan_id varchar(80) DEFAULT NULL,
+            node_api_key_id BIGINT UNSIGNED DEFAULT NULL,
             last_action varchar(60) DEFAULT NULL,
             last_http_code smallint DEFAULT NULL,
             last_error text DEFAULT NULL,
@@ -94,6 +95,7 @@ class DSB_DB {
             PRIMARY KEY (id),
             UNIQUE KEY subscription_id (subscription_id),
             UNIQUE KEY wp_user_id (wp_user_id),
+            UNIQUE KEY node_api_key_id (node_api_key_id),
             KEY customer_email (customer_email)
         ) $charset_collate;";
 
@@ -102,12 +104,14 @@ class DSB_DB {
             wp_user_id BIGINT UNSIGNED NOT NULL,
             customer_email VARCHAR(190) DEFAULT NULL,
             subscription_id BIGINT UNSIGNED DEFAULT NULL,
+            subscription_id_str VARCHAR(191) DEFAULT NULL,
             order_id BIGINT UNSIGNED DEFAULT NULL,
             product_id BIGINT UNSIGNED DEFAULT NULL,
             plan_slug VARCHAR(190) DEFAULT NULL,
             status VARCHAR(50) DEFAULT NULL,
             valid_from DATETIME NULL,
             valid_until DATETIME NULL,
+            node_api_key_id BIGINT UNSIGNED DEFAULT NULL,
             source VARCHAR(50) DEFAULT 'wps_rest',
             last_sync_at DATETIME NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -117,7 +121,9 @@ class DSB_DB {
             KEY idx_email (customer_email),
             KEY idx_sub (subscription_id),
             KEY idx_status (status),
-            KEY idx_plan (plan_slug)
+            KEY idx_plan (plan_slug),
+            KEY idx_node_api_key_id (node_api_key_id),
+            KEY idx_subscription_id_str (subscription_id_str)
         ) $charset_collate;";
 
         dsb_log( 'debug', 'Running dbDelta for davix_bridge_logs', [ 'sql' => $sql_logs ] );
@@ -151,6 +157,11 @@ class DSB_DB {
             if ( version_compare( (string) $stored_version, '1.4.0', '<' ) ) {
                 require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.4.0.php';
                 DSB_Migration_140::run( $this->wpdb, $this->table_purge_queue );
+            }
+
+            if ( version_compare( (string) $stored_version, '1.5.0', '<' ) ) {
+                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.5.0.php';
+                DSB_Migration_150::run( $this->wpdb, $this->table_keys, $this->table_user );
             }
 
             update_option( self::OPTION_DB_VERSION, self::DB_VERSION );
@@ -418,7 +429,7 @@ class DSB_DB {
         }
     }
 
-    public function delete_users_not_in( array $wp_user_ids ): int {
+    public function delete_users_not_in_ids( array $wp_user_ids ): int {
         $wp_user_ids = array_values( array_filter( array_map( 'absint', $wp_user_ids ) ) );
         if ( empty( $wp_user_ids ) ) {
             return 0;
@@ -428,47 +439,51 @@ class DSB_DB {
         return (int) $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_user} WHERE wp_user_id NOT IN ($placeholders)", ...$wp_user_ids ) );
     }
 
-    public function delete_keys_not_in( array $wp_user_ids, array $emails, array $subscription_ids ): int {
-        $wp_user_ids      = array_values( array_filter( array_map( 'absint', $wp_user_ids ) ) );
-        $emails           = array_values( array_filter( array_map( 'sanitize_email', $emails ) ) );
-        $subscription_ids = array_values( array_filter( array_map( 'sanitize_text_field', $subscription_ids ) ) );
-
-        if ( empty( $wp_user_ids ) && empty( $emails ) && empty( $subscription_ids ) ) {
+    public function delete_users_by_node_ids_not_in( array $remote_node_ids ): int {
+        $remote_node_ids = array_values( array_filter( array_map( 'absint', $remote_node_ids ) ) );
+        if ( empty( $remote_node_ids ) ) {
             return 0;
         }
 
-        $clauses = [];
-        $params  = [];
+        $placeholders = implode( ',', array_fill( 0, count( $remote_node_ids ), '%d' ) );
+        return (int) $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_user} WHERE node_api_key_id IS NOT NULL AND node_api_key_id NOT IN ($placeholders)", ...$remote_node_ids ) );
+    }
 
-        if ( $wp_user_ids ) {
-            $placeholders  = implode( ',', array_fill( 0, count( $wp_user_ids ), '%d' ) );
-            $clauses[]     = "(wp_user_id IS NULL OR wp_user_id NOT IN ($placeholders))";
-            $params        = array_merge( $params, $wp_user_ids );
-        }
+    public function delete_keys_by_node_ids_not_in( array $remote_node_ids, int $batch_size = 500 ): int {
+        $remote_node_ids = array_values( array_filter( array_map( 'absint', $remote_node_ids ) ) );
 
-        if ( $emails ) {
-            $placeholders  = implode( ',', array_fill( 0, count( $emails ), '%s' ) );
-            $clauses[]     = "(customer_email IS NULL OR customer_email NOT IN ($placeholders))";
-            $params        = array_merge( $params, $emails );
-        }
+        // Only delete rows that have node_api_key_id; leave NULL rows untouched for safety.
+        $deleted = 0;
+        $last_id = 0;
 
-        if ( $subscription_ids ) {
-            $placeholders  = implode( ',', array_fill( 0, count( $subscription_ids ), '%s' ) );
-            $clauses[]     = "(subscription_id IS NULL OR subscription_id NOT IN ($placeholders))";
-            $params        = array_merge( $params, $subscription_ids );
-        }
+        do {
+            $local_ids = $this->wpdb->get_col( $this->wpdb->prepare( "SELECT node_api_key_id FROM {$this->table_keys} WHERE node_api_key_id IS NOT NULL AND node_api_key_id > %d ORDER BY node_api_key_id ASC LIMIT %d", $last_id, $batch_size ) );
+            $local_ids = array_values( array_filter( array_map( 'absint', (array) $local_ids ) ) );
 
-        if ( empty( $clauses ) ) {
-            return 0;
-        }
+            if ( empty( $local_ids ) ) {
+                break;
+            }
 
-        $sql = 'DELETE FROM ' . $this->table_keys . ' WHERE ' . implode( ' AND ', $clauses );
+            $last_id = max( $local_ids );
+            $missing = array_diff( $local_ids, $remote_node_ids );
+            if ( empty( $missing ) ) {
+                continue;
+            }
 
-        return (int) $this->wpdb->query( $this->wpdb->prepare( $sql, ...$params ) );
+            $placeholders = implode( ',', array_fill( 0, count( $missing ), '%d' ) );
+            $deleted     += (int) $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_keys} WHERE node_api_key_id IN ($placeholders)", ...$missing ) );
+        } while ( true );
+
+        return $deleted;
     }
 
     public function get_tracked_user_ids(): array {
         $ids = $this->wpdb->get_col( "SELECT wp_user_id FROM {$this->table_user}" );
+        return array_values( array_filter( array_map( 'absint', (array) $ids ) ) );
+    }
+
+    public function get_all_key_node_ids( int $batch_size = 500, int $offset = 0 ): array {
+        $ids = $this->wpdb->get_col( $this->wpdb->prepare( "SELECT node_api_key_id FROM {$this->table_keys} WHERE node_api_key_id IS NOT NULL LIMIT %d OFFSET %d", $batch_size, $offset ) );
         return array_values( array_filter( array_map( 'absint', (array) $ids ) ) );
     }
 
@@ -477,12 +492,14 @@ class DSB_DB {
             'wp_user_id'      => 0,
             'customer_email'  => null,
             'subscription_id' => null,
+            'subscription_id_str' => null,
             'order_id'        => null,
             'product_id'      => null,
             'plan_slug'       => null,
             'status'          => null,
             'valid_from'      => null,
             'valid_until'     => null,
+            'node_api_key_id' => null,
             'source'          => 'wps_rest',
             'last_sync_at'    => current_time( 'mysql', true ),
         ];
@@ -491,13 +508,15 @@ class DSB_DB {
 
         $data['wp_user_id']      = absint( $data['wp_user_id'] );
         $data['customer_email']  = $data['customer_email'] ? sanitize_email( $data['customer_email'] ) : null;
-        $data['subscription_id'] = $data['subscription_id'] ? absint( $data['subscription_id'] ) : null;
+        $data['subscription_id'] = is_numeric( $data['subscription_id'] ) ? absint( $data['subscription_id'] ) : null;
+        $data['subscription_id_str'] = $data['subscription_id_str'] ? sanitize_text_field( $data['subscription_id_str'] ) : null;
         $data['order_id']        = $data['order_id'] ? absint( $data['order_id'] ) : null;
         $data['product_id']      = $data['product_id'] ? absint( $data['product_id'] ) : null;
         $data['plan_slug']       = $data['plan_slug'] ? sanitize_text_field( dsb_normalize_plan_slug( $data['plan_slug'] ) ) : null;
         $data['status']          = $data['status'] ? sanitize_text_field( $data['status'] ) : null;
         $data['valid_from']      = $data['valid_from'] ? sanitize_text_field( $data['valid_from'] ) : null;
         $data['valid_until']     = $data['valid_until'] ? sanitize_text_field( $data['valid_until'] ) : null;
+        $data['node_api_key_id'] = $data['node_api_key_id'] ? absint( $data['node_api_key_id'] ) : null;
         $data['source']          = $data['source'] ? sanitize_text_field( $data['source'] ) : 'wps_rest';
         $data['last_sync_at']    = $data['last_sync_at'] ? sanitize_text_field( $data['last_sync_at'] ) : current_time( 'mysql', true );
 
@@ -507,26 +526,7 @@ class DSB_DB {
 
         $existing = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_user} WHERE wp_user_id = %d", $data['wp_user_id'] ), ARRAY_A );
 
-        $force_clear = ( 'disabled' === $data['status'] );
-
         if ( $existing ) {
-            if ( ! $force_clear && ( null === $data['valid_until'] || '' === $data['valid_until'] ) && ! empty( $existing['valid_until'] ) ) {
-                $data['valid_until'] = $existing['valid_until'];
-            }
-
-            if ( ! $force_clear && ( null === $data['valid_from'] || '' === $data['valid_from'] ) && ! empty( $existing['valid_from'] ) ) {
-                $data['valid_from'] = $existing['valid_from'];
-            }
-
-            foreach ( [ 'customer_email', 'subscription_id', 'order_id', 'product_id', 'plan_slug', 'status', 'source' ] as $field ) {
-                if ( $force_clear && in_array( $field, [ 'plan_slug', 'status' ], true ) ) {
-                    continue;
-                }
-                if ( ( null === $data[ $field ] || '' === $data[ $field ] ) && isset( $existing[ $field ] ) ) {
-                    $data[ $field ] = $existing[ $field ];
-                }
-            }
-
             $this->wpdb->update( $this->table_user, $data, [ 'id' => $existing['id'] ] );
             dsb_log( 'info', 'Updated user truth row', [ 'wp_user_id' => $data['wp_user_id'] ] );
         } else {
@@ -613,23 +613,24 @@ class DSB_DB {
 
     public function upsert_key( array $data ): void {
         $defaults = [
-            'subscription_id' => '',
-            'customer_email'  => '',
-            'wp_user_id'      => null,
-            'customer_name'   => null,
+            'subscription_id'     => '',
+            'customer_email'      => '',
+            'wp_user_id'          => null,
+            'customer_name'       => null,
             'subscription_status' => null,
-            'plan_slug'       => '',
-            'status'          => 'unknown',
-            'key_prefix'      => null,
-            'key_last4'       => null,
-            'valid_from'      => null,
-            'valid_until'     => null,
-            'node_plan_id'    => null,
-            'last_action'     => null,
-            'last_http_code'  => null,
-            'last_error'      => null,
+            'plan_slug'           => '',
+            'status'              => 'unknown',
+            'key_prefix'          => null,
+            'key_last4'           => null,
+            'valid_from'          => null,
+            'valid_until'         => null,
+            'node_plan_id'        => null,
+            'node_api_key_id'     => null,
+            'last_action'         => null,
+            'last_http_code'      => null,
+            'last_error'          => null,
         ];
-        $data     = wp_parse_args( $data, $defaults );
+        $data = wp_parse_args( $data, $defaults );
 
         $data['subscription_id']     = sanitize_text_field( $data['subscription_id'] );
         $data['customer_email']      = sanitize_email( $data['customer_email'] );
@@ -641,106 +642,38 @@ class DSB_DB {
         $data['key_prefix']          = $data['key_prefix'] ? sanitize_text_field( $data['key_prefix'] ) : null;
         $data['key_last4']           = $data['key_last4'] ? sanitize_text_field( $data['key_last4'] ) : null;
         $data['node_plan_id']        = $data['node_plan_id'] ? sanitize_text_field( (string) $data['node_plan_id'] ) : null;
+        $data['node_api_key_id']     = $data['node_api_key_id'] ? absint( $data['node_api_key_id'] ) : null;
         $data['last_action']         = $data['last_action'] ? sanitize_text_field( $data['last_action'] ) : null;
         $data['last_http_code']      = $data['last_http_code'] ? absint( $data['last_http_code'] ) : null;
         $data['last_error']          = $data['last_error'] ? wp_strip_all_tags( (string) $data['last_error'] ) : null;
 
-        $identity  = 'subscription_id';
-        $existing  = null;
-        $identity_value = $data['subscription_id'];
+        $existing = null;
+        $match_by = '';
 
-        if ( $data['wp_user_id'] ) {
-            $existing       = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_keys} WHERE wp_user_id = %d", $data['wp_user_id'] ), ARRAY_A );
-            $identity       = 'wp_user_id';
-            $identity_value = $data['wp_user_id'];
-        }
-
-        if ( ! $existing && $data['customer_email'] ) {
-            $existing       = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_keys} WHERE customer_email = %s", $data['customer_email'] ), ARRAY_A );
-            $identity       = 'customer_email';
-            $identity_value = $data['customer_email'];
+        if ( $data['node_api_key_id'] ) {
+            $existing = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_keys} WHERE node_api_key_id = %d", $data['node_api_key_id'] ), ARRAY_A );
+            $match_by = 'node_api_key_id';
         }
 
         if ( ! $existing && $data['subscription_id'] ) {
-            $existing       = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_keys} WHERE subscription_id = %s", $data['subscription_id'] ), ARRAY_A );
-            $identity       = 'subscription_id';
-            $identity_value = $data['subscription_id'];
+            $existing = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_keys} WHERE subscription_id = %s", $data['subscription_id'] ), ARRAY_A );
+            $match_by = $match_by ?: 'subscription_id';
         }
-
-        $force_clear = ( 'disabled' === $data['status'] ) || in_array( (string) $data['subscription_status'], [ 'expired', 'disabled' ], true );
 
         if ( $existing ) {
-            if ( ! $force_clear && ( null === $data['valid_until'] || '' === $data['valid_until'] ) && ! empty( $existing['valid_until'] ) ) {
-                dsb_log(
-                    'debug',
-                    'Key valid_until retained',
-                    [
-                        'subscription_id' => $existing['subscription_id'],
-                        'old_valid_until' => $existing['valid_until'],
-                        'new_valid_until' => $data['valid_until'],
-                    ]
-                );
-                $data['valid_until'] = $existing['valid_until'];
-            } elseif ( empty( $existing['valid_until'] ) && ! empty( $data['valid_until'] ) ) {
-                dsb_log(
-                    'info',
-                    'Key valid_until updated',
-                    [
-                        'subscription_id' => $existing['subscription_id'],
-                        'old_valid_until' => $existing['valid_until'],
-                        'new_valid_until' => $data['valid_until'],
-                    ]
-                );
-            }
-
-            if ( ! $force_clear && ( null === $data['valid_from'] || '' === $data['valid_from'] ) && ! empty( $existing['valid_from'] ) ) {
-                dsb_log(
-                    'debug',
-                    'Key valid_from retained',
-                    [
-                        'subscription_id' => $existing['subscription_id'],
-                        'old_valid_from'  => $existing['valid_from'],
-                        'new_valid_from'  => $data['valid_from'],
-                    ]
-                );
-                $data['valid_from'] = $existing['valid_from'];
-            } elseif ( empty( $existing['valid_from'] ) && ! empty( $data['valid_from'] ) ) {
-                dsb_log(
-                    'info',
-                    'Key valid_from updated',
-                    [
-                        'subscription_id' => $existing['subscription_id'],
-                        'old_valid_from'  => $existing['valid_from'],
-                        'new_valid_from'  => $data['valid_from'],
-                    ]
-                );
-            }
-
-            foreach ( [ 'key_prefix', 'key_last4' ] as $key_field ) {
-                if ( ( null === $data[ $key_field ] || '' === $data[ $key_field ] ) && ! empty( $existing[ $key_field ] ) ) {
-                    $data[ $key_field ] = $existing[ $key_field ];
-                }
-            }
-
-            if ( empty( $data['subscription_id'] ) ) {
-                $data['subscription_id'] = $existing['subscription_id'];
-            }
-
-            foreach ( [ 'customer_email', 'customer_name', 'subscription_status', 'plan_slug' ] as $field ) {
-                if ( $force_clear && in_array( $field, [ 'plan_slug', 'subscription_status' ], true ) ) {
-                    continue;
-                }
-                if ( empty( $data[ $field ] ) && ! empty( $existing[ $field ] ) ) {
-                    $data[ $field ] = $existing[ $field ];
-                }
-            }
-
             $this->wpdb->update( $this->table_keys, $data, [ 'id' => $existing['id'] ] );
-            dsb_log( 'info', 'Updated key record via identity match', [ 'identity' => $identity, 'value' => $identity_value, 'id' => $existing['id'] ] );
+            dsb_log( 'info', 'Updated key record via strict mirror', [ 'match_by' => $match_by, 'id' => $existing['id'] ] );
         } else {
             $this->wpdb->insert( $this->table_keys, $data );
-            dsb_log( 'info', 'Inserted key record', [ 'identity' => $identity, 'value' => $identity_value ] );
+            dsb_log( 'info', 'Inserted key record via strict mirror', [ 'match_by' => $match_by, 'node_api_key_id' => $data['node_api_key_id'], 'subscription_id' => $data['subscription_id'] ] );
         }
+    }
+
+    /**
+     * Backward-compatible alias for strict mirror upsert.
+     */
+    public function upsert_key_strict( array $data ): void {
+        $this->upsert_key( $data );
     }
 
     public function find_key( string $subscription_id ): ?array {

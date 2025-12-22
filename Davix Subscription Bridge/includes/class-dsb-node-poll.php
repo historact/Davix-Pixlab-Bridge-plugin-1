@@ -96,8 +96,9 @@ class DSB_Node_Poll {
         $errors   = [];
 
         $wp_user_ids      = [];
-        $emails           = [];
-        $subscription_ids = [];
+        $remote_node_ids  = [];
+        $user_winners     = [];
+        $has_stable_id    = true;
 
         $summary = [
             'pages'          => 0,
@@ -149,19 +150,28 @@ class DSB_Node_Poll {
                         continue;
                     }
 
-                    $identity = $this->process_item( $item, $code );
-                    if ( $identity['wp_user_id'] ) {
-                        $wp_user_ids[] = $identity['wp_user_id'];
-                    }
-                    if ( $identity['customer_email'] ) {
-                        $emails[] = $identity['customer_email'];
-                    }
-                    if ( $identity['subscription_id'] ) {
-                        $subscription_ids[] = $identity['subscription_id'];
+                    $processed = $this->process_item_strict( $item, $code );
+
+                    if ( $processed['node_api_key_id'] ) {
+                        $remote_node_ids[] = $processed['node_api_key_id'];
+                    } else {
+                        $has_stable_id = false;
                     }
 
-                    $summary['key_upserts']  += $identity['key_upserted'] ? 1 : 0;
-                    $summary['user_upserts'] += $identity['user_upserted'] ? 1 : 0;
+                    if ( $processed['wp_user_id'] ) {
+                        $wp_user_ids[] = $processed['wp_user_id'];
+                        $winner = $user_winners[ $processed['wp_user_id'] ] ?? null;
+                        if ( ! $winner || ( $processed['node_api_key_id'] && $winner['node_api_key_id'] && $processed['node_api_key_id'] > $winner['node_api_key_id'] ) ) {
+                            $user_winners[ $processed['wp_user_id'] ] = $processed;
+                        } elseif ( ! $winner && $processed['valid_until'] ) {
+                            $user_winners[ $processed['wp_user_id'] ] = $processed;
+                        } elseif ( ! $winner ) {
+                            $user_winners[ $processed['wp_user_id'] ] = $processed;
+                        }
+                    }
+
+                    $summary['key_upserts']  += $processed['key_upserted'] ? 1 : 0;
+                    $summary['user_upserts'] += $processed['user_upserted'] ? 1 : 0;
                 }
 
                 $total_pages = isset( $decoded['total_pages'] ) ? (int) $decoded['total_pages'] : 0;
@@ -169,21 +179,42 @@ class DSB_Node_Poll {
                 $page ++;
             } while ( $items && ( $has_more || ( $total_pages && $page <= $total_pages ) || count( $items ) >= $per_page ) );
 
-            if ( ! empty( $settings['node_poll_delete_stale'] ) ) {
-                $wp_user_ids      = array_values( array_unique( array_filter( array_map( 'absint', $wp_user_ids ) ) ) );
-                $emails           = array_values( array_unique( array_filter( array_map( 'sanitize_email', $emails ) ) ) );
-                $subscription_ids = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', $subscription_ids ) ) ) );
+            $remote_node_ids = array_values( array_unique( array_filter( array_map( 'absint', $remote_node_ids ) ) ) );
+            $wp_user_ids     = array_values( array_unique( array_filter( array_map( 'absint', $wp_user_ids ) ) ) );
 
+            if ( $has_stable_id && ! empty( $settings['node_poll_delete_stale'] ) ) {
                 if ( $wp_user_ids ) {
-                    $summary['deleted_users'] = $this->db->delete_users_not_in( $wp_user_ids );
+                    $summary['deleted_users'] += $this->db->delete_users_not_in_ids( $wp_user_ids );
                 }
 
-                if ( $wp_user_ids || $emails || $subscription_ids ) {
-                    $summary['deleted_keys'] = $this->db->delete_keys_not_in( $wp_user_ids, $emails, $subscription_ids );
+                if ( $remote_node_ids ) {
+                    $summary['deleted_users'] += $this->db->delete_users_by_node_ids_not_in( $remote_node_ids );
+                    $summary['deleted_keys']  += $this->db->delete_keys_by_node_ids_not_in( $remote_node_ids );
                 }
             }
+
+            // Upsert deterministic user winners after full fetch to ensure we choose the right record per user.
+            foreach ( $user_winners as $winner ) {
+                $this->db->upsert_user( [
+                    'wp_user_id'          => $winner['wp_user_id'],
+                    'customer_email'      => $winner['customer_email'],
+                    'subscription_id'     => is_numeric( $winner['subscription_id'] ) ? (int) $winner['subscription_id'] : null,
+                    'subscription_id_str' => $winner['subscription_id'],
+                    'order_id'            => $winner['order_id'],
+                    'product_id'          => $winner['product_id'],
+                    'plan_slug'           => $winner['plan_slug'],
+                    'status'              => $winner['status'],
+                    'valid_from'          => $winner['valid_from'],
+                    'valid_until'         => $winner['valid_until'],
+                    'node_api_key_id'     => $winner['node_api_key_id'],
+                    'source'              => 'node_poll',
+                    'last_sync_at'        => current_time( 'mysql', true ),
+                ] );
+                $summary['user_upserts'] ++;
+            }
         } catch ( \Throwable $e ) {
-            $errors[] = $e->getMessage();
+            $errors[]      = $e->getMessage();
+            $has_stable_id = false;
         }
 
         $duration = max( 0, (int) round( ( microtime( true ) - $started ) * 1000 ) );
@@ -369,7 +400,7 @@ class DSB_Node_Poll {
         return '';
     }
 
-    protected function process_item( array $item, int $http_code ): array {
+    protected function process_item_strict( array $item, int $http_code ): array {
         $plan          = isset( $item['plan'] ) && is_array( $item['plan'] ) ? $item['plan'] : [];
         $plan_slug     = dsb_normalize_plan_slug( $plan['plan_slug'] ?? ( $item['plan_slug'] ?? '' ) );
         $subscription  = isset( $item['subscription_id'] ) ? sanitize_text_field( (string) $item['subscription_id'] ) : '';
@@ -377,11 +408,15 @@ class DSB_Node_Poll {
         $subscription_id = $subscription ?: $external_sub;
         $wp_user_id    = isset( $item['wp_user_id'] ) ? absint( $item['wp_user_id'] ) : 0;
         $customer_email = isset( $item['customer_email'] ) ? sanitize_email( $item['customer_email'] ) : sanitize_email( $item['email'] ?? '' );
+        $customer_name = isset( $item['customer_name'] ) ? sanitize_text_field( $item['customer_name'] ) : null;
         $status         = isset( $item['status'] ) ? sanitize_text_field( $item['status'] ) : '';
         $subscription_status = isset( $item['subscription_status'] ) ? sanitize_text_field( $item['subscription_status'] ) : '';
         $valid_from     = $this->normalize_mysql_datetime( $item['valid_from'] ?? ( $item['valid_from_at'] ?? null ) );
         $valid_until    = $this->normalize_mysql_datetime( $item['valid_until'] ?? ( $item['valid_to'] ?? null ) );
         $node_plan_id   = isset( $plan['plan_id'] ) ? $plan['plan_id'] : ( $item['plan_id'] ?? null );
+        $node_api_key_id = isset( $item['id'] ) ? absint( $item['id'] ) : 0;
+        $order_id       = isset( $item['order_id'] ) ? absint( $item['order_id'] ) : null;
+        $product_id     = isset( $item['product_id'] ) ? absint( $item['product_id'] ) : null;
 
         if ( ! $subscription_id && $wp_user_id && 'free' === $plan_slug ) {
             $subscription_id = 'free-' . $wp_user_id;
@@ -403,10 +438,11 @@ class DSB_Node_Poll {
             $key_last4 = $item['key_last4'];
         }
 
-        $this->db->upsert_key(
+        $this->db->upsert_key_strict(
             [
                 'subscription_id'     => $subscription_id,
                 'customer_email'      => $customer_email,
+                'customer_name'       => $customer_name,
                 'wp_user_id'          => $wp_user_id ?: null,
                 'plan_slug'           => $plan_slug,
                 'status'              => $status ?: 'unknown',
@@ -416,39 +452,26 @@ class DSB_Node_Poll {
                 'valid_from'          => $valid_from,
                 'valid_until'         => $valid_until,
                 'node_plan_id'        => $node_plan_id,
+                'node_api_key_id'     => $node_api_key_id ?: null,
                 'last_action'         => 'node_poll',
                 'last_http_code'      => $http_code,
                 'last_error'          => null,
             ]
         );
 
-        $user_status = $subscription_status ?: ( 'disabled' === $status ? 'expired' : ( $status ?: null ) );
-        $user_upsert = false;
-        if ( $wp_user_id > 0 ) {
-            $this->db->upsert_user(
-                [
-                    'wp_user_id'      => $wp_user_id,
-                    'customer_email'  => $customer_email,
-                    'subscription_id' => $subscription_id ?: null,
-                    'order_id'        => isset( $item['order_id'] ) ? absint( $item['order_id'] ) : null,
-                    'product_id'      => isset( $item['product_id'] ) ? absint( $item['product_id'] ) : null,
-                    'plan_slug'       => $plan_slug,
-                    'status'          => $user_status,
-                    'valid_from'      => $valid_from,
-                    'valid_until'     => $valid_until,
-                    'source'          => 'node_poll',
-                    'last_sync_at'    => current_time( 'mysql', true ),
-                ]
-            );
-            $user_upsert = true;
-        }
-
         return [
             'wp_user_id'      => $wp_user_id,
             'customer_email'  => $customer_email,
             'subscription_id' => $subscription_id,
+            'node_api_key_id' => $node_api_key_id,
+            'order_id'        => $order_id,
+            'product_id'      => $product_id,
+            'plan_slug'       => $plan_slug,
+            'status'          => $subscription_status ?: ( $status ?: null ),
+            'valid_from'      => $valid_from,
+            'valid_until'     => $valid_until,
             'key_upserted'    => true,
-            'user_upserted'   => $user_upsert,
+            'user_upserted'   => false,
         ];
     }
 
