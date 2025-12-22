@@ -68,6 +68,12 @@ class DSB_Client {
 
     public function get_style_defaults(): array {
         return [
+            // New grouped header defaults.
+            'style_header_bg'                => '#0f172a',
+            'style_header_border'            => 'transparent',
+            'style_header_shadow_color'      => 'rgba(0,0,0,0.0)',
+            'style_header_text'              => '#f8fafc',
+
             'style_plan_title_color'       => '#f8fafc',
             'style_plan_title_size'        => '24px',
             'style_plan_title_weight'      => '700',
@@ -79,6 +85,13 @@ class DSB_Client {
             'style_eyebrow_color'          => '#94a3b8',
             'style_eyebrow_size'           => '12px',
             'style_eyebrow_spacing'        => '0.08em',
+
+            // New grouped cards defaults.
+            'style_cards_bg'                => '#0b1220',
+            'style_cards_border'            => '#1e293b',
+            'style_cards_shadow_color'      => 'rgba(0,0,0,0.4)',
+            'style_cards_text'              => '#f8fafc',
+
             'style_card_header_color'      => '#f8fafc',
             'style_card_header_size'       => '18px',
             'style_card_header_weight'     => '700',
@@ -111,18 +124,39 @@ class DSB_Client {
             'style_btn_primary_hover_border' => '#0ea5e9',
             'style_btn_primary_shadow_color'  => 'rgba(14,165,233,0.25)',
             'style_btn_primary_shadow_strength' => '1',
+            // New grouped primary button states.
+            'style_btn_primary_normal_bg'    => '#0ea5e9',
+            'style_btn_primary_normal_border'=> '#0ea5e9',
+            'style_btn_primary_normal_text'  => '#0b1220',
+            'style_btn_primary_hover_text'   => '#0b1220',
+            'style_btn_primary_hover_border' => '#0ea5e9',
+            'style_btn_primary_active_bg'    => '#0ea5e9',
+            'style_btn_primary_active_border'=> '#0ea5e9',
+            'style_btn_primary_active_text'  => '#0b1220',
             'style_btn_outline_bg'        => 'transparent',
             'style_btn_outline_text'      => '#f8fafc',
             'style_btn_outline_border'    => '#0ea5e9',
             'style_btn_outline_hover_bg'  => '#0ea5e9',
             'style_btn_outline_hover_text'=> '#0b1220',
             'style_btn_outline_hover_border' => '#0ea5e9',
+            'style_btn_outline_normal_bg'    => 'transparent',
+            'style_btn_outline_normal_border'=> '#0ea5e9',
+            'style_btn_outline_normal_text'  => '#f8fafc',
+            'style_btn_outline_active_bg'    => '#0ea5e9',
+            'style_btn_outline_active_border'=> '#0ea5e9',
+            'style_btn_outline_active_text'  => '#0b1220',
             'style_btn_ghost_bg'          => 'transparent',
             'style_btn_ghost_text'        => '#f8fafc',
             'style_btn_ghost_border'      => '#0ea5e9',
             'style_btn_ghost_hover_bg'    => '#0ea5e9',
             'style_btn_ghost_hover_text'  => '#0b1220',
             'style_btn_ghost_hover_border'=> '#0ea5e9',
+            'style_btn_ghost_normal_bg'      => 'transparent',
+            'style_btn_ghost_normal_border'  => '#0ea5e9',
+            'style_btn_ghost_normal_text'    => '#f8fafc',
+            'style_btn_ghost_active_bg'      => '#0ea5e9',
+            'style_btn_ghost_active_border'  => '#0ea5e9',
+            'style_btn_ghost_active_text'    => '#0b1220',
             'style_input_bg'              => '#0f172a',
             'style_input_text'            => '#e2e8f0',
             'style_input_border'          => '#1f2a3d',
@@ -150,6 +184,9 @@ class DSB_Client {
             'style_table_error_text'      => '#f87171',
             'style_status_success_text'   => '#22c55e',
             'style_status_error_text'     => '#f87171',
+            // New grouped table defaults (explicit).
+            'style_table_body_text'       => '#f8fafc',
+            'style_table_empty_text'      => '#94a3b8',
             'style_overlay_color'         => 'rgba(0,0,0,0.6)',
         ];
     }
@@ -195,8 +232,8 @@ class DSB_Client {
 
     public function get_style_settings(): array {
         $defaults = $this->get_style_defaults();
-        $settings = get_option( self::OPTION_SETTINGS, [] );
-        $settings = is_array( $settings ) ? $settings : [];
+        $raw_settings = get_option( self::OPTION_SETTINGS, [] );
+        $settings = is_array( $raw_settings ) ? $raw_settings : [];
         $resolved = [];
 
         foreach ( $defaults as $key => $default ) {
@@ -218,6 +255,75 @@ class DSB_Client {
                 $resolved[ $new_key ] = sanitize_text_field( (string) $settings[ $legacy_key ] );
             }
         }
+
+        // Seed new grouped header styles when not explicitly set.
+        $seed_if_absent = function ( string $target_key, array $candidate_keys ) use ( &$resolved, $raw_settings ) {
+            if ( array_key_exists( $target_key, $raw_settings ) && '' !== (string) $raw_settings[ $target_key ] ) {
+                return;
+            }
+            foreach ( $candidate_keys as $candidate ) {
+                if ( isset( $resolved[ $candidate ] ) && '' !== (string) $resolved[ $candidate ] ) {
+                    $resolved[ $target_key ] = $resolved[ $candidate ];
+                    break;
+                }
+            }
+        };
+
+        $seed_if_absent( 'style_header_text', [ 'style_header_plan_title_color', 'style_plan_title_color', 'style_text_primary' ] );
+        $seed_if_absent( 'style_header_bg', [ 'style_dashboard_bg', 'style_card_bg' ] );
+        $seed_if_absent( 'style_header_border', [ 'style_card_border' ] );
+        $seed_if_absent( 'style_header_shadow_color', [ 'style_card_shadow' ] );
+
+        // Seed new grouped card styles.
+        $seed_if_absent( 'style_cards_text', [ 'style_card_text_color', 'style_text_primary' ] );
+        $seed_if_absent( 'style_cards_bg', [ 'style_card_bg' ] );
+        $seed_if_absent( 'style_cards_border', [ 'style_card_border' ] );
+        $seed_if_absent( 'style_cards_shadow_color', [ 'style_card_shadow' ] );
+
+        // Seed new grouped primary button states from legacy/new combos.
+        $seed_if_absent( 'style_btn_primary_normal_bg', [ 'style_btn_primary_bg', 'style_button_bg' ] );
+        $seed_if_absent( 'style_btn_primary_normal_border', [ 'style_btn_primary_border', 'style_button_border' ] );
+        $seed_if_absent( 'style_btn_primary_normal_text', [ 'style_btn_primary_text', 'style_button_text' ] );
+        $seed_if_absent( 'style_btn_primary_hover_bg', [ 'style_btn_primary_hover_bg', 'style_button_hover_bg', 'style_btn_primary_bg' ] );
+        $seed_if_absent( 'style_btn_primary_hover_border', [ 'style_btn_primary_hover_border', 'style_button_hover_border', 'style_btn_primary_border' ] );
+        $seed_if_absent( 'style_btn_primary_hover_text', [ 'style_btn_primary_hover_text', 'style_btn_primary_text', 'style_button_text' ] );
+        $seed_if_absent( 'style_btn_primary_active_bg', [ 'style_button_active_bg', 'style_btn_primary_hover_bg', 'style_btn_primary_bg' ] );
+        $seed_if_absent( 'style_btn_primary_active_border', [ 'style_btn_primary_hover_border', 'style_btn_primary_border' ] );
+        $seed_if_absent( 'style_btn_primary_active_text', [ 'style_btn_primary_hover_text', 'style_btn_primary_text', 'style_button_text' ] );
+
+        // Seed outline buttons.
+        $seed_if_absent( 'style_btn_outline_normal_bg', [ 'style_btn_outline_bg', 'style_btn_outline_hover_bg' ] );
+        $seed_if_absent( 'style_btn_outline_normal_border', [ 'style_btn_outline_border', 'style_btn_outline_hover_border', 'style_button_border' ] );
+        $seed_if_absent( 'style_btn_outline_normal_text', [ 'style_btn_outline_text', 'style_btn_outline_hover_text', 'style_text_primary' ] );
+        $seed_if_absent( 'style_btn_outline_hover_bg', [ 'style_btn_outline_hover_bg', 'style_btn_outline_bg' ] );
+        $seed_if_absent( 'style_btn_outline_hover_border', [ 'style_btn_outline_hover_border', 'style_btn_outline_border' ] );
+        $seed_if_absent( 'style_btn_outline_hover_text', [ 'style_btn_outline_hover_text', 'style_btn_outline_text' ] );
+        $seed_if_absent( 'style_btn_outline_active_bg', [ 'style_btn_outline_hover_bg', 'style_btn_outline_bg' ] );
+        $seed_if_absent( 'style_btn_outline_active_border', [ 'style_btn_outline_hover_border', 'style_btn_outline_border' ] );
+        $seed_if_absent( 'style_btn_outline_active_text', [ 'style_btn_outline_hover_text', 'style_btn_outline_text' ] );
+
+        // Seed ghost buttons.
+        $seed_if_absent( 'style_btn_ghost_normal_bg', [ 'style_btn_ghost_bg', 'style_btn_ghost_hover_bg' ] );
+        $seed_if_absent( 'style_btn_ghost_normal_border', [ 'style_btn_ghost_border', 'style_btn_ghost_hover_border', 'style_button_border' ] );
+        $seed_if_absent( 'style_btn_ghost_normal_text', [ 'style_btn_ghost_text', 'style_btn_ghost_hover_text', 'style_text_primary' ] );
+        $seed_if_absent( 'style_btn_ghost_hover_bg', [ 'style_btn_ghost_hover_bg', 'style_btn_ghost_bg' ] );
+        $seed_if_absent( 'style_btn_ghost_hover_border', [ 'style_btn_ghost_hover_border', 'style_btn_ghost_border' ] );
+        $seed_if_absent( 'style_btn_ghost_hover_text', [ 'style_btn_ghost_hover_text', 'style_btn_ghost_text' ] );
+        $seed_if_absent( 'style_btn_ghost_active_bg', [ 'style_btn_ghost_hover_bg', 'style_btn_ghost_bg' ] );
+        $seed_if_absent( 'style_btn_ghost_active_border', [ 'style_btn_ghost_hover_border', 'style_btn_ghost_border' ] );
+        $seed_if_absent( 'style_btn_ghost_active_text', [ 'style_btn_ghost_hover_text', 'style_btn_ghost_text' ] );
+
+        // Seed status bubbles from legacy badges.
+        $seed_if_absent( 'style_status_active_bg', [ 'style_badge_active_bg' ] );
+        $seed_if_absent( 'style_status_active_border', [ 'style_badge_active_border' ] );
+        $seed_if_absent( 'style_status_active_text', [ 'style_badge_active_text' ] );
+        $seed_if_absent( 'style_status_disabled_bg', [ 'style_badge_disabled_bg' ] );
+        $seed_if_absent( 'style_status_disabled_border', [ 'style_badge_disabled_border' ] );
+        $seed_if_absent( 'style_status_disabled_text', [ 'style_badge_disabled_text' ] );
+
+        // Seed table group.
+        $seed_if_absent( 'style_table_body_text', [ 'style_table_row_text' ] );
+        $seed_if_absent( 'style_table_empty_text', [ 'style_table_empty_text_color' ] );
 
         return $resolved;
     }
@@ -511,6 +617,10 @@ class DSB_Client {
         }
 
         $color_keys = [
+            'style_header_bg',
+            'style_header_border',
+            'style_header_shadow_color',
+            'style_header_text',
             'style_plan_title_color',
             'style_header_plan_title_color',
             'style_header_eyebrow_color',
@@ -522,6 +632,10 @@ class DSB_Client {
             'style_card_label_color',
             'style_card_hint_color',
             'style_endpoint_eyebrow_color',
+            'style_cards_bg',
+            'style_cards_border',
+            'style_cards_shadow_color',
+            'style_cards_text',
             'style_dashboard_bg',
             'style_card_bg',
             'style_card_border',
@@ -541,6 +655,12 @@ class DSB_Client {
             'style_btn_primary_hover_bg',
             'style_btn_primary_hover_text',
             'style_btn_primary_hover_border',
+            'style_btn_primary_normal_bg',
+            'style_btn_primary_normal_border',
+            'style_btn_primary_normal_text',
+            'style_btn_primary_active_bg',
+            'style_btn_primary_active_border',
+            'style_btn_primary_active_text',
             'style_btn_primary_shadow_color',
             'style_btn_outline_bg',
             'style_btn_outline_text',
@@ -548,12 +668,24 @@ class DSB_Client {
             'style_btn_outline_hover_bg',
             'style_btn_outline_hover_text',
             'style_btn_outline_hover_border',
+            'style_btn_outline_normal_bg',
+            'style_btn_outline_normal_border',
+            'style_btn_outline_normal_text',
+            'style_btn_outline_active_bg',
+            'style_btn_outline_active_border',
+            'style_btn_outline_active_text',
             'style_btn_ghost_bg',
             'style_btn_ghost_text',
             'style_btn_ghost_border',
             'style_btn_ghost_hover_bg',
             'style_btn_ghost_hover_text',
             'style_btn_ghost_hover_border',
+            'style_btn_ghost_normal_bg',
+            'style_btn_ghost_normal_border',
+            'style_btn_ghost_normal_text',
+            'style_btn_ghost_active_bg',
+            'style_btn_ghost_active_border',
+            'style_btn_ghost_active_text',
             'style_input_bg',
             'style_input_text',
             'style_input_border',
@@ -564,6 +696,12 @@ class DSB_Client {
             'style_badge_disabled_bg',
             'style_badge_disabled_border',
             'style_badge_disabled_text',
+            'style_status_active_bg',
+            'style_status_active_border',
+            'style_status_active_text',
+            'style_status_disabled_bg',
+            'style_status_disabled_border',
+            'style_status_disabled_text',
             'style_progress_track',
             'style_progress_fill',
             'style_progress_fill_hover',
@@ -578,6 +716,8 @@ class DSB_Client {
             'style_table_row_border',
             'style_table_row_hover_bg',
             'style_table_empty_text_color',
+            'style_table_body_text',
+            'style_table_empty_text',
             'style_table_error_text',
             'style_status_success_text',
             'style_status_error_text',
