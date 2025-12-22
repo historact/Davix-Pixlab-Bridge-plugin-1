@@ -484,22 +484,31 @@ class DSB_DB {
         return (int) $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_user} WHERE wp_user_id NOT IN ($placeholders)", ...$wp_user_ids ) );
     }
 
-    public function delete_users_by_node_ids_not_in( array $remote_node_ids ): int {
+    public function delete_users_by_node_ids_not_in( array $remote_node_ids, bool $allow_empty_remote = false ): int {
         $remote_node_ids = array_values( array_filter( array_map( 'absint', $remote_node_ids ) ) );
+
         if ( empty( $remote_node_ids ) ) {
-            return 0;
+            if ( ! $allow_empty_remote ) {
+                return 0;
+            }
+
+            return (int) $this->wpdb->query( "DELETE FROM {$this->table_user} WHERE node_api_key_id IS NOT NULL" );
         }
 
         $placeholders = implode( ',', array_fill( 0, count( $remote_node_ids ), '%d' ) );
         return (int) $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_user} WHERE node_api_key_id IS NOT NULL AND node_api_key_id NOT IN ($placeholders)", ...$remote_node_ids ) );
     }
 
-    public function delete_keys_by_node_ids_not_in( array $remote_node_ids, int $batch_size = 500 ): int {
+    public function delete_keys_by_node_ids_not_in( array $remote_node_ids, int $batch_size = 500, bool $allow_empty_remote = false ): int {
         $remote_node_ids = array_values( array_filter( array_map( 'absint', $remote_node_ids ) ) );
 
         // Only delete rows that have node_api_key_id; leave NULL rows untouched for safety.
         $deleted = 0;
         $last_id = 0;
+
+        if ( empty( $remote_node_ids ) && $allow_empty_remote ) {
+            return (int) $this->wpdb->query( "DELETE FROM {$this->table_keys} WHERE node_api_key_id IS NOT NULL" );
+        }
 
         do {
             $local_ids = $this->wpdb->get_col( $this->wpdb->prepare( "SELECT node_api_key_id FROM {$this->table_keys} WHERE node_api_key_id IS NOT NULL AND node_api_key_id > %d ORDER BY node_api_key_id ASC LIMIT %d", $last_id, $batch_size ) );
@@ -531,6 +540,17 @@ class DSB_DB {
 
         $placeholders = implode( ',', array_fill( 0, count( $remote_subscription_ids ), '%s' ) );
         return (int) $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_keys} WHERE node_api_key_id IS NULL AND subscription_id NOT IN ($placeholders)", ...$remote_subscription_ids ) );
+    }
+
+    public function delete_users_without_node_id_not_in_subs( array $remote_subscription_ids ): int {
+        $remote_subscription_ids = array_values( array_filter( array_map( 'sanitize_text_field', $remote_subscription_ids ) ) );
+
+        if ( empty( $remote_subscription_ids ) ) {
+            return 0;
+        }
+
+        $placeholders = implode( ',', array_fill( 0, count( $remote_subscription_ids ), '%s' ) );
+        return (int) $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_user} WHERE node_api_key_id IS NULL AND subscription_id IS NOT NULL AND subscription_id NOT IN ($placeholders)", ...$remote_subscription_ids ) );
     }
 
     public function get_tracked_user_ids(): array {

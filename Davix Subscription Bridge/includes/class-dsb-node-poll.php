@@ -103,8 +103,11 @@ class DSB_Node_Poll {
         $remote_node_ids  = [];
         $remote_subscription_ids = [];
         $user_winners     = [];
-        $has_stable_id    = true;
-        $missing_id_items = [];
+        $node_ids_complete = true;
+        $subscription_ids_complete = true;
+        $has_stable_identifiers = true;
+        $missing_identifier_items = [];
+        $missing_node_id_items    = [];
 
         $summary = [
             'pages'          => 0,
@@ -158,15 +161,37 @@ class DSB_Node_Poll {
 
                     $processed = $this->process_item_strict( $item, $code );
 
-                    if ( $processed['node_api_key_id'] ) {
-                        $remote_node_ids[] = $processed['node_api_key_id'];
-                    } elseif ( $delete_stale_enabled ) {
-                        $has_stable_id      = false;
-                        if ( count( $missing_id_items ) < 3 ) {
-                            $missing_id_items[] = [
+                    $node_api_key_id  = $processed['node_api_key_id'];
+                    $subscription_id  = $processed['subscription_id'];
+
+                    if ( $node_api_key_id ) {
+                        $remote_node_ids[] = $node_api_key_id;
+                    } else {
+                        $node_ids_complete = false;
+                        if ( $delete_stale_enabled && count( $missing_node_id_items ) < 3 ) {
+                            $missing_node_id_items[] = [
                                 'keys'             => array_keys( $item ),
                                 'wp_user_id'       => $processed['wp_user_id'] ?? null,
-                                'subscription_id'  => $processed['subscription_id'] ?? null,
+                                'subscription_id'  => $subscription_id ?? null,
+                                'customer_email'   => $processed['customer_email'] ?? null,
+                                'plan_slug'        => $processed['plan_slug'] ?? null,
+                                'status'           => $processed['status'] ?? null,
+                            ];
+                        }
+                    }
+
+                    if ( ! empty( $subscription_id ) ) {
+                        $remote_subscription_ids[] = sanitize_text_field( (string) $subscription_id );
+                    } else {
+                        $subscription_ids_complete = false;
+                    }
+
+                    if ( ! $node_api_key_id && empty( $subscription_id ) && $delete_stale_enabled ) {
+                        $has_stable_identifiers = false;
+                        if ( count( $missing_identifier_items ) < 3 ) {
+                            $missing_identifier_items[] = [
+                                'keys'             => array_keys( $item ),
+                                'wp_user_id'       => $processed['wp_user_id'] ?? null,
                                 'customer_email'   => $processed['customer_email'] ?? null,
                                 'plan_slug'        => $processed['plan_slug'] ?? null,
                                 'status'           => $processed['status'] ?? null,
@@ -188,10 +213,6 @@ class DSB_Node_Poll {
 
                     $summary['key_upserts']  += $processed['key_upserted'] ? 1 : 0;
                     $summary['user_upserts'] += $processed['user_upserted'] ? 1 : 0;
-
-                    if ( ! empty( $processed['subscription_id'] ) ) {
-                        $remote_subscription_ids[] = sanitize_text_field( (string) $processed['subscription_id'] );
-                    }
                 }
 
                 $total_pages = isset( $decoded['total_pages'] ) ? (int) $decoded['total_pages'] : 0;
@@ -218,8 +239,8 @@ class DSB_Node_Poll {
                 $summary['user_upserts'] ++;
             }
         } catch ( \Throwable $e ) {
-            $errors[]      = $e->getMessage();
-            $has_stable_id = false;
+            $errors[]                = $e->getMessage();
+            $has_stable_identifiers  = false;
         }
 
         $remote_node_ids        = array_values( array_unique( array_filter( array_map( 'absint', $remote_node_ids ) ) ) );
@@ -228,7 +249,7 @@ class DSB_Node_Poll {
 
         $stable_streak = (int) get_option( self::OPTION_STABLE_STREAK, 0 );
 
-        if ( $errors || ! $has_stable_id ) {
+        if ( $errors || ! $has_stable_identifiers ) {
             $stable_streak = 0;
             update_option( self::OPTION_LAST_UNSTABLE, 1, false );
             update_option( self::OPTION_STABLE_STREAK, $stable_streak, false );
@@ -238,33 +259,86 @@ class DSB_Node_Poll {
             update_option( self::OPTION_STABLE_STREAK, $stable_streak, false );
         }
 
-        if ( $has_stable_id && $delete_stale_enabled && $stable_streak >= 2 && ! $errors ) {
-            if ( $wp_user_ids ) {
-                $summary['deleted_users'] += $this->db->delete_users_not_in_ids( $wp_user_ids );
+        DSB_Cron_Logger::log(
+            'node_poll',
+            'Node poll fetch summary',
+            [
+                'fetched_count'                => $summary['items'],
+                'pages'                        => $summary['pages'],
+                'has_stable_identifiers'       => $has_stable_identifiers,
+                'node_ids_complete'            => $node_ids_complete,
+                'subscription_ids_complete'    => $subscription_ids_complete,
+                'remote_node_ids_count'        => count( $remote_node_ids ),
+                'remote_subscription_ids_count'=> count( $remote_subscription_ids ),
+                'stable_streak'                => $stable_streak,
+                'missing_identifier_samples'   => $missing_identifier_items,
+                'missing_node_id_samples'      => $missing_node_id_items,
+                'errors_present'               => ! empty( $errors ),
+                'delete_stale_enabled'         => $delete_stale_enabled,
+            ]
+        );
+
+        if ( $has_stable_identifiers && $delete_stale_enabled && $stable_streak >= 2 && ! $errors ) {
+            $deletion_flags = [
+                'node_id_deletions'        => 'skipped',
+                'legacy_key_deletions'     => 'skipped',
+                'legacy_user_deletions'    => 'skipped',
+            ];
+
+            $allow_empty_remote = 0 === $summary['items'];
+
+            if ( $node_ids_complete ) {
+                if ( $remote_node_ids || $allow_empty_remote ) {
+                    $summary['deleted_users'] += $this->db->delete_users_by_node_ids_not_in( $remote_node_ids, $allow_empty_remote );
+                    $summary['deleted_keys']  += $this->db->delete_keys_by_node_ids_not_in( $remote_node_ids, 500, $allow_empty_remote );
+                    $deletion_flags['node_id_deletions'] = 'ran';
+                } else {
+                    $deletion_flags['node_id_deletions'] = 'skipped_remote_node_ids_empty';
+                }
+            } else {
+                $deletion_flags['node_id_deletions'] = 'skipped_incomplete_node_ids';
             }
 
-            if ( $remote_node_ids ) {
-                $summary['deleted_users'] += $this->db->delete_users_by_node_ids_not_in( $remote_node_ids );
-                $summary['deleted_keys']  += $this->db->delete_keys_by_node_ids_not_in( $remote_node_ids );
-            }
-
-            if ( $remote_subscription_ids ) {
-                $summary['deleted_keys'] += $this->db->delete_keys_without_node_id_not_in_subs( $remote_subscription_ids );
+            if ( $subscription_ids_complete ) {
+                if ( $remote_subscription_ids ) {
+                    $summary['deleted_keys']  += $this->db->delete_keys_without_node_id_not_in_subs( $remote_subscription_ids );
+                    $summary['deleted_users'] += $this->db->delete_users_without_node_id_not_in_subs( $remote_subscription_ids );
+                    $deletion_flags['legacy_key_deletions']  = 'ran';
+                    $deletion_flags['legacy_user_deletions'] = 'ran';
+                } else {
+                    $deletion_flags['legacy_key_deletions']  = 'skipped_remote_subscriptions_empty';
+                    $deletion_flags['legacy_user_deletions'] = 'skipped_remote_subscriptions_empty';
+                }
+            } else {
+                $deletion_flags['legacy_key_deletions']  = 'skipped_incomplete_subscription_ids';
+                $deletion_flags['legacy_user_deletions'] = 'skipped_incomplete_subscription_ids';
             }
 
             DSB_Cron_Logger::log( 'node_poll', 'Node poll deletions executed', [
-                'deleted_keys'          => $summary['deleted_keys'],
-                'deleted_users'         => $summary['deleted_users'],
-                'remote_node_ids_count' => count( $remote_node_ids ),
-                'wp_user_ids_count'     => count( $wp_user_ids ),
-                'stable_streak'         => $stable_streak,
+                'deleted_keys'                  => $summary['deleted_keys'],
+                'deleted_users'                 => $summary['deleted_users'],
+                'remote_node_ids_count'         => count( $remote_node_ids ),
+                'remote_subscription_ids_count' => count( $remote_subscription_ids ),
+                'stable_streak'                 => $stable_streak,
+                'node_ids_complete'             => $node_ids_complete,
+                'subscription_ids_complete'     => $subscription_ids_complete,
+                'deletion_flags'                => $deletion_flags,
             ] );
         } elseif ( $delete_stale_enabled ) {
-            DSB_Cron_Logger::log( 'node_poll', 'Skipped deletions: unstable remote identifiers', [
-                'remote_node_ids_count' => count( $remote_node_ids ),
-                'wp_user_ids_count'     => count( $wp_user_ids ),
-                'missing_id_samples'    => $missing_id_items,
-                'stable_streak'         => $stable_streak,
+            $skip_reason = $errors ? 'errors_present' : 'unstable_identifiers';
+            if ( $stable_streak < 2 && ! $errors && $has_stable_identifiers ) {
+                $skip_reason = 'stable_streak_below_threshold';
+            }
+
+            DSB_Cron_Logger::log( 'node_poll', 'Skipped deletions', [
+                'skip_reason'                  => $skip_reason,
+                'remote_node_ids_count'        => count( $remote_node_ids ),
+                'remote_subscription_ids_count'=> count( $remote_subscription_ids ),
+                'node_ids_complete'            => $node_ids_complete,
+                'subscription_ids_complete'    => $subscription_ids_complete,
+                'missing_identifier_samples'   => $missing_identifier_items,
+                'missing_node_id_samples'      => $missing_node_id_items,
+                'stable_streak'                => $stable_streak,
             ] );
         }
 
