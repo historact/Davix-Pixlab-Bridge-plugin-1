@@ -91,8 +91,8 @@ class DSB_Admin {
         wp_enqueue_style( 'wp-color-picker' );
         wp_enqueue_script( 'wp-color-picker' );
 
-        $css_path = plugin_dir_path( __FILE__ ) . '../assets/css/dsb-admin.css';
-        $css_ver  = file_exists( $css_path ) ? filemtime( $css_path ) : DSB_VERSION;
+        $css_path = DSB_PLUGIN_DIR . 'assets/css/dsb-admin.css';
+        $css_ver  = file_exists( $css_path ) ? DSB_VERSION . '.' . filemtime( $css_path ) : DSB_VERSION;
 
         wp_register_style(
             'dsb-admin-styles',
@@ -102,8 +102,8 @@ class DSB_Admin {
         );
         wp_enqueue_style( 'dsb-admin-styles' );
 
-        $js_path = plugin_dir_path( __FILE__ ) . '../assets/js/dsb-admin.js';
-        $js_ver  = file_exists( $js_path ) ? filemtime( $js_path ) : DSB_VERSION;
+        $js_path = DSB_PLUGIN_DIR . 'assets/js/dsb-admin.js';
+        $js_ver  = file_exists( $js_path ) ? DSB_VERSION . '.' . filemtime( $js_path ) : DSB_VERSION;
 
         wp_register_script(
             'dsb-admin',

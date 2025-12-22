@@ -6,6 +6,10 @@ defined( 'ABSPATH' ) || exit;
 class DSB_Dashboard {
     protected $client;
     protected static $enqueued = false;
+    protected $asset_versions = [
+        'css' => null,
+        'js'  => null,
+    ];
 
     public function __construct( DSB_Client $client ) {
         $this->client = $client;
@@ -46,6 +50,7 @@ class DSB_Dashboard {
         <?php if ( current_user_can( 'manage_options' ) ) : ?>
         <!-- DSB_STYLE_ATTR: <?php echo esc_html( $style_attr ); ?> -->
         <!-- DSB_STYLES_JSON: <?php echo esc_html( wp_json_encode( $styles ) ); ?> -->
+        <?php echo $this->asset_debug_comment(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
         <?php endif; ?>
         <div class="dsb-dashboard" style="<?php echo esc_attr( $style_attr ); ?>">
             <div class="dsb-dashboard__header">
@@ -182,8 +187,9 @@ class DSB_Dashboard {
 
         $labels = $this->client->get_label_settings();
 
-        $css_path = plugin_dir_path( __FILE__ ) . '../assets/css/dsb-dashboard.css';
-        $css_ver  = file_exists( $css_path ) ? filemtime( $css_path ) : DSB_VERSION;
+        $css_path = DSB_PLUGIN_DIR . 'assets/css/dsb-dashboard.css';
+        $css_ver  = file_exists( $css_path ) ? DSB_VERSION . '.' . filemtime( $css_path ) : DSB_VERSION;
+        $this->asset_versions['css'] = $css_ver;
 
         wp_register_style(
             'dsb-dashboard',
@@ -192,8 +198,9 @@ class DSB_Dashboard {
             $css_ver
         );
 
-        $js_path = plugin_dir_path( __FILE__ ) . '../assets/js/dsb-dashboard.js';
-        $js_ver  = file_exists( $js_path ) ? filemtime( $js_path ) : DSB_VERSION;
+        $js_path = DSB_PLUGIN_DIR . 'assets/js/dsb-dashboard.js';
+        $js_ver  = file_exists( $js_path ) ? DSB_VERSION . '.' . filemtime( $js_path ) : DSB_VERSION;
+        $this->asset_versions['js'] = $js_ver;
 
         wp_register_script(
             'dsb-dashboard',
@@ -230,6 +237,21 @@ class DSB_Dashboard {
         wp_enqueue_style( 'dsb-dashboard' );
         wp_enqueue_script( 'dsb-dashboard' );
         self::$enqueued = true;
+    }
+
+    protected function asset_debug_comment(): string {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return '';
+        }
+
+        $css_ver = $this->asset_versions['css'] ?? DSB_VERSION;
+        $js_ver  = $this->asset_versions['js'] ?? DSB_VERSION;
+
+        return sprintf(
+            '<!-- DSB assets: dashboard.css ver=%s dashboard.js ver=%s -->',
+            esc_html( $css_ver ),
+            esc_html( $js_ver )
+        );
     }
 
     protected function build_style_attribute( array $styles ): string {
