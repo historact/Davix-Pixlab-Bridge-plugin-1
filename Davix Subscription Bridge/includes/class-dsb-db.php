@@ -6,7 +6,7 @@ defined( 'ABSPATH' ) || exit;
 class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
     const OPTION_DB_VERSION          = 'dsb_db_version';
-    const DB_VERSION                 = '1.6.1';
+    const DB_VERSION                 = '1.7.0';
     const OPTION_TRIGGERS_STATUS     = 'dsb_triggers_status';
 
     /** @var \wpdb */
@@ -94,8 +94,9 @@ class DSB_DB {
             created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
-            UNIQUE KEY subscription_id (subscription_id),
+            UNIQUE KEY uniq_wp_user_subscription (wp_user_id, subscription_id),
             KEY wp_user_id (wp_user_id),
+            KEY subscription_id (subscription_id),
             UNIQUE KEY node_api_key_id (node_api_key_id),
             KEY customer_email (customer_email)
         ) $charset_collate;";
@@ -117,7 +118,7 @@ class DSB_DB {
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
-            UNIQUE KEY uniq_wp_user_id (wp_user_id),
+            UNIQUE KEY uniq_wp_user_subscription (wp_user_id, subscription_id),
             KEY idx_email (customer_email),
             KEY idx_sub (subscription_id),
             KEY idx_status (status),
@@ -171,6 +172,11 @@ class DSB_DB {
             if ( version_compare( (string) $stored_version, '1.6.1', '<' ) ) {
                 require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.6.1.php';
                 DSB_Migration_161::run( $this->wpdb, $this->table_keys );
+            }
+
+            if ( version_compare( (string) $stored_version, '1.7.0', '<' ) ) {
+                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.7.0.php';
+                DSB_Migration_170::run( $this->wpdb, $this->table_keys, $this->table_user );
             }
 
             update_option( self::OPTION_DB_VERSION, self::DB_VERSION );
@@ -563,7 +569,7 @@ class DSB_DB {
         return array_values( array_filter( array_map( 'absint', (array) $ids ) ) );
     }
 
-    public function upsert_user( array $data ): void {
+    public function upsert_user( array $data ): array {
         $defaults = [
             'wp_user_id'      => 0,
             'customer_email'  => null,
@@ -594,19 +600,58 @@ class DSB_DB {
         $data['source']          = $data['source'] ? sanitize_text_field( $data['source'] ) : 'wps_rest';
         $data['last_sync_at']    = $data['last_sync_at'] ? sanitize_text_field( $data['last_sync_at'] ) : current_time( 'mysql', true );
 
-        if ( ! $data['wp_user_id'] ) {
-            return;
+        $result = [
+            'status'           => 'skipped',
+            'wp_user_id'       => $data['wp_user_id'],
+            'subscription_id'  => $data['subscription_id'],
+            'conflict_type'    => null,
+            'conflict_local'   => null,
+            'conflict_remote'  => null,
+        ];
+
+        if ( ! $data['wp_user_id'] || '' === (string) $data['subscription_id'] ) {
+            $result['status'] = 'legacy';
+            return $result;
         }
 
-        $existing = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_user} WHERE wp_user_id = %d", $data['wp_user_id'] ), ARRAY_A );
+        $conflict = $this->detect_pair_conflict( $this->table_user, $data['wp_user_id'], (string) $data['subscription_id'] );
+        if ( $conflict ) {
+            $result['status']          = 'conflict';
+            $result['conflict_type']   = $conflict['type'];
+            $result['conflict_local']  = $conflict['local'];
+            $result['conflict_remote'] = [ 'wp_user_id' => $data['wp_user_id'], 'subscription_id' => $data['subscription_id'] ];
+            return $result;
+        }
+
+        $existing = $this->wpdb->get_row(
+            $this->wpdb->prepare(
+                "SELECT id FROM {$this->table_user} WHERE wp_user_id = %d AND subscription_id = %s",
+                $data['wp_user_id'],
+                $data['subscription_id']
+            ),
+            ARRAY_A
+        );
 
         if ( $existing ) {
             $this->wpdb->update( $this->table_user, $data, [ 'id' => $existing['id'] ] );
-            dsb_log( 'info', 'Updated user truth row', [ 'wp_user_id' => $data['wp_user_id'] ] );
+            dsb_log( 'info', 'Updated user truth row', [ 'wp_user_id' => $data['wp_user_id'], 'subscription_id' => $data['subscription_id'] ] );
+            $result['status'] = 'updated';
         } else {
             $this->wpdb->insert( $this->table_user, $data );
-            dsb_log( 'info', 'Inserted user truth row', [ 'wp_user_id' => $data['wp_user_id'] ] );
+            dsb_log( 'info', 'Inserted user truth row', [ 'wp_user_id' => $data['wp_user_id'], 'subscription_id' => $data['subscription_id'] ] );
+            $result['status'] = 'inserted';
         }
+
+        if ( $this->wpdb->last_error ) {
+            $result['status'] = 'error';
+            dsb_log( 'error', 'User upsert failed', [
+                'error'             => $this->wpdb->last_error,
+                'wp_user_id'        => $data['wp_user_id'],
+                'subscription_id'   => $data['subscription_id'],
+            ] );
+        }
+
+        return $result;
     }
 
     /**
@@ -685,7 +730,7 @@ class DSB_DB {
         return (int) $this->wpdb->get_var( "SELECT COUNT(*) FROM {$this->table_keys}" );
     }
 
-    public function upsert_key( array $data ): void {
+    public function upsert_key( array $data ): array {
         $defaults = [
             'subscription_id'     => '',
             'customer_email'      => '',
@@ -721,30 +766,51 @@ class DSB_DB {
         $data['last_http_code']      = $data['last_http_code'] ? absint( $data['last_http_code'] ) : null;
         $data['last_error']          = $data['last_error'] ? wp_strip_all_tags( (string) $data['last_error'] ) : null;
 
-        $existing = null;
-        $match_by = '';
+        $result = [
+            'status'           => 'skipped',
+            'wp_user_id'       => $data['wp_user_id'],
+            'subscription_id'  => $data['subscription_id'],
+            'conflict_type'    => null,
+            'conflict_local'   => null,
+            'conflict_remote'  => null,
+        ];
 
-        if ( $data['node_api_key_id'] ) {
-            $existing = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_keys} WHERE node_api_key_id = %d", $data['node_api_key_id'] ), ARRAY_A );
-            $match_by = 'node_api_key_id';
+        if ( ! $data['wp_user_id'] || '' === $data['subscription_id'] ) {
+            $result['status'] = 'legacy';
+            return $result;
         }
 
-        if ( ! $existing && $data['subscription_id'] ) {
-            $existing = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM {$this->table_keys} WHERE subscription_id = %s", $data['subscription_id'] ), ARRAY_A );
-            $match_by = $match_by ?: 'subscription_id';
+        $conflict = $this->detect_pair_conflict( $this->table_keys, $data['wp_user_id'], $data['subscription_id'] );
+        if ( $conflict ) {
+            $result['status']          = 'conflict';
+            $result['conflict_type']   = $conflict['type'];
+            $result['conflict_local']  = $conflict['local'];
+            $result['conflict_remote'] = [ 'wp_user_id' => $data['wp_user_id'], 'subscription_id' => $data['subscription_id'] ];
+            return $result;
         }
+
+        $existing = $this->wpdb->get_row(
+            $this->wpdb->prepare(
+                "SELECT id FROM {$this->table_keys} WHERE wp_user_id = %d AND subscription_id = %s",
+                $data['wp_user_id'],
+                $data['subscription_id']
+            ),
+            ARRAY_A
+        );
 
         if ( $existing ) {
             $this->wpdb->update( $this->table_keys, $data, [ 'id' => $existing['id'] ] );
-            dsb_log( 'info', 'Updated key record via strict mirror', [ 'match_by' => $match_by, 'id' => $existing['id'] ] );
+            dsb_log( 'info', 'Updated key record via strict mirror', [ 'id' => $existing['id'], 'wp_user_id' => $data['wp_user_id'], 'subscription_id' => $data['subscription_id'] ] );
+            $result['status'] = 'updated';
         } else {
             $this->wpdb->insert( $this->table_keys, $data );
-            dsb_log( 'info', 'Inserted key record via strict mirror', [ 'match_by' => $match_by, 'node_api_key_id' => $data['node_api_key_id'], 'subscription_id' => $data['subscription_id'] ] );
+            dsb_log( 'info', 'Inserted key record via strict mirror', [ 'node_api_key_id' => $data['node_api_key_id'], 'subscription_id' => $data['subscription_id'], 'wp_user_id' => $data['wp_user_id'] ] );
+            $result['status'] = 'inserted';
         }
 
         if ( $this->wpdb->last_error ) {
+            $result['status'] = 'error';
             dsb_log( 'error', 'Key upsert failed', [
-                'match_by'   => $match_by,
                 'error'      => $this->wpdb->last_error,
                 'data'       => [
                     'subscription_id' => $data['subscription_id'],
@@ -753,13 +819,15 @@ class DSB_DB {
                 ],
             ] );
         }
+
+        return $result;
     }
 
     /**
      * Backward-compatible alias for strict mirror upsert.
      */
-    public function upsert_key_strict( array $data ): void {
-        $this->upsert_key( $data );
+    public function upsert_key_strict( array $data ): array {
+        return $this->upsert_key( $data );
     }
 
     public function find_key( string $subscription_id ): ?array {
@@ -769,6 +837,161 @@ class DSB_DB {
 
     public function get_key_by_subscription_id( string $subscription_id ): ?array {
         return $this->find_key( $subscription_id );
+    }
+
+    public function delete_keys_not_in_pairs( array $remote_pairs, int $batch_size = 500, bool $allow_empty_remote = false ): int {
+        $remote_pairs = $this->normalize_pair_map( $remote_pairs );
+
+        if ( empty( $remote_pairs ) && ! $allow_empty_remote ) {
+            return 0;
+        }
+
+        $deleted = 0;
+        $last_id = 0;
+
+        do {
+            $rows = $this->wpdb->get_results(
+                $this->wpdb->prepare(
+                    "SELECT id, wp_user_id, subscription_id FROM {$this->table_keys} WHERE wp_user_id > 0 AND subscription_id IS NOT NULL AND subscription_id <> '' AND id > %d ORDER BY id ASC LIMIT %d",
+                    $last_id,
+                    $batch_size
+                ),
+                ARRAY_A
+            );
+
+            if ( empty( $rows ) ) {
+                break;
+            }
+
+            foreach ( $rows as $row ) {
+                $last_id = max( $last_id, (int) $row['id'] );
+                $pair    = $row['wp_user_id'] . '|' . $row['subscription_id'];
+                if ( isset( $remote_pairs[ $pair ] ) ) {
+                    continue;
+                }
+
+                if ( empty( $remote_pairs ) && ! $allow_empty_remote ) {
+                    continue;
+                }
+
+                $this->wpdb->delete( $this->table_keys, [ 'id' => $row['id'] ], [ '%d' ] );
+                $deleted += (int) $this->wpdb->rows_affected;
+            }
+        } while ( count( $rows ) === $batch_size );
+
+        return $deleted;
+    }
+
+    public function delete_users_not_in_pairs( array $remote_pairs, int $batch_size = 500, bool $allow_empty_remote = false ): int {
+        $remote_pairs = $this->normalize_pair_map( $remote_pairs );
+
+        if ( empty( $remote_pairs ) && ! $allow_empty_remote ) {
+            return 0;
+        }
+
+        $deleted = 0;
+        $last_id = 0;
+
+        do {
+            $rows = $this->wpdb->get_results(
+                $this->wpdb->prepare(
+                    "SELECT id, wp_user_id, subscription_id FROM {$this->table_user} WHERE wp_user_id > 0 AND subscription_id IS NOT NULL AND subscription_id <> '' AND id > %d ORDER BY id ASC LIMIT %d",
+                    $last_id,
+                    $batch_size
+                ),
+                ARRAY_A
+            );
+
+            if ( empty( $rows ) ) {
+                break;
+            }
+
+            foreach ( $rows as $row ) {
+                $last_id = max( $last_id, (int) $row['id'] );
+                $pair    = $row['wp_user_id'] . '|' . $row['subscription_id'];
+                if ( isset( $remote_pairs[ $pair ] ) ) {
+                    continue;
+                }
+
+                if ( empty( $remote_pairs ) && ! $allow_empty_remote ) {
+                    continue;
+                }
+
+                $this->wpdb->delete( $this->table_user, [ 'id' => $row['id'] ], [ '%d' ] );
+                $deleted += (int) $this->wpdb->rows_affected;
+            }
+        } while ( count( $rows ) === $batch_size );
+
+        return $deleted;
+    }
+
+    protected function detect_pair_conflict( string $table, int $wp_user_id, string $subscription_id ): ?array {
+        $table           = esc_sql( $table );
+        $subscription_id = sanitize_text_field( $subscription_id );
+        $wp_user_id      = absint( $wp_user_id );
+
+        $local_user_mismatch = $this->wpdb->get_row(
+            $this->wpdb->prepare(
+                "SELECT wp_user_id, subscription_id FROM {$table} WHERE subscription_id = %s AND subscription_id <> '' AND wp_user_id <> %d AND wp_user_id > 0 LIMIT 1",
+                $subscription_id,
+                $wp_user_id
+            ),
+            ARRAY_A
+        );
+
+        if ( $local_user_mismatch ) {
+            return [
+                'type'  => 'subscription_mismatch',
+                'local' => [
+                    'wp_user_id'      => absint( $local_user_mismatch['wp_user_id'] ),
+                    'subscription_id' => $local_user_mismatch['subscription_id'],
+                ],
+            ];
+        }
+
+        $local_subscription_mismatch = $this->wpdb->get_row(
+            $this->wpdb->prepare(
+                "SELECT wp_user_id, subscription_id FROM {$table} WHERE wp_user_id = %d AND wp_user_id > 0 AND subscription_id IS NOT NULL AND subscription_id <> '' AND subscription_id <> %s LIMIT 1",
+                $wp_user_id,
+                $subscription_id
+            ),
+            ARRAY_A
+        );
+
+        if ( $local_subscription_mismatch ) {
+            return [
+                'type'  => 'user_mismatch',
+                'local' => [
+                    'wp_user_id'      => absint( $local_subscription_mismatch['wp_user_id'] ),
+                    'subscription_id' => $local_subscription_mismatch['subscription_id'],
+                ],
+            ];
+        }
+
+        return null;
+    }
+
+    protected function normalize_pair_map( array $pairs ): array {
+        $map = [];
+        foreach ( $pairs as $pair ) {
+            if ( ! is_string( $pair ) ) {
+                continue;
+            }
+            $parts = explode( '|', $pair, 2 );
+            if ( 2 !== count( $parts ) ) {
+                continue;
+            }
+
+            $wp_user_id      = absint( $parts[0] );
+            $subscription_id = sanitize_text_field( (string) $parts[1] );
+            if ( $wp_user_id <= 0 || '' === $subscription_id ) {
+                continue;
+            }
+
+            $map[ $wp_user_id . '|' . $subscription_id ] = true;
+        }
+
+        return $map;
     }
 }
 
