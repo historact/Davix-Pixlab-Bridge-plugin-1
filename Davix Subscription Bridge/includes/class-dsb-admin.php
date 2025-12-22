@@ -594,7 +594,7 @@ class DSB_Admin {
                         $received[] = $style_key;
                     }
                 }
-                dsb_log( 'info', 'Saving style settings', [ 'keys' => $received ] );
+                dsb_log( 'info', 'Saving style settings', [ 'keys' => $received, 'count' => count( $received ) ] );
             }
 
                 $this->client->save_settings( wp_unslash( $_POST ) );
@@ -1110,12 +1110,50 @@ class DSB_Admin {
         <form method="post" class="dsb-style-form">
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
 
+            <div class="dsb-style-save-bar">
+                <?php submit_button( __( 'Save Changes', 'davix-sub-bridge' ), 'primary', 'submit', false ); ?>
+            </div>
+
             <div class="dsb-style-section">
                 <h3><?php esc_html_e( 'Dashboard Layout', 'davix-sub-bridge' ); ?></h3>
                 <p class="description"><?php esc_html_e( 'Control the global dashboard canvas behind every card and section of the [PIXLAB_DASHBOARD] shortcode.', 'davix-sub-bridge' ); ?></p>
                 <table class="form-table" role="presentation">
                     <?php
                     $this->render_color_input_field( 'style_dashboard_bg', __( 'Dashboard Background Color', 'davix-sub-bridge' ), $styles['style_dashboard_bg'], __( 'Background behind all dashboard sections in the [PIXLAB_DASHBOARD] shortcode.', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'Plan & Headers', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Customize plan title, eyebrow labels, and card header typography.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_color_input_field( 'style_plan_title_color', __( 'Plan Title Color', 'davix-sub-bridge' ), $styles['style_plan_title_color'], __( 'Color for the active plan/level name in the dashboard header.', 'davix-sub-bridge' ) );
+                    $this->render_number_input_field( 'style_plan_title_size', __( 'Plan Title Size', 'davix-sub-bridge' ), $styles['style_plan_title_size'], __( 'Font size (px) of the plan/level name.', 'davix-sub-bridge' ), 1, 10, 80 );
+                    $this->render_select_input_field( 'style_plan_title_weight', __( 'Plan Title Weight', 'davix-sub-bridge' ), $styles['style_plan_title_weight'], [
+                        '300' => '300',
+                        '400' => '400',
+                        '500' => '500',
+                        '600' => '600',
+                        '700' => '700',
+                        '800' => '800',
+                    ], __( 'Font weight of the plan/level name.', 'davix-sub-bridge' ) );
+
+                    $this->render_color_input_field( 'style_eyebrow_color', __( 'Eyebrow Label Color', 'davix-sub-bridge' ), $styles['style_eyebrow_color'], __( 'Color for eyebrow labels such as “Current Plan” and endpoint labels.', 'davix-sub-bridge' ) );
+                    $this->render_number_input_field( 'style_eyebrow_size', __( 'Eyebrow Label Size', 'davix-sub-bridge' ), $styles['style_eyebrow_size'], __( 'Font size (px) for eyebrow labels.', 'davix-sub-bridge' ), 0.5, 8, 32 );
+                    $this->render_number_input_field( 'style_eyebrow_spacing', __( 'Eyebrow Letter Spacing', 'davix-sub-bridge' ), $styles['style_eyebrow_spacing'], __( 'Letter spacing (em) for eyebrow labels.', 'davix-sub-bridge' ), 0.01, 0, 1, 'em' );
+
+                    $this->render_color_input_field( 'style_card_header_color', __( 'Card Header Color', 'davix-sub-bridge' ), $styles['style_card_header_color'], __( 'Heading color for card titles such as API Key, Usage, and History.', 'davix-sub-bridge' ) );
+                    $this->render_number_input_field( 'style_card_header_size', __( 'Card Header Size', 'davix-sub-bridge' ), $styles['style_card_header_size'], __( 'Font size (px) for card headers.', 'davix-sub-bridge' ), 1, 12, 48 );
+                    $this->render_select_input_field( 'style_card_header_weight', __( 'Card Header Weight', 'davix-sub-bridge' ), $styles['style_card_header_weight'], [
+                        '300' => '300',
+                        '400' => '400',
+                        '500' => '500',
+                        '600' => '600',
+                        '700' => '700',
+                        '800' => '800',
+                    ], __( 'Font weight for card headers.', 'davix-sub-bridge' ) );
                     ?>
                 </table>
             </div>
@@ -1146,15 +1184,35 @@ class DSB_Admin {
 
             <div class="dsb-style-section">
                 <h3><?php esc_html_e( 'Buttons', 'davix-sub-bridge' ); ?></h3>
-                <p class="description"><?php esc_html_e( 'Customize all primary dashboard buttons including Rotate Key and pagination controls.', 'davix-sub-bridge' ); ?></p>
+                <p class="description"><?php esc_html_e( 'Customize primary (Regenerate), outline (Disable/Enable), and ghost (pagination, modal copy) buttons.', 'davix-sub-bridge' ); ?></p>
                 <table class="form-table" role="presentation">
                     <?php
-                    $this->render_color_input_field( 'style_button_bg', __( 'Primary Button Background Color', 'davix-sub-bridge' ), $styles['style_button_bg'], __( 'Background color for main dashboard buttons such as Regenerate Key.', 'davix-sub-bridge' ) );
-                    $this->render_color_input_field( 'style_button_text', __( 'Primary Button Text Color', 'davix-sub-bridge' ), $styles['style_button_text'], __( 'Text color for main dashboard buttons.', 'davix-sub-bridge' ) );
-                    $this->render_color_input_field( 'style_button_border', __( 'Primary Button Border Color', 'davix-sub-bridge' ), $styles['style_button_border'], __( 'Border color for main dashboard buttons.', 'davix-sub-bridge' ) );
-                    $this->render_color_input_field( 'style_button_hover_bg', __( 'Primary Button Hover Background Color', 'davix-sub-bridge' ), $styles['style_button_hover_bg'], __( 'Background color when hovering over main dashboard buttons.', 'davix-sub-bridge' ) );
-                    $this->render_color_input_field( 'style_button_hover_border', __( 'Primary Button Hover Border Color', 'davix-sub-bridge' ), $styles['style_button_hover_border'], __( 'Border color when hovering over main dashboard buttons.', 'davix-sub-bridge' ) );
-                    $this->render_color_input_field( 'style_button_active_bg', __( 'Primary Button Active Background Color', 'davix-sub-bridge' ), $styles['style_button_active_bg'], __( 'Background color when pressing a main dashboard button.', 'davix-sub-bridge' ) );
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Primary Buttons', 'davix-sub-bridge' ) . '</strong></th></tr>';
+                    $this->render_color_input_field( 'style_btn_primary_bg', __( 'Primary Background', 'davix-sub-bridge' ), $styles['style_btn_primary_bg'], __( 'Background color for main dashboard buttons such as Regenerate Key.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_primary_text', __( 'Primary Text', 'davix-sub-bridge' ), $styles['style_btn_primary_text'], __( 'Text color for main dashboard buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_primary_border', __( 'Primary Border', 'davix-sub-bridge' ), $styles['style_btn_primary_border'], __( 'Border color for main dashboard buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_primary_hover_bg', __( 'Primary Hover Background', 'davix-sub-bridge' ), $styles['style_btn_primary_hover_bg'], __( 'Background color when hovering over main dashboard buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_primary_hover_text', __( 'Primary Hover Text', 'davix-sub-bridge' ), $styles['style_btn_primary_hover_text'], __( 'Text color when hovering over main dashboard buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_primary_hover_border', __( 'Primary Hover Border', 'davix-sub-bridge' ), $styles['style_btn_primary_hover_border'], __( 'Border color when hovering over main dashboard buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_button_active_bg', __( 'Primary Active Background (Legacy)', 'davix-sub-bridge' ), $styles['style_button_active_bg'], __( 'Background color when pressing a main dashboard button.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_primary_shadow_color', __( 'Primary Shadow Color', 'davix-sub-bridge' ), $styles['style_btn_primary_shadow_color'], __( 'Shadow color applied to primary buttons.', 'davix-sub-bridge' ) );
+                    $this->render_number_input_field( 'style_btn_primary_shadow_strength', __( 'Primary Shadow Strength', 'davix-sub-bridge' ), $styles['style_btn_primary_shadow_strength'], __( 'Multiplier for primary button shadow blur (0 disables).', 'davix-sub-bridge' ), 0.1, 0, 3, 'x' );
+
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Outline Buttons (Disable/Enable Key)', 'davix-sub-bridge' ) . '</strong></th></tr>';
+                    $this->render_color_input_field( 'style_btn_outline_bg', __( 'Outline Background', 'davix-sub-bridge' ), $styles['style_btn_outline_bg'], __( 'Background color for outline buttons such as Disable/Enable Key.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_outline_text', __( 'Outline Text', 'davix-sub-bridge' ), $styles['style_btn_outline_text'], __( 'Text color for outline buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_outline_border', __( 'Outline Border', 'davix-sub-bridge' ), $styles['style_btn_outline_border'], __( 'Border color for outline buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_outline_hover_bg', __( 'Outline Hover Background', 'davix-sub-bridge' ), $styles['style_btn_outline_hover_bg'], __( 'Background color on hover for outline buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_outline_hover_text', __( 'Outline Hover Text', 'davix-sub-bridge' ), $styles['style_btn_outline_hover_text'], __( 'Text color on hover for outline buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_outline_hover_border', __( 'Outline Hover Border', 'davix-sub-bridge' ), $styles['style_btn_outline_hover_border'], __( 'Border color on hover for outline buttons.', 'davix-sub-bridge' ) );
+
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Ghost Buttons (Pagination & Modal)', 'davix-sub-bridge' ) . '</strong></th></tr>';
+                    $this->render_color_input_field( 'style_btn_ghost_bg', __( 'Ghost Background', 'davix-sub-bridge' ), $styles['style_btn_ghost_bg'], __( 'Background color for ghost buttons such as pagination.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_ghost_text', __( 'Ghost Text', 'davix-sub-bridge' ), $styles['style_btn_ghost_text'], __( 'Text color for ghost buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_ghost_border', __( 'Ghost Border', 'davix-sub-bridge' ), $styles['style_btn_ghost_border'], __( 'Border color for ghost buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_ghost_hover_bg', __( 'Ghost Hover Background', 'davix-sub-bridge' ), $styles['style_btn_ghost_hover_bg'], __( 'Background color on hover for ghost buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_ghost_hover_text', __( 'Ghost Hover Text', 'davix-sub-bridge' ), $styles['style_btn_ghost_hover_text'], __( 'Text color on hover for ghost buttons.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_ghost_hover_border', __( 'Ghost Hover Border', 'davix-sub-bridge' ), $styles['style_btn_ghost_hover_border'], __( 'Border color on hover for ghost buttons.', 'davix-sub-bridge' ) );
                     ?>
                 </table>
             </div>
@@ -1194,6 +1252,8 @@ class DSB_Admin {
                     <?php
                     $this->render_color_input_field( 'style_progress_track', __( 'Progress Bar Track Color', 'davix-sub-bridge' ), $styles['style_progress_track'], __( 'Background color behind the usage progress bar.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_progress_fill', __( 'Progress Bar Fill Color', 'davix-sub-bridge' ), $styles['style_progress_fill'], __( 'Fill color of the usage progress bar (currently green).', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_progress_fill_hover', __( 'Progress Bar Hover Fill Color', 'davix-sub-bridge' ), $styles['style_progress_fill_hover'], __( 'Fill color of the usage progress bar on hover.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_progress_track_border', __( 'Progress Bar Track Border', 'davix-sub-bridge' ), $styles['style_progress_track_border'], __( 'Border color for the progress track container.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_progress_text', __( 'Progress Bar Text Color', 'davix-sub-bridge' ), $styles['style_progress_text'], __( 'Text color for usage labels displayed next to the bar.', 'davix-sub-bridge' ) );
                     ?>
                 </table>
@@ -1209,10 +1269,35 @@ class DSB_Admin {
                     $this->render_color_input_field( 'style_table_header_text', __( 'Table Header Text Color', 'davix-sub-bridge' ), $styles['style_table_header_text'], __( 'Text color for history table headers.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_table_border', __( 'Table Border Color', 'davix-sub-bridge' ), $styles['style_table_border'], __( 'Border color separating table cells and rows.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_table_row_bg', __( 'Table Row Background Color', 'davix-sub-bridge' ), $styles['style_table_row_bg'], __( 'Stripe background color for alternating history rows.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_table_row_text', __( 'Table Row Text Color', 'davix-sub-bridge' ), $styles['style_table_row_text'], __( 'Text color for table rows.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_table_row_border', __( 'Table Row Border Color', 'davix-sub-bridge' ), $styles['style_table_row_border'], __( 'Border color for row dividers.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_table_row_hover_bg', __( 'Table Row Hover Background Color', 'davix-sub-bridge' ), $styles['style_table_row_hover_bg'], __( 'Background color when hovering over a history row.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_table_error_text', __( 'Error Text Color', 'davix-sub-bridge' ), $styles['style_table_error_text'], __( 'Text color for error messages inside the Error column.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_status_success_text', __( 'Status “Success” Text Color', 'davix-sub-bridge' ), $styles['style_status_success_text'], __( 'Text color used for Success statuses in the history table.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_status_error_text', __( 'Status “Error” Text Color', 'davix-sub-bridge' ), $styles['style_status_error_text'], __( 'Text color used for Error statuses in the history table.', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'Modal & Overlay', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Control overlay color for modal dialogs in the dashboard.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_color_input_field( 'style_overlay_color', __( 'Modal Overlay Color', 'davix-sub-bridge' ), $styles['style_overlay_color'], __( 'Backdrop color behind modals.', 'davix-sub-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'Layout Sizes & Spacing', 'davix-sub-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Tune radii, padding, and shadow depth for dashboard cards.', 'davix-sub-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    $this->render_number_input_field( 'style_card_radius', __( 'Card & Container Radius', 'davix-sub-bridge' ), $styles['style_card_radius'], __( 'Corner radius (px) for cards and the dashboard container.', 'davix-sub-bridge' ), 1, 0, 48 );
+                    $this->render_number_input_field( 'style_card_shadow_blur', __( 'Card Shadow Blur', 'davix-sub-bridge' ), $styles['style_card_shadow_blur'], __( 'Blur radius (px) for card shadows.', 'davix-sub-bridge' ), 1, 0, 64 );
+                    $this->render_number_input_field( 'style_card_shadow_spread', __( 'Card Shadow Spread', 'davix-sub-bridge' ), $styles['style_card_shadow_spread'], __( 'Shadow spread (px) for cards.', 'davix-sub-bridge' ), 1, -10, 30 );
+                    $this->render_number_input_field( 'style_container_padding', __( 'Dashboard Padding', 'davix-sub-bridge' ), $styles['style_container_padding'], __( 'Padding (px) inside the dashboard wrapper.', 'davix-sub-bridge' ), 1, 0, 80 );
                     ?>
                 </table>
             </div>
@@ -1282,6 +1367,38 @@ class DSB_Admin {
             <th scope="row"><label for="<?php echo esc_attr( $id ); ?>"><?php echo esc_html( $label ); ?></label></th>
             <td>
                 <input type="text" class="regular-text" id="<?php echo esc_attr( $id ); ?>" name="<?php echo esc_attr( $id ); ?>" value="<?php echo esc_attr( $value ); ?>" />
+                <p class="description"><?php echo esc_html( $description ); ?></p>
+            </td>
+        </tr>
+        <?php
+    }
+
+    protected function render_number_input_field( string $id, string $label, string $value, string $description, $step = 1, $min = 0, $max = null, string $suffix = 'px' ): void {
+        $numeric_value = is_numeric( $value ) ? $value : preg_replace( '/[^\d.\-]/', '', (string) $value );
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr( $id ); ?>"><?php echo esc_html( $label ); ?></label></th>
+            <td>
+                <div class="dsb-number-field">
+                    <input type="number" class="small-text" id="<?php echo esc_attr( $id ); ?>" name="<?php echo esc_attr( $id ); ?>" value="<?php echo esc_attr( $numeric_value ); ?>" step="<?php echo esc_attr( $step ); ?>" min="<?php echo esc_attr( $min ); ?>" <?php echo null !== $max ? 'max="' . esc_attr( $max ) . '"' : ''; ?> />
+                    <span class="dsb-number-field__suffix"><?php echo esc_html( $suffix ); ?></span>
+                </div>
+                <p class="description"><?php echo esc_html( $description ); ?></p>
+            </td>
+        </tr>
+        <?php
+    }
+
+    protected function render_select_input_field( string $id, string $label, string $value, array $options, string $description ): void {
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr( $id ); ?>"><?php echo esc_html( $label ); ?></label></th>
+            <td>
+                <select id="<?php echo esc_attr( $id ); ?>" name="<?php echo esc_attr( $id ); ?>">
+                    <?php foreach ( $options as $option_value => $option_label ) : ?>
+                        <option value="<?php echo esc_attr( $option_value ); ?>" <?php selected( (string) $value, (string) $option_value ); ?>><?php echo esc_html( $option_label ); ?></option>
+                    <?php endforeach; ?>
+                </select>
                 <p class="description"><?php echo esc_html( $description ); ?></p>
             </td>
         </tr>
