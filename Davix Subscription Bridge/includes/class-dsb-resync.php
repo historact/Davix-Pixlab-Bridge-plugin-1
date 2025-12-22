@@ -162,8 +162,31 @@ class DSB_Resync {
             $valid_until = $end_ts > 0 ? DSB_Util::to_iso_utc( $end_ts ) : DSB_Util::to_iso_utc( self::compute_fallback_valid_until_ts( $level_id, $valid_from_ts ) );
         }
 
-        $event = 'active' === $status ? 'active' : 'cancelled';
-        if ( 'active' !== $status && empty( $settings['resync_disable_non_active'] ) ) {
+        $now_ts = time();
+        $state = 'active';
+
+        if ( 'active' === $status ) {
+            $state = 'active';
+        } elseif ( $is_lifetime || ( $end_ts > $now_ts ) ) {
+            $state = 'cancelled_remaining';
+        } else {
+            $state = 'expired';
+        }
+
+        if ( 'expired' === $state ) {
+            $plan_slug   = '';
+            $valid_until = null;
+            $valid_from  = null;
+        }
+
+        $event = 'active';
+        if ( 'cancelled_remaining' === $state ) {
+            $event = 'cancelled';
+        } elseif ( 'expired' === $state ) {
+            $event = 'expired';
+        }
+
+        if ( 'active' !== $event && empty( $settings['resync_disable_non_active'] ) ) {
             return true;
         }
 
@@ -180,7 +203,7 @@ class DSB_Resync {
             'subscription_id'     => 'pmpro-' . $user_id . '-' . $level_id,
             'product_id'          => $level_id,
             'plan_slug'           => $plan_slug,
-            'subscription_status' => $event === 'active' ? 'active' : $status,
+            'subscription_status' => 'active' === $state ? 'active' : ( 'cancelled_remaining' === $state ? 'cancelled' : 'expired' ),
             'pmpro_is_lifetime'   => $is_lifetime,
         ];
 
@@ -195,11 +218,15 @@ class DSB_Resync {
         $this->client->send_event( $payload );
         dsb_log(
             'debug',
-            'PMPro resync payload validity prepared',
+            'PMPro resync state resolved',
             [
-                'event'             => $event,
                 'user_id'           => $user_id,
                 'level_id'          => $level_id,
+                'status'            => $status,
+                'state'             => $state,
+                'event'             => $event,
+                'end_ts'            => $end_ts,
+                'plan_slug'         => $plan_slug,
                 'pmpro_is_lifetime' => $is_lifetime,
                 'valid_from'        => $payload['valid_from'] ?? null,
                 'valid_until'       => $payload['valid_until'] ?? null,
@@ -223,11 +250,11 @@ class DSB_Resync {
             $email = $user instanceof \WP_User ? $user->user_email : '';
 
             $payload = [
-                'event'               => 'cancelled',
+                'event'               => 'expired',
                 'wp_user_id'          => $user_id,
                 'customer_email'      => $email ? strtolower( sanitize_email( $email ) ) : '',
                 'subscription_id'     => 'pmpro-' . $user_id . '-0',
-                'subscription_status' => 'cancelled',
+                'subscription_status' => 'expired',
             ];
 
             $this->client->send_event( $payload );
