@@ -55,3 +55,35 @@ body.dsb-modal-open {
     margin-top: 24px;
     margin-bottom: 12px;
 }
+
+.dsb-style-save-bar {
+    position: sticky;
+    top: 32px;
+    display: flex;
+    justify-content: flex-end;
+    padding: 8px 0;
+    z-index: 20;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(2px);
+}
+
+.dsb-style-save-bar .button-primary {
+    margin: 0;
+}
+
+@media (max-width: 782px) {
+    .dsb-style-save-bar {
+        top: 46px;
+    }
+}
+
+.dsb-number-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dsb-number-field__suffix {
+    font-size: 13px;
+    color: #555;
+}

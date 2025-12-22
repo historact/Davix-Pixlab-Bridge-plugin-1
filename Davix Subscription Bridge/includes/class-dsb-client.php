@@ -68,19 +68,52 @@ class DSB_Client {
 
     public function get_style_defaults(): array {
         return [
+            'style_plan_title_color'       => '#f8fafc',
+            'style_plan_title_size'        => '24px',
+            'style_plan_title_weight'      => '700',
+            'style_eyebrow_color'          => '#94a3b8',
+            'style_eyebrow_size'           => '12px',
+            'style_eyebrow_spacing'        => '0.08em',
+            'style_card_header_color'      => '#f8fafc',
+            'style_card_header_size'       => '18px',
+            'style_card_header_weight'     => '700',
             'style_dashboard_bg'          => '#0f172a',
             'style_card_bg'               => '#0b1220',
             'style_card_border'           => '#1e293b',
             'style_card_shadow'           => 'rgba(0,0,0,0.4)',
+            'style_card_radius'           => '12px',
+            'style_card_shadow_blur'      => '16px',
+            'style_card_shadow_spread'    => '0px',
+            'style_container_padding'     => '24px',
             'style_text_primary'          => '#f8fafc',
             'style_text_secondary'        => '#cbd5e1',
             'style_text_muted'            => '#94a3b8',
-            'style_button_bg'             => '#0ea5e9',
-            'style_button_text'           => '#0b1220',
-            'style_button_border'         => '#0ea5e9',
-            'style_button_hover_bg'       => '#0ea5e9',
-            'style_button_hover_border'   => '#0ea5e9',
-            'style_button_active_bg'      => '#0ea5e9',
+            'style_button_bg'             => '#0ea5e9', // legacy
+            'style_button_text'           => '#0b1220', // legacy
+            'style_button_border'         => '#0ea5e9', // legacy
+            'style_button_hover_bg'       => '#0ea5e9', // legacy
+            'style_button_hover_border'   => '#0ea5e9', // legacy
+            'style_button_active_bg'      => '#0ea5e9', // legacy
+            'style_btn_primary_bg'        => '#0ea5e9',
+            'style_btn_primary_text'      => '#0b1220',
+            'style_btn_primary_border'    => '#0ea5e9',
+            'style_btn_primary_hover_bg'  => '#0ea5e9',
+            'style_btn_primary_hover_text'=> '#0b1220',
+            'style_btn_primary_hover_border' => '#0ea5e9',
+            'style_btn_primary_shadow_color'  => 'rgba(14,165,233,0.25)',
+            'style_btn_primary_shadow_strength' => '1',
+            'style_btn_outline_bg'        => 'transparent',
+            'style_btn_outline_text'      => '#f8fafc',
+            'style_btn_outline_border'    => '#0ea5e9',
+            'style_btn_outline_hover_bg'  => '#0ea5e9',
+            'style_btn_outline_hover_text'=> '#0b1220',
+            'style_btn_outline_hover_border' => '#0ea5e9',
+            'style_btn_ghost_bg'          => 'transparent',
+            'style_btn_ghost_text'        => '#f8fafc',
+            'style_btn_ghost_border'      => '#0ea5e9',
+            'style_btn_ghost_hover_bg'    => '#0ea5e9',
+            'style_btn_ghost_hover_text'  => '#0b1220',
+            'style_btn_ghost_hover_border'=> '#0ea5e9',
             'style_input_bg'              => '#0f172a',
             'style_input_text'            => '#e2e8f0',
             'style_input_border'          => '#1f2a3d',
@@ -93,16 +126,21 @@ class DSB_Client {
             'style_badge_disabled_text'   => '#e2e8f0',
             'style_progress_track'        => '#111827',
             'style_progress_fill'         => '#22c55e',
+            'style_progress_fill_hover'   => '#22c55e',
+            'style_progress_track_border' => 'transparent',
             'style_progress_text'         => '#cbd5e1',
             'style_table_bg'              => '#0b1220',
             'style_table_header_bg'       => '#0f172a',
             'style_table_header_text'     => '#cbd5e1',
             'style_table_border'          => '#1e293b',
             'style_table_row_bg'          => '#0e1627',
+            'style_table_row_text'        => '#f8fafc',
+            'style_table_row_border'      => '#1e293b',
             'style_table_row_hover_bg'    => '#111827',
             'style_table_error_text'      => '#f87171',
             'style_status_success_text'   => '#22c55e',
             'style_status_error_text'     => '#f87171',
+            'style_overlay_color'         => 'rgba(0,0,0,0.6)',
         ];
     }
 
@@ -154,6 +192,21 @@ class DSB_Client {
         foreach ( $defaults as $key => $default ) {
             $value = array_key_exists( $key, $settings ) ? (string) $settings[ $key ] : '';
             $resolved[ $key ] = '' === $value ? $default : $value;
+        }
+
+        $legacy_fallbacks = [
+            'style_btn_primary_bg'           => 'style_button_bg',
+            'style_btn_primary_text'         => 'style_button_text',
+            'style_btn_primary_border'       => 'style_button_border',
+            'style_btn_primary_hover_bg'     => 'style_button_hover_bg',
+            'style_btn_primary_hover_border' => 'style_button_hover_border',
+            'style_btn_primary_hover_text'   => 'style_button_text',
+        ];
+
+        foreach ( $legacy_fallbacks as $new_key => $legacy_key ) {
+            if ( isset( $settings[ $legacy_key ] ) && ( ! isset( $settings[ $new_key ] ) || '' === $settings[ $new_key ] ) ) {
+                $resolved[ $new_key ] = sanitize_text_field( (string) $settings[ $legacy_key ] );
+            }
         }
 
         return $resolved;
@@ -348,8 +401,8 @@ class DSB_Client {
 
         $style_defaults = $this->get_style_defaults();
         foreach ( $style_defaults as $key => $default ) {
-            $value = isset( $data[ $key ] ) ? sanitize_text_field( $data[ $key ] ) : ( $existing[ $key ] ?? $default );
-            $clean[ $key ] = '' === $value ? $default : $value;
+            $raw   = isset( $data[ $key ] ) ? $data[ $key ] : ( $existing[ $key ] ?? $default );
+            $clean[ $key ] = $this->sanitize_style_value( $key, $raw, $default );
         }
 
         $label_defaults = $this->get_label_defaults();
@@ -426,6 +479,151 @@ class DSB_Client {
             return str_repeat( '*', $len );
         }
         return substr( $token, 0, 3 ) . str_repeat( '*', $len - 6 ) . substr( $token, -3 );
+    }
+
+    protected function sanitize_style_value( string $key, $value, string $default ): string {
+        $value = is_array( $value ) ? end( $value ) : $value;
+        $value = is_string( $value ) ? trim( $value ) : '';
+
+        if ( '' === $value ) {
+            return $default;
+        }
+
+        $color_keys = [
+            'style_plan_title_color',
+            'style_eyebrow_color',
+            'style_card_header_color',
+            'style_dashboard_bg',
+            'style_card_bg',
+            'style_card_border',
+            'style_card_shadow',
+            'style_text_primary',
+            'style_text_secondary',
+            'style_text_muted',
+            'style_button_bg',
+            'style_button_text',
+            'style_button_border',
+            'style_button_hover_bg',
+            'style_button_hover_border',
+            'style_button_active_bg',
+            'style_btn_primary_bg',
+            'style_btn_primary_text',
+            'style_btn_primary_border',
+            'style_btn_primary_hover_bg',
+            'style_btn_primary_hover_text',
+            'style_btn_primary_hover_border',
+            'style_btn_primary_shadow_color',
+            'style_btn_outline_bg',
+            'style_btn_outline_text',
+            'style_btn_outline_border',
+            'style_btn_outline_hover_bg',
+            'style_btn_outline_hover_text',
+            'style_btn_outline_hover_border',
+            'style_btn_ghost_bg',
+            'style_btn_ghost_text',
+            'style_btn_ghost_border',
+            'style_btn_ghost_hover_bg',
+            'style_btn_ghost_hover_text',
+            'style_btn_ghost_hover_border',
+            'style_input_bg',
+            'style_input_text',
+            'style_input_border',
+            'style_input_focus_border',
+            'style_badge_active_bg',
+            'style_badge_active_border',
+            'style_badge_active_text',
+            'style_badge_disabled_bg',
+            'style_badge_disabled_border',
+            'style_badge_disabled_text',
+            'style_progress_track',
+            'style_progress_fill',
+            'style_progress_fill_hover',
+            'style_progress_track_border',
+            'style_progress_text',
+            'style_table_bg',
+            'style_table_header_bg',
+            'style_table_header_text',
+            'style_table_border',
+            'style_table_row_bg',
+            'style_table_row_text',
+            'style_table_row_border',
+            'style_table_row_hover_bg',
+            'style_table_error_text',
+            'style_status_success_text',
+            'style_status_error_text',
+            'style_overlay_color',
+        ];
+
+        $unit_px_keys = [
+            'style_plan_title_size',
+            'style_eyebrow_size',
+            'style_card_header_size',
+            'style_card_radius',
+            'style_card_shadow_blur',
+            'style_card_shadow_spread',
+            'style_container_padding',
+        ];
+
+        $allow_negative_px = [
+            'style_card_shadow_spread',
+        ];
+
+        $unit_em_keys = [ 'style_eyebrow_spacing' ];
+
+        $weight_keys = [
+            'style_plan_title_weight',
+            'style_card_header_weight',
+        ];
+
+        $shadow_strength_keys = [ 'style_btn_primary_shadow_strength' ];
+
+        if ( in_array( $key, $color_keys, true ) ) {
+            $lower = strtolower( $value );
+            $keywords = [ 'transparent', 'inherit', 'initial' ];
+            if ( in_array( $lower, $keywords, true ) ) {
+                return $lower;
+            }
+
+            if ( preg_match( '/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i', $value ) ) {
+                return $value;
+            }
+
+            if ( preg_match( '/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/i', $value ) ) {
+                return $value;
+            }
+
+            return $default;
+        }
+
+        if ( in_array( $key, $unit_px_keys, true ) ) {
+            $number = is_numeric( $value ) ? (float) $value : (float) preg_replace( '/[^\d.\-]/', '', $value );
+            if ( $number < 0 && ! in_array( $key, $allow_negative_px, true ) ) {
+                $number = 0;
+            }
+            return $number . 'px';
+        }
+
+        if ( in_array( $key, $unit_em_keys, true ) ) {
+            $number = is_numeric( $value ) ? (float) $value : (float) preg_replace( '/[^\d.\-]/', '', $value );
+            if ( $number < 0 ) {
+                $number = 0;
+            }
+            return $number . 'em';
+        }
+
+        if ( in_array( $key, $weight_keys, true ) ) {
+            $weight = (int) $value;
+            $allowed_weights = [ 300, 400, 500, 600, 700, 800 ];
+            return in_array( $weight, $allowed_weights, true ) ? (string) $weight : $default;
+        }
+
+        if ( in_array( $key, $shadow_strength_keys, true ) ) {
+            $number = is_numeric( $value ) ? (float) $value : (float) preg_replace( '/[^\d.\-]/', '', $value );
+            $number = max( 0, min( 3, $number ) );
+            return (string) $number;
+        }
+
+        return sanitize_text_field( $value );
     }
 
     protected function request( string $path, string $method = 'GET', ?array $body = [], array $query = [] ) {
