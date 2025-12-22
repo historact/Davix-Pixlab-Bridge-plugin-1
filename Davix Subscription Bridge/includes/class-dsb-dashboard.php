@@ -182,18 +182,24 @@ class DSB_Dashboard {
 
         $labels = $this->client->get_label_settings();
 
+        $css_path = plugin_dir_path( __FILE__ ) . '../assets/css/dsb-dashboard.css';
+        $css_ver  = file_exists( $css_path ) ? filemtime( $css_path ) : DSB_VERSION;
+
         wp_register_style(
             'dsb-dashboard',
             DSB_PLUGIN_URL . 'assets/css/dsb-dashboard.css',
             [],
-            DSB_VERSION
+            $css_ver
         );
+
+        $js_path = plugin_dir_path( __FILE__ ) . '../assets/js/dsb-dashboard.js';
+        $js_ver  = file_exists( $js_path ) ? filemtime( $js_path ) : DSB_VERSION;
 
         wp_register_script(
             'dsb-dashboard',
             DSB_PLUGIN_URL . 'assets/js/dsb-dashboard.js',
             [],
-            DSB_VERSION,
+            $js_ver,
             true
         );
 
