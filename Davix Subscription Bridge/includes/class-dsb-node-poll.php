@@ -95,10 +95,13 @@ class DSB_Node_Poll {
         $page     = 1;
         $errors   = [];
 
+        $delete_stale_enabled = ! empty( $settings['node_poll_delete_stale'] );
+
         $wp_user_ids      = [];
         $remote_node_ids  = [];
         $user_winners     = [];
         $has_stable_id    = true;
+        $missing_id_items = [];
 
         $summary = [
             'pages'          => 0,
@@ -154,8 +157,18 @@ class DSB_Node_Poll {
 
                     if ( $processed['node_api_key_id'] ) {
                         $remote_node_ids[] = $processed['node_api_key_id'];
-                    } else {
-                        $has_stable_id = false;
+                    } elseif ( $delete_stale_enabled ) {
+                        $has_stable_id      = false;
+                        if ( count( $missing_id_items ) < 3 ) {
+                            $missing_id_items[] = [
+                                'keys'             => array_keys( $item ),
+                                'wp_user_id'       => $processed['wp_user_id'] ?? null,
+                                'subscription_id'  => $processed['subscription_id'] ?? null,
+                                'customer_email'   => $processed['customer_email'] ?? null,
+                                'plan_slug'        => $processed['plan_slug'] ?? null,
+                                'status'           => $processed['status'] ?? null,
+                            ];
+                        }
                     }
 
                     if ( $processed['wp_user_id'] ) {
@@ -182,7 +195,7 @@ class DSB_Node_Poll {
             $remote_node_ids = array_values( array_unique( array_filter( array_map( 'absint', $remote_node_ids ) ) ) );
             $wp_user_ids     = array_values( array_unique( array_filter( array_map( 'absint', $wp_user_ids ) ) ) );
 
-            if ( $has_stable_id && ! empty( $settings['node_poll_delete_stale'] ) ) {
+            if ( $has_stable_id && $delete_stale_enabled ) {
                 if ( $wp_user_ids ) {
                     $summary['deleted_users'] += $this->db->delete_users_not_in_ids( $wp_user_ids );
                 }
@@ -191,6 +204,19 @@ class DSB_Node_Poll {
                     $summary['deleted_users'] += $this->db->delete_users_by_node_ids_not_in( $remote_node_ids );
                     $summary['deleted_keys']  += $this->db->delete_keys_by_node_ids_not_in( $remote_node_ids );
                 }
+
+                DSB_Cron_Logger::log( 'node_poll', 'Node poll deletions executed', [
+                    'deleted_keys'          => $summary['deleted_keys'],
+                    'deleted_users'         => $summary['deleted_users'],
+                    'remote_node_ids_count' => count( $remote_node_ids ),
+                    'wp_user_ids_count'     => count( $wp_user_ids ),
+                ] );
+            } elseif ( ! $has_stable_id && $delete_stale_enabled ) {
+                DSB_Cron_Logger::log( 'node_poll', 'Skipped deletions: unstable remote identifiers', [
+                    'remote_node_ids_count' => count( $remote_node_ids ),
+                    'wp_user_ids_count'     => count( $wp_user_ids ),
+                    'missing_id_samples'    => $missing_id_items,
+                ] );
             }
 
             // Upsert deterministic user winners after full fetch to ensure we choose the right record per user.
@@ -414,7 +440,17 @@ class DSB_Node_Poll {
         $valid_from     = $this->normalize_mysql_datetime( $item['valid_from'] ?? ( $item['valid_from_at'] ?? null ) );
         $valid_until    = $this->normalize_mysql_datetime( $item['valid_until'] ?? ( $item['valid_to'] ?? null ) );
         $node_plan_id   = isset( $plan['plan_id'] ) ? $plan['plan_id'] : ( $item['plan_id'] ?? null );
-        $node_api_key_id = isset( $item['id'] ) ? absint( $item['id'] ) : 0;
+
+        $node_id = 0;
+        if ( ! empty( $item['id'] ) ) {
+            $node_id = absint( $item['id'] );
+        } elseif ( ! empty( $item['api_key_id'] ) ) {
+            $node_id = absint( $item['api_key_id'] );
+        } elseif ( ! empty( $item['node_api_key_id'] ) ) {
+            $node_id = absint( $item['node_api_key_id'] );
+        }
+
+        $node_api_key_id = $node_id;
         $order_id       = isset( $item['order_id'] ) ? absint( $item['order_id'] ) : null;
         $product_id     = isset( $item['product_id'] ) ? absint( $item['product_id'] ) : null;
 
