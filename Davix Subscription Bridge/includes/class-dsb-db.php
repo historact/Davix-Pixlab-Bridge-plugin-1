@@ -7,6 +7,7 @@ class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
     const OPTION_DB_VERSION          = 'dsb_db_version';
     const DB_VERSION                 = '1.6.1';
+    const OPTION_TRIGGERS_STATUS     = 'dsb_triggers_status';
 
     /** @var \wpdb */
     protected $wpdb;
@@ -187,6 +188,13 @@ class DSB_DB {
         $db_name = $this->wpdb->dbname ?? DB_NAME;
         $trigger_keys = $this->wpdb->prefix . 'dsb_keys_after_delete';
         $trigger_user = $this->wpdb->prefix . 'dsb_user_after_delete';
+        $status = [
+            'keys'       => 'missing',
+            'user'       => 'missing',
+            'last_error' => '',
+            'updated_at' => current_time( 'mysql', true ),
+        ];
+        $errors = [];
 
         $existing_keys = $this->wpdb->get_var(
             $this->wpdb->prepare(
@@ -196,12 +204,21 @@ class DSB_DB {
             )
         );
 
-        if ( ! $existing_keys ) {
+        if ( $existing_keys ) {
+            $status['keys'] = 'ok';
+        } else {
             $sql = "CREATE TRIGGER {$trigger_keys} AFTER DELETE ON {$this->table_keys} FOR EACH ROW "
                 . "INSERT INTO {$this->table_purge_queue} (wp_user_id, customer_email, subscription_id, reason, status) "
                 . "VALUES (OLD.wp_user_id, OLD.customer_email, OLD.subscription_id, 'manual_key_delete', 'pending')";
             $this->wpdb->query( $sql );
-            dsb_log( 'info', 'Created purge trigger for keys', [ 'last_error' => $this->wpdb->last_error ] );
+            if ( $this->wpdb->last_error ) {
+                $status['keys']   = 'failed';
+                $errors[]         = $this->wpdb->last_error;
+                dsb_log( 'error', 'Failed to create purge trigger for keys', [ 'error' => $this->wpdb->last_error ] );
+            } else {
+                $status['keys'] = 'ok';
+                dsb_log( 'info', 'Created purge trigger for keys', [ 'last_error' => $this->wpdb->last_error ] );
+            }
         }
 
         $existing_user = $this->wpdb->get_var(
@@ -212,13 +229,33 @@ class DSB_DB {
             )
         );
 
-        if ( ! $existing_user ) {
+        if ( $existing_user ) {
+            $status['user'] = 'ok';
+        } else {
             $sql = "CREATE TRIGGER {$trigger_user} AFTER DELETE ON {$this->table_user} FOR EACH ROW "
                 . "INSERT INTO {$this->table_purge_queue} (wp_user_id, customer_email, subscription_id, reason, status) "
                 . "VALUES (OLD.wp_user_id, OLD.customer_email, OLD.subscription_id, 'manual_user_delete', 'pending')";
             $this->wpdb->query( $sql );
-            dsb_log( 'info', 'Created purge trigger for user truth', [ 'last_error' => $this->wpdb->last_error ] );
+            if ( $this->wpdb->last_error ) {
+                $status['user']  = 'failed';
+                $errors[]        = $this->wpdb->last_error;
+                dsb_log( 'error', 'Failed to create purge trigger for user truth', [ 'error' => $this->wpdb->last_error ] );
+            } else {
+                $status['user'] = 'ok';
+                dsb_log( 'info', 'Created purge trigger for user truth', [ 'last_error' => $this->wpdb->last_error ] );
+            }
         }
+
+        if ( ! $errors && 'ok' === $status['keys'] && 'ok' === $status['user'] ) {
+            $status['last_error'] = '';
+        } else {
+            $status['last_error'] = substr( implode( ';', array_unique( $errors ) ), 0, 500 );
+            if ( ! $status['last_error'] ) {
+                $status['last_error'] = 'trigger_creation_unverified';
+            }
+        }
+
+        update_option( self::OPTION_TRIGGERS_STATUS, $status, false );
     }
 
     public function enqueue_purge_job( array $args ): int {

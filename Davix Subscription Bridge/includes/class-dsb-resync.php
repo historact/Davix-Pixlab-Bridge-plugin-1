@@ -89,7 +89,7 @@ class DSB_Resync {
                 }
 
                 if ( ! empty( $settings['resync_disable_non_active'] ) ) {
-                    $processed += $this->process_missing_memberships( $active_user_ids );
+                    $processed += $this->process_missing_memberships( $active_user_ids, $settings );
                 }
             }
         } catch ( \Throwable $e ) {
@@ -202,7 +202,7 @@ class DSB_Resync {
         return true;
     }
 
-    protected function process_missing_memberships( array $active_user_ids ): int {
+    protected function process_missing_memberships( array $active_user_ids, array $settings ): int {
         $active_user_ids = array_values( array_filter( array_map( 'absint', array_unique( $active_user_ids ) ) ) );
         $tracked_users   = $this->db->get_tracked_user_ids();
         $processed       = 0;

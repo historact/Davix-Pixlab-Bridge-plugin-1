@@ -14,6 +14,8 @@ class DSB_Node_Poll {
     const OPTION_LAST_URL     = 'dsb_node_poll_last_url';
     const OPTION_LAST_BODY    = 'dsb_node_poll_last_body_excerpt';
     const OPTION_LAST_DURATION_MS = 'dsb_node_poll_last_duration_ms';
+    const OPTION_LAST_UNSTABLE = 'dsb_node_poll_last_unstable';
+    const OPTION_STABLE_STREAK = 'dsb_node_poll_stable_streak';
 
     /** @var DSB_Client */
     protected $client;
@@ -197,38 +199,6 @@ class DSB_Node_Poll {
                 $page ++;
             } while ( $items && ( $has_more || ( $total_pages && $page <= $total_pages ) || count( $items ) >= $per_page ) );
 
-            $remote_node_ids = array_values( array_unique( array_filter( array_map( 'absint', $remote_node_ids ) ) ) );
-            $wp_user_ids     = array_values( array_unique( array_filter( array_map( 'absint', $wp_user_ids ) ) ) );
-            $remote_subscription_ids = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', $remote_subscription_ids ) ) ) );
-
-            if ( $has_stable_id && $delete_stale_enabled ) {
-                if ( $wp_user_ids ) {
-                    $summary['deleted_users'] += $this->db->delete_users_not_in_ids( $wp_user_ids );
-                }
-
-                if ( $remote_node_ids ) {
-                    $summary['deleted_users'] += $this->db->delete_users_by_node_ids_not_in( $remote_node_ids );
-                    $summary['deleted_keys']  += $this->db->delete_keys_by_node_ids_not_in( $remote_node_ids );
-                }
-
-                if ( $remote_subscription_ids ) {
-                    $summary['deleted_keys'] += $this->db->delete_keys_without_node_id_not_in_subs( $remote_subscription_ids );
-                }
-
-                DSB_Cron_Logger::log( 'node_poll', 'Node poll deletions executed', [
-                    'deleted_keys'          => $summary['deleted_keys'],
-                    'deleted_users'         => $summary['deleted_users'],
-                    'remote_node_ids_count' => count( $remote_node_ids ),
-                    'wp_user_ids_count'     => count( $wp_user_ids ),
-                ] );
-            } elseif ( ! $has_stable_id && $delete_stale_enabled ) {
-                DSB_Cron_Logger::log( 'node_poll', 'Skipped deletions: unstable remote identifiers', [
-                    'remote_node_ids_count' => count( $remote_node_ids ),
-                    'wp_user_ids_count'     => count( $wp_user_ids ),
-                    'missing_id_samples'    => $missing_id_items,
-                ] );
-            }
-
             // Upsert deterministic user winners after full fetch to ensure we choose the right record per user.
             foreach ( $user_winners as $winner ) {
                 $this->db->upsert_user( [
@@ -250,6 +220,52 @@ class DSB_Node_Poll {
         } catch ( \Throwable $e ) {
             $errors[]      = $e->getMessage();
             $has_stable_id = false;
+        }
+
+        $remote_node_ids        = array_values( array_unique( array_filter( array_map( 'absint', $remote_node_ids ) ) ) );
+        $wp_user_ids            = array_values( array_unique( array_filter( array_map( 'absint', $wp_user_ids ) ) ) );
+        $remote_subscription_ids = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', $remote_subscription_ids ) ) ) );
+
+        $stable_streak = (int) get_option( self::OPTION_STABLE_STREAK, 0 );
+
+        if ( $errors || ! $has_stable_id ) {
+            $stable_streak = 0;
+            update_option( self::OPTION_LAST_UNSTABLE, 1, false );
+            update_option( self::OPTION_STABLE_STREAK, $stable_streak, false );
+        } else {
+            $stable_streak ++;
+            update_option( self::OPTION_LAST_UNSTABLE, 0, false );
+            update_option( self::OPTION_STABLE_STREAK, $stable_streak, false );
+        }
+
+        if ( $has_stable_id && $delete_stale_enabled && $stable_streak >= 2 && ! $errors ) {
+            if ( $wp_user_ids ) {
+                $summary['deleted_users'] += $this->db->delete_users_not_in_ids( $wp_user_ids );
+            }
+
+            if ( $remote_node_ids ) {
+                $summary['deleted_users'] += $this->db->delete_users_by_node_ids_not_in( $remote_node_ids );
+                $summary['deleted_keys']  += $this->db->delete_keys_by_node_ids_not_in( $remote_node_ids );
+            }
+
+            if ( $remote_subscription_ids ) {
+                $summary['deleted_keys'] += $this->db->delete_keys_without_node_id_not_in_subs( $remote_subscription_ids );
+            }
+
+            DSB_Cron_Logger::log( 'node_poll', 'Node poll deletions executed', [
+                'deleted_keys'          => $summary['deleted_keys'],
+                'deleted_users'         => $summary['deleted_users'],
+                'remote_node_ids_count' => count( $remote_node_ids ),
+                'wp_user_ids_count'     => count( $wp_user_ids ),
+                'stable_streak'         => $stable_streak,
+            ] );
+        } elseif ( $delete_stale_enabled ) {
+            DSB_Cron_Logger::log( 'node_poll', 'Skipped deletions: unstable remote identifiers', [
+                'remote_node_ids_count' => count( $remote_node_ids ),
+                'wp_user_ids_count'     => count( $wp_user_ids ),
+                'missing_id_samples'    => $missing_id_items,
+                'stable_streak'         => $stable_streak,
+            ] );
         }
 
         $duration = max( 0, (int) round( ( microtime( true ) - $started ) * 1000 ) );
