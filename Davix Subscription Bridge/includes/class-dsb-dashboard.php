@@ -28,6 +28,7 @@ class DSB_Dashboard {
 
         $styles  = $this->client->get_style_settings();
         $style_attr = $this->build_style_attribute( $styles );
+        $raw_settings = get_option( DSB_Client::OPTION_SETTINGS, [] );
 
         $default_styles   = $this->client->get_style_defaults();
         $override_count   = 0;
@@ -50,6 +51,7 @@ class DSB_Dashboard {
         <?php if ( current_user_can( 'manage_options' ) ) : ?>
         <!-- DSB_STYLE_ATTR: <?php echo esc_html( $style_attr ); ?> -->
         <!-- DSB_STYLES_JSON: <?php echo esc_html( wp_json_encode( $styles ) ); ?> -->
+        <!-- DSB_HEADER_VARS: plan_title=<?php echo array_key_exists( 'style_header_plan_title_color', $raw_settings ?? [] ) ? 'on' : 'off'; ?> eyebrow=<?php echo array_key_exists( 'style_header_eyebrow_color', $raw_settings ?? [] ) ? 'on' : 'off'; ?> meta=<?php echo array_key_exists( 'style_header_meta_color', $raw_settings ?? [] ) ? 'on' : 'off'; ?> billing=<?php echo array_key_exists( 'style_header_billing_color', $raw_settings ?? [] ) ? 'on' : 'off'; ?> -->
         <?php echo $this->asset_debug_comment(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
         <?php endif; ?>
         <div class="dsb-dashboard" style="<?php echo esc_attr( $style_attr ); ?>">
@@ -255,16 +257,34 @@ class DSB_Dashboard {
     }
 
     protected function build_style_attribute( array $styles ): string {
+        $raw_settings = get_option( DSB_Client::OPTION_SETTINGS, [] );
+        $defaults     = $this->client->get_style_defaults();
+        $optional_override_keys = [
+            'style_header_plan_title_color',
+            'style_header_plan_title_opacity',
+            'style_header_eyebrow_color',
+            'style_header_meta_color',
+            'style_header_billing_color',
+        ];
         $map = [
             '--dsb-plan-title-color'       => 'style_plan_title_color',
             '--dsb-plan-title-size'        => 'style_plan_title_size',
             '--dsb-plan-title-weight'      => 'style_plan_title_weight',
+            '--dsb-header-plan-title-color'=> 'style_header_plan_title_color',
+            '--dsb-header-plan-title-opacity' => 'style_header_plan_title_opacity',
+            '--dsb-header-eyebrow-color'   => 'style_header_eyebrow_color',
+            '--dsb-header-meta-color'      => 'style_header_meta_color',
+            '--dsb-header-billing-color'   => 'style_header_billing_color',
             '--dsb-eyebrow-color'          => 'style_eyebrow_color',
             '--dsb-eyebrow-size'           => 'style_eyebrow_size',
             '--dsb-eyebrow-spacing'        => 'style_eyebrow_spacing',
             '--dsb-card-header-color'      => 'style_card_header_color',
             '--dsb-card-header-size'       => 'style_card_header_size',
             '--dsb-card-header-weight'     => 'style_card_header_weight',
+            '--dsb-card-text'              => 'style_card_text_color',
+            '--dsb-card-label'             => 'style_card_label_color',
+            '--dsb-card-hint'              => 'style_card_hint_color',
+            '--dsb-endpoint-eyebrow'       => 'style_endpoint_eyebrow_color',
             '--dsb-bg'                    => 'style_dashboard_bg',
             '--dsb-card-bg'               => 'style_card_bg',
             '--dsb-card-border'           => 'style_card_border',
@@ -325,6 +345,7 @@ class DSB_Dashboard {
             '--dsb-table-row-text'        => 'style_table_row_text',
             '--dsb-table-row-border'      => 'style_table_row_border',
             '--dsb-table-row-hover-bg'    => 'style_table_row_hover_bg',
+            '--dsb-table-empty-text'      => 'style_table_empty_text_color',
             '--dsb-table-error-text'      => 'style_table_error_text',
             '--dsb-status-success-text'   => 'style_status_success_text',
             '--dsb-status-error-text'     => 'style_status_error_text',
@@ -334,6 +355,14 @@ class DSB_Dashboard {
         $pairs = [];
         foreach ( $map as $css_var => $setting_key ) {
             $value = $styles[ $setting_key ] ?? '';
+            $is_optional = in_array( $setting_key, $optional_override_keys, true );
+            if ( $is_optional ) {
+                $has_raw = is_array( $raw_settings ) && array_key_exists( $setting_key, $raw_settings );
+                $default_value = $defaults[ $setting_key ] ?? '';
+                if ( ! $has_raw || '' === $value || $value === $default_value ) {
+                    continue;
+                }
+            }
             if ( '' === $value ) {
                 continue;
             }

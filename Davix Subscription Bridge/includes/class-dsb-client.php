@@ -71,12 +71,21 @@ class DSB_Client {
             'style_plan_title_color'       => '#f8fafc',
             'style_plan_title_size'        => '24px',
             'style_plan_title_weight'      => '700',
+            'style_header_plan_title_color'=> '#f8fafc',
+            'style_header_plan_title_opacity' => '1',
+            'style_header_eyebrow_color'   => '#94a3b8',
+            'style_header_meta_color'      => '#cbd5e1',
+            'style_header_billing_color'   => '#cbd5e1',
             'style_eyebrow_color'          => '#94a3b8',
             'style_eyebrow_size'           => '12px',
             'style_eyebrow_spacing'        => '0.08em',
             'style_card_header_color'      => '#f8fafc',
             'style_card_header_size'       => '18px',
             'style_card_header_weight'     => '700',
+            'style_card_text_color'        => '#f8fafc',
+            'style_card_label_color'       => '#94a3b8',
+            'style_card_hint_color'        => '#94a3b8',
+            'style_endpoint_eyebrow_color' => '#94a3b8',
             'style_dashboard_bg'          => '#0f172a',
             'style_card_bg'               => '#0b1220',
             'style_card_border'           => '#1e293b',
@@ -137,6 +146,7 @@ class DSB_Client {
             'style_table_row_text'        => '#f8fafc',
             'style_table_row_border'      => '#1e293b',
             'style_table_row_hover_bg'    => '#111827',
+            'style_table_empty_text_color'=> '#94a3b8',
             'style_table_error_text'      => '#f87171',
             'style_status_success_text'   => '#22c55e',
             'style_status_error_text'     => '#f87171',
@@ -317,6 +327,7 @@ class DSB_Client {
     }
 
     public function save_settings( array $data ): void {
+        $existing_raw = get_option( self::OPTION_SETTINGS, [] );
         $existing = $this->get_settings();
 
         $debug_enabled = 0;
@@ -400,7 +411,17 @@ class DSB_Client {
         $existing_level_plans   = $this->get_level_plans();
 
         $style_defaults = $this->get_style_defaults();
+        $optional_override_keys = [
+            'style_header_plan_title_color',
+            'style_header_plan_title_opacity',
+            'style_header_eyebrow_color',
+            'style_header_meta_color',
+            'style_header_billing_color',
+        ];
         foreach ( $style_defaults as $key => $default ) {
+            if ( in_array( $key, $optional_override_keys, true ) && ! array_key_exists( $key, $data ) && ! array_key_exists( $key, $existing_raw ?? [] ) ) {
+                continue;
+            }
             $raw   = isset( $data[ $key ] ) ? $data[ $key ] : ( $existing[ $key ] ?? $default );
             $clean[ $key ] = $this->sanitize_style_value( $key, $raw, $default );
         }
@@ -491,8 +512,16 @@ class DSB_Client {
 
         $color_keys = [
             'style_plan_title_color',
+            'style_header_plan_title_color',
+            'style_header_eyebrow_color',
+            'style_header_meta_color',
+            'style_header_billing_color',
             'style_eyebrow_color',
             'style_card_header_color',
+            'style_card_text_color',
+            'style_card_label_color',
+            'style_card_hint_color',
+            'style_endpoint_eyebrow_color',
             'style_dashboard_bg',
             'style_card_bg',
             'style_card_border',
@@ -548,6 +577,7 @@ class DSB_Client {
             'style_table_row_text',
             'style_table_row_border',
             'style_table_row_hover_bg',
+            'style_table_empty_text_color',
             'style_table_error_text',
             'style_status_success_text',
             'style_status_error_text',
@@ -574,6 +604,8 @@ class DSB_Client {
             'style_plan_title_weight',
             'style_card_header_weight',
         ];
+
+        $opacity_keys = [ 'style_header_plan_title_opacity' ];
 
         $shadow_strength_keys = [ 'style_btn_primary_shadow_strength' ];
 
@@ -620,6 +652,12 @@ class DSB_Client {
         if ( in_array( $key, $shadow_strength_keys, true ) ) {
             $number = is_numeric( $value ) ? (float) $value : (float) preg_replace( '/[^\d.\-]/', '', $value );
             $number = max( 0, min( 3, $number ) );
+            return (string) $number;
+        }
+
+        if ( in_array( $key, $opacity_keys, true ) ) {
+            $number = is_numeric( $value ) ? (float) $value : (float) preg_replace( '/[^\d.\-]/', '', $value );
+            $number = max( 0, min( 1, $number ) );
             return (string) $number;
         }
 
