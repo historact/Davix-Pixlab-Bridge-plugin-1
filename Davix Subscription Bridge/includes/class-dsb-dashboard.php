@@ -46,6 +46,17 @@ class DSB_Dashboard {
 
         $this->enqueue_assets();
 
+        // Compute an explicit plan-title color to apply inline on the H2.
+        // Fallback order: header text -> header plan-title override -> plan-title color
+        $plan_title_color = '';
+        if ( ! empty( $styles['style_header_text'] ) ) {
+            $plan_title_color = $styles['style_header_text'];
+        } elseif ( ! empty( $styles['style_header_plan_title_color'] ) ) {
+            $plan_title_color = $styles['style_header_plan_title_color'];
+        } elseif ( ! empty( $styles['style_plan_title_color'] ) ) {
+            $plan_title_color = $styles['style_plan_title_color'];
+        }
+
         ob_start();
         ?>
         <?php if ( current_user_can( 'manage_options' ) ) : ?>
@@ -58,7 +69,7 @@ class DSB_Dashboard {
             <div class="dsb-dashboard__header">
                 <div>
                     <p class="dsb-dashboard__eyebrow"><?php echo esc_html( $labels['label_current_plan'] ); ?></p>
-                    <h2 class="dsb-dashboard__plan-name" data-plan-name><?php echo esc_html( $labels['label_loading'] ); ?></h2>
+                    <h2 class="dsb-dashboard__plan-name" data-plan-name<?php echo $plan_title_color ? ' style="color:' . esc_attr( $plan_title_color ) . ';"' : ''; ?>><?php echo esc_html( $labels['label_loading'] ); ?></h2>
                     <p class="dsb-dashboard__plan-meta" data-plan-limit></p>
                     <p class="dsb-dashboard__billing" data-billing-window></p>
                 </div>
