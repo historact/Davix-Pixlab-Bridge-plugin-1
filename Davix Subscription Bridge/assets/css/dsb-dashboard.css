@@ -383,6 +383,7 @@
 .dsb-table td {
     padding: 10px 12px;
     text-align: left;
+    border: 1px solid var(--dsb-table-border);
     border-bottom: 1px solid var(--dsb-table-row-border, var(--dsb-table-border));
     color: var(--dsb-table-body-text, var(--dsb-table-row-text, var(--dsb-text-primary)));
     font-size: 14px;
