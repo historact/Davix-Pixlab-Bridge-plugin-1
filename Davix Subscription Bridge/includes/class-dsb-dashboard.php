@@ -279,7 +279,6 @@ class DSB_Dashboard {
             'style_endpoint_eyebrow_color',
         ];
         $map = [
-            '--dsb-header-bg'                 => 'style_header_bg',
             '--dsb-header-text'               => 'style_header_text',
             '--dsb-plan-title-size'           => 'style_plan_title_size',
             '--dsb-plan-title-weight'         => 'style_plan_title_weight',

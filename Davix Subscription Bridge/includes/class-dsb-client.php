@@ -68,8 +68,6 @@ class DSB_Client {
 
     public function get_style_defaults(): array {
         return [
-            // New grouped header defaults.
-            'style_header_bg'                => '#0f172a',
             'style_header_text'              => '#f8fafc',
 
             'style_plan_title_size'        => '24px',
@@ -269,7 +267,6 @@ class DSB_Client {
         };
 
         $seed_if_absent( 'style_header_text', [ 'style_header_plan_title_color', 'style_text_primary' ] );
-        $seed_if_absent( 'style_header_bg', [ 'style_dashboard_bg', 'style_card_bg' ] );
         $seed_if_absent( 'style_dashboard_border_color', [ 'style_header_border', 'style_card_border' ] );
         $seed_if_absent( 'style_dashboard_shadow_color', [ 'style_header_shadow_color', 'style_card_shadow' ] );
 
@@ -616,7 +613,6 @@ class DSB_Client {
         }
 
         $color_keys = [
-            'style_header_bg',
             'style_header_text',
             'style_header_plan_title_color',
             'style_header_eyebrow_color',

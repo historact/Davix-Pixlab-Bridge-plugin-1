@@ -1131,8 +1131,8 @@ class DSB_Admin {
                 <p class="description"><?php esc_html_e( 'Single set of controls for the top header area (eyebrow, plan title, meta, billing).', 'davix-sub-bridge' ); ?></p>
                 <table class="form-table" role="presentation">
                     <?php
-                    $this->render_color_input_field( 'style_header_bg', __( 'Header Background', 'davix-sub-bridge' ), $styles['style_header_bg'], __( 'Background color for the header area.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_header_text', __( 'Header Text Color (all header text)', 'davix-sub-bridge' ), $styles['style_header_text'], __( 'Applies to eyebrow, plan title, meta, and billing lines.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_header_plan_title_color', __( 'Plan Name Color', 'davix-sub-bridge' ), $styles['style_header_plan_title_color'] ?? '', __( 'Optional: explicit color for the plan name. Falls back to header text if empty.', 'davix-sub-bridge' ) );
                     ?>
                 </table>
             </div>
