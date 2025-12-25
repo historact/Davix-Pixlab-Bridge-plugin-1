@@ -458,7 +458,7 @@
 }
 
 .dsb-modal__message {
-    color: var(--dsb-text-secondary);
+    color: var(--dsb-card-hint, var(--dsb-card-text, var(--dsb-text-secondary)));
 }
 
 @media (max-width: 640px) {
