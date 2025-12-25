@@ -1120,6 +1120,8 @@ class DSB_Admin {
                 <table class="form-table" role="presentation">
                     <?php
                     $this->render_color_input_field( 'style_dashboard_bg', __( 'Dashboard Background Color', 'davix-sub-bridge' ), $styles['style_dashboard_bg'], __( 'Background behind all dashboard sections in the [PIXLAB_DASHBOARD] shortcode.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_dashboard_shadow_color', __( 'Dashboard Shadow Color', 'davix-sub-bridge' ), $styles['style_dashboard_shadow_color'] ?? '', __( 'Shadow color applied to the outer dashboard container.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_dashboard_border_color', __( 'Dashboard Border Color', 'davix-sub-bridge' ), $styles['style_dashboard_border_color'] ?? '', __( 'Border color around the outer dashboard container.', 'davix-sub-bridge' ) );
                     ?>
                 </table>
             </div>
@@ -1129,17 +1131,8 @@ class DSB_Admin {
                 <p class="description"><?php esc_html_e( 'Single set of controls for the top header area (eyebrow, plan title, meta, billing).', 'davix-sub-bridge' ); ?></p>
                 <table class="form-table" role="presentation">
                     <?php
-                    $this->render_color_input_field( 'style_header_bg', __( 'Header Background', 'davix-sub-bridge' ), $styles['style_header_bg'], __( 'Background color for the header area.', 'davix-sub-bridge' ) );
-                    $this->render_color_input_field( 'style_header_border', __( 'Header Border', 'davix-sub-bridge' ), $styles['style_header_border'], __( 'Border color for the header container.', 'davix-sub-bridge' ) );
-                    $this->render_color_input_field( 'style_header_shadow_color', __( 'Header Shadow Color', 'davix-sub-bridge' ), $styles['style_header_shadow_color'], __( 'Shadow color behind the header container.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_header_text', __( 'Header Text Color (all header text)', 'davix-sub-bridge' ), $styles['style_header_text'], __( 'Applies to eyebrow, plan title, meta, and billing lines.', 'davix-sub-bridge' ) );
-                    // Optional explicit plan title color (exposed for admin convenience).
-                    $this->render_color_input_field(
-                        'style_plan_title_color',
-                        __( 'Plan Title Color (optional)', 'davix-sub-bridge' ),
-                        $styles['style_plan_title_color'] ?? '',
-                        __( 'Optional: explicit color for the plan title. If left empty the header text color will be used.', 'davix-sub-bridge' )
-                    );
+                    $this->render_color_input_field( 'style_header_plan_title_color', __( 'Plan Name Color', 'davix-sub-bridge' ), $styles['style_header_plan_title_color'] ?? '', __( 'Optional: explicit color for the plan name. Falls back to header text if empty.', 'davix-sub-bridge' ) );
                     ?>
                 </table>
             </div>
@@ -1153,6 +1146,21 @@ class DSB_Admin {
                     $this->render_color_input_field( 'style_cards_border', __( 'Cards Border', 'davix-sub-bridge' ), $styles['style_cards_border'], __( 'Border color for all cards.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_cards_shadow_color', __( 'Cards Shadow Color', 'davix-sub-bridge' ), $styles['style_cards_shadow_color'], __( 'Shadow color for card containers.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_cards_text', __( 'Cards Text Color (all card text)', 'davix-sub-bridge' ), $styles['style_cards_text'], __( 'Applies to card headers, labels, hints, endpoint eyebrows, and usage labels.', 'davix-sub-bridge' ) );
+                    // Expose card hint color so modal messages and card hints can be customized.
+                    $this->render_color_input_field(
+                        'style_card_hint_color',
+                        __( 'Card Hint Color (optional)', 'davix-sub-bridge' ),
+                        $styles['style_card_hint_color'] ?? '',
+                        __( 'Optional: color for small hint text inside cards and modal helper messages. Falls back to card text if empty.', 'davix-sub-bridge' )
+                    );
+
+                    // Expose endpoint eyebrow color (optional) so endpoint eyebrow can be overridden.
+                    $this->render_color_input_field(
+                        'style_endpoint_eyebrow_color',
+                        __( 'Endpoint Eyebrow Color (optional)', 'davix-sub-bridge' ),
+                        $styles['style_endpoint_eyebrow_color'] ?? '',
+                        __( 'Optional: explicit color for endpoint eyebrow labels (e.g., H2I, PDF). Falls back to card text if empty.', 'davix-sub-bridge' )
+                    );
                     ?>
                 </table>
             </div>

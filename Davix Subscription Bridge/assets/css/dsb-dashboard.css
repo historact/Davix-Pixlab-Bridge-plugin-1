@@ -1,9 +1,5 @@
 .dsb-dashboard {
-    --dsb-header-bg: #0f172a;
-    --dsb-header-border: transparent;
-    --dsb-header-shadow: rgba(0,0,0,0);
     --dsb-header-text: #f8fafc;
-    --dsb-plan-title-color: #f8fafc;
     --dsb-plan-title-size: 24px;
     --dsb-plan-title-weight: 700;
     --dsb-header-plan-title-opacity: 1;
@@ -28,6 +24,8 @@
     --dsb-card-shadow-blur: 16px;
     --dsb-card-shadow-spread: 0px;
     --dsb-container-padding: 24px;
+    --dsb-dashboard-border: #1e293b;
+    --dsb-dashboard-shadow: rgba(0,0,0,0.4);
     --dsb-text-primary: #f8fafc;
     --dsb-text-secondary: #cbd5e1;
     --dsb-text-muted: #94a3b8;
@@ -94,8 +92,9 @@
     background: var(--dsb-bg);
     color: var(--dsb-text-primary);
     border-radius: var(--dsb-card-radius, 12px);
+    border: 1px solid var(--dsb-dashboard-border, transparent);
     padding: var(--dsb-container-padding, 24px);
-    box-shadow: 0 12px calc(var(--dsb-card-shadow-blur, 16px) * 1.5) var(--dsb-card-shadow-spread, 0px) var(--dsb-card-shadow);
+    box-shadow: 0 12px calc(var(--dsb-card-shadow-blur, 16px) * 1.5) var(--dsb-card-shadow-spread, 0px) var(--dsb-dashboard-shadow, var(--dsb-card-shadow));
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -111,9 +110,9 @@
     justify-content: space-between;
     align-items: flex-start;
     margin-bottom: 24px;
-    background: var(--dsb-header-bg, var(--dsb-bg));
-    border: 1px solid var(--dsb-header-border, transparent);
-    box-shadow: 0 8px var(--dsb-card-shadow-blur, 16px) var(--dsb-card-shadow-spread, 0px) var(--dsb-header-shadow, transparent);
+    background: var(--dsb-bg);
+    border: none;
+    box-shadow: none;
     border-radius: var(--dsb-card-radius, 12px);
     padding: 16px;
 }
@@ -128,7 +127,7 @@
 
 .dsb-dashboard__plan-name {
     margin: 0;
-    color: var(--dsb-header-text, var(--dsb-header-plan-title-color, var(--dsb-plan-title-color, var(--dsb-text-primary))));
+    color: var(--dsb-header-plan-title-color, var(--dsb-header-text, var(--dsb-text-primary)));
     font-size: var(--dsb-plan-title-size, 24px);
     font-weight: var(--dsb-plan-title-weight, 700);
     opacity: var(--dsb-header-plan-title-opacity, 1);
@@ -190,16 +189,17 @@
 
 .dsb-card__input {
     flex: 1;
-    background: var(--dsb-input-bg);
-    border: 1px solid var(--dsb-input-border);
-    color: var(--dsb-input-text);
+    background: var(--dsb-input-bg, var(--dsb-card-bg, #ffffff)) !important;
+    border: 1px solid var(--dsb-input-border, var(--dsb-card-border, #e5e7eb)) !important;
+    color: var(--dsb-input-text, var(--dsb-card-text, var(--dsb-text-primary))) !important;
     padding: 10px 12px;
     border-radius: 8px;
+    outline: none !important;
 }
 
 .dsb-card__input:focus {
-    border-color: var(--dsb-input-focus-border);
-    outline: 1px solid var(--dsb-input-focus-border);
+    border-color: var(--dsb-input-focus-border, var(--dsb-btn-primary-border, #0ea5e9)) !important;
+    outline: 1px solid var(--dsb-input-focus-border, var(--dsb-btn-primary-border, #0ea5e9)) !important;
 }
 
 .dsb-card__hint {
@@ -375,13 +375,15 @@
     border-collapse: collapse;
     min-width: 600px;
     background: var(--dsb-table-bg);
+    border: 1px solid var(--dsb-table-border) !important;
 }
 
 .dsb-table th,
 .dsb-table td {
     padding: 10px 12px;
     text-align: left;
-    border-bottom: 1px solid var(--dsb-table-row-border, var(--dsb-table-border));
+    border: 1px solid var(--dsb-table-border) !important;
+    border-bottom: 1px solid var(--dsb-table-row-border, var(--dsb-table-border)) !important;
     color: var(--dsb-table-body-text, var(--dsb-table-row-text, var(--dsb-text-primary)));
     font-size: 14px;
 }
@@ -458,7 +460,7 @@
 }
 
 .dsb-modal__message {
-    color: var(--dsb-text-secondary);
+    color: var(--dsb-card-hint, var(--dsb-card-text, var(--dsb-text-secondary)));
 }
 
 @media (max-width: 640px) {

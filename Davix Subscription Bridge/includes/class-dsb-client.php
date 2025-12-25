@@ -68,13 +68,8 @@ class DSB_Client {
 
     public function get_style_defaults(): array {
         return [
-            // New grouped header defaults.
-            'style_header_bg'                => '#0f172a',
-            'style_header_border'            => 'transparent',
-            'style_header_shadow_color'      => 'rgba(0,0,0,0.0)',
             'style_header_text'              => '#f8fafc',
 
-            'style_plan_title_color'       => '#f8fafc',
             'style_plan_title_size'        => '24px',
             'style_plan_title_weight'      => '700',
             'style_header_plan_title_color'=> '#f8fafc',
@@ -91,14 +86,16 @@ class DSB_Client {
             'style_cards_border'            => '#1e293b',
             'style_cards_shadow_color'      => 'rgba(0,0,0,0.4)',
             'style_cards_text'              => '#f8fafc',
+            'style_dashboard_shadow_color'  => 'rgba(0,0,0,0.4)',
+            'style_dashboard_border_color'  => '#1e293b',
 
             'style_card_header_color'      => '#f8fafc',
             'style_card_header_size'       => '18px',
             'style_card_header_weight'     => '700',
             'style_card_text_color'        => '#f8fafc',
             'style_card_label_color'       => '#94a3b8',
-            'style_card_hint_color'        => '#94a3b8',
-            'style_endpoint_eyebrow_color' => '#94a3b8',
+            'style_card_hint_color'        => '',
+            'style_endpoint_eyebrow_color' => '',
             'style_dashboard_bg'          => '#0f172a',
             'style_card_bg'               => '#0b1220',
             'style_card_border'           => '#1e293b',
@@ -178,7 +175,7 @@ class DSB_Client {
             'style_table_border'          => '#1e293b',
             'style_table_row_bg'          => '#0e1627',
             'style_table_row_text'        => '#f8fafc',
-            'style_table_row_border'      => '#1e293b',
+            'style_table_row_border'      => '',
             'style_table_row_hover_bg'    => '#111827',
             'style_table_empty_text_color'=> '#94a3b8',
             'style_table_error_text'      => '#f87171',
@@ -269,10 +266,9 @@ class DSB_Client {
             }
         };
 
-        $seed_if_absent( 'style_header_text', [ 'style_header_plan_title_color', 'style_plan_title_color', 'style_text_primary' ] );
-        $seed_if_absent( 'style_header_bg', [ 'style_dashboard_bg', 'style_card_bg' ] );
-        $seed_if_absent( 'style_header_border', [ 'style_card_border' ] );
-        $seed_if_absent( 'style_header_shadow_color', [ 'style_card_shadow' ] );
+        $seed_if_absent( 'style_header_text', [ 'style_header_plan_title_color', 'style_text_primary' ] );
+        $seed_if_absent( 'style_dashboard_border_color', [ 'style_header_border', 'style_card_border' ] );
+        $seed_if_absent( 'style_dashboard_shadow_color', [ 'style_header_shadow_color', 'style_card_shadow' ] );
 
         // Seed new grouped card styles.
         $seed_if_absent( 'style_cards_text', [ 'style_card_text_color', 'style_text_primary' ] );
@@ -617,11 +613,7 @@ class DSB_Client {
         }
 
         $color_keys = [
-            'style_header_bg',
-            'style_header_border',
-            'style_header_shadow_color',
             'style_header_text',
-            'style_plan_title_color',
             'style_header_plan_title_color',
             'style_header_eyebrow_color',
             'style_header_meta_color',
@@ -637,6 +629,8 @@ class DSB_Client {
             'style_cards_shadow_color',
             'style_cards_text',
             'style_dashboard_bg',
+            'style_dashboard_shadow_color',
+            'style_dashboard_border_color',
             'style_card_bg',
             'style_card_border',
             'style_card_shadow',
