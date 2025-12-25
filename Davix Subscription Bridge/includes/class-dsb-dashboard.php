@@ -280,8 +280,6 @@ class DSB_Dashboard {
         ];
         $map = [
             '--dsb-header-bg'                 => 'style_header_bg',
-            '--dsb-header-border'             => 'style_header_border',
-            '--dsb-header-shadow'             => 'style_header_shadow_color',
             '--dsb-header-text'               => 'style_header_text',
             '--dsb-plan-title-size'           => 'style_plan_title_size',
             '--dsb-plan-title-weight'         => 'style_plan_title_weight',
@@ -308,6 +306,7 @@ class DSB_Dashboard {
             '--dsb-card-shadow-blur'          => 'style_card_shadow_blur',
             '--dsb-card-shadow-spread'        => 'style_card_shadow_spread',
             '--dsb-container-padding'         => 'style_container_padding',
+            '--dsb-dashboard-border'          => 'style_dashboard_border_color',
             '--dsb-dashboard-shadow'          => 'style_dashboard_shadow_color',
             '--dsb-text-primary'              => 'style_text_primary',
             '--dsb-text-secondary'            => 'style_text_secondary',

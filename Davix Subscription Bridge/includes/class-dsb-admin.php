@@ -1121,6 +1121,7 @@ class DSB_Admin {
                     <?php
                     $this->render_color_input_field( 'style_dashboard_bg', __( 'Dashboard Background Color', 'davix-sub-bridge' ), $styles['style_dashboard_bg'], __( 'Background behind all dashboard sections in the [PIXLAB_DASHBOARD] shortcode.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_dashboard_shadow_color', __( 'Dashboard Shadow Color', 'davix-sub-bridge' ), $styles['style_dashboard_shadow_color'] ?? '', __( 'Shadow color applied to the outer dashboard container.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_dashboard_border_color', __( 'Dashboard Border Color', 'davix-sub-bridge' ), $styles['style_dashboard_border_color'] ?? '', __( 'Border color around the outer dashboard container.', 'davix-sub-bridge' ) );
                     ?>
                 </table>
             </div>
@@ -1131,8 +1132,6 @@ class DSB_Admin {
                 <table class="form-table" role="presentation">
                     <?php
                     $this->render_color_input_field( 'style_header_bg', __( 'Header Background', 'davix-sub-bridge' ), $styles['style_header_bg'], __( 'Background color for the header area.', 'davix-sub-bridge' ) );
-                    $this->render_color_input_field( 'style_header_border', __( 'Header Border', 'davix-sub-bridge' ), $styles['style_header_border'], __( 'Border color for the header container.', 'davix-sub-bridge' ) );
-                    $this->render_color_input_field( 'style_header_shadow_color', __( 'Header Shadow Color', 'davix-sub-bridge' ), $styles['style_header_shadow_color'], __( 'Shadow color behind the header container.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_header_text', __( 'Header Text Color (all header text)', 'davix-sub-bridge' ), $styles['style_header_text'], __( 'Applies to eyebrow, plan title, meta, and billing lines.', 'davix-sub-bridge' ) );
                     ?>
                 </table>
