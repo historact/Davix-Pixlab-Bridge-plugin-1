@@ -47,14 +47,12 @@ class DSB_Dashboard {
         $this->enqueue_assets();
 
         // Compute an explicit plan-title color to apply inline on the H2.
-        // Fallback order: header text -> header plan-title override -> plan-title color
+        // Fallback order: header plan-title override -> header text
         $plan_title_color = '';
-        if ( ! empty( $styles['style_header_text'] ) ) {
-            $plan_title_color = $styles['style_header_text'];
-        } elseif ( ! empty( $styles['style_header_plan_title_color'] ) ) {
+        if ( ! empty( $styles['style_header_plan_title_color'] ) ) {
             $plan_title_color = $styles['style_header_plan_title_color'];
-        } elseif ( ! empty( $styles['style_plan_title_color'] ) ) {
-            $plan_title_color = $styles['style_plan_title_color'];
+        } elseif ( ! empty( $styles['style_header_text'] ) ) {
+            $plan_title_color = $styles['style_header_text'];
         }
 
         ob_start();
@@ -285,7 +283,6 @@ class DSB_Dashboard {
             '--dsb-header-border'             => 'style_header_border',
             '--dsb-header-shadow'             => 'style_header_shadow_color',
             '--dsb-header-text'               => 'style_header_text',
-            '--dsb-plan-title-color'          => 'style_plan_title_color',
             '--dsb-plan-title-size'           => 'style_plan_title_size',
             '--dsb-plan-title-weight'         => 'style_plan_title_weight',
             '--dsb-header-plan-title-color'   => 'style_header_plan_title_color',
@@ -311,6 +308,7 @@ class DSB_Dashboard {
             '--dsb-card-shadow-blur'          => 'style_card_shadow_blur',
             '--dsb-card-shadow-spread'        => 'style_card_shadow_spread',
             '--dsb-container-padding'         => 'style_container_padding',
+            '--dsb-dashboard-shadow'          => 'style_dashboard_shadow_color',
             '--dsb-text-primary'              => 'style_text_primary',
             '--dsb-text-secondary'            => 'style_text_secondary',
             '--dsb-text-muted'                => 'style_text_muted',

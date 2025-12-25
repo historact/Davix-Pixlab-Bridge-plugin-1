@@ -1120,6 +1120,7 @@ class DSB_Admin {
                 <table class="form-table" role="presentation">
                     <?php
                     $this->render_color_input_field( 'style_dashboard_bg', __( 'Dashboard Background Color', 'davix-sub-bridge' ), $styles['style_dashboard_bg'], __( 'Background behind all dashboard sections in the [PIXLAB_DASHBOARD] shortcode.', 'davix-sub-bridge' ) );
+                    $this->render_color_input_field( 'style_dashboard_shadow_color', __( 'Dashboard Shadow Color', 'davix-sub-bridge' ), $styles['style_dashboard_shadow_color'] ?? '', __( 'Shadow color applied to the outer dashboard container.', 'davix-sub-bridge' ) );
                     ?>
                 </table>
             </div>
@@ -1133,13 +1134,6 @@ class DSB_Admin {
                     $this->render_color_input_field( 'style_header_border', __( 'Header Border', 'davix-sub-bridge' ), $styles['style_header_border'], __( 'Border color for the header container.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_header_shadow_color', __( 'Header Shadow Color', 'davix-sub-bridge' ), $styles['style_header_shadow_color'], __( 'Shadow color behind the header container.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_header_text', __( 'Header Text Color (all header text)', 'davix-sub-bridge' ), $styles['style_header_text'], __( 'Applies to eyebrow, plan title, meta, and billing lines.', 'davix-sub-bridge' ) );
-                    // Optional explicit plan title color (exposed for admin convenience).
-                    $this->render_color_input_field(
-                        'style_plan_title_color',
-                        __( 'Plan Title Color (optional)', 'davix-sub-bridge' ),
-                        $styles['style_plan_title_color'] ?? '',
-                        __( 'Optional: explicit color for the plan title. If left empty the header text color will be used.', 'davix-sub-bridge' )
-                    );
                     ?>
                 </table>
             </div>
