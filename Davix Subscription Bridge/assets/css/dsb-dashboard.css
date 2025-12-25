@@ -190,16 +190,17 @@
 
 .dsb-card__input {
     flex: 1;
-    background: var(--dsb-input-bg);
-    border: 1px solid var(--dsb-input-border);
-    color: var(--dsb-input-text);
+    background: var(--dsb-input-bg, var(--dsb-card-bg, #ffffff)) !important;
+    border: 1px solid var(--dsb-input-border, var(--dsb-card-border, #e5e7eb)) !important;
+    color: var(--dsb-input-text, var(--dsb-card-text, var(--dsb-text-primary))) !important;
     padding: 10px 12px;
     border-radius: 8px;
+    outline: none !important;
 }
 
 .dsb-card__input:focus {
-    border-color: var(--dsb-input-focus-border);
-    outline: 1px solid var(--dsb-input-focus-border);
+    border-color: var(--dsb-input-focus-border, var(--dsb-btn-primary-border, #0ea5e9)) !important;
+    outline: 1px solid var(--dsb-input-focus-border, var(--dsb-btn-primary-border, #0ea5e9)) !important;
 }
 
 .dsb-card__hint {
