@@ -1153,6 +1153,21 @@ class DSB_Admin {
                     $this->render_color_input_field( 'style_cards_border', __( 'Cards Border', 'davix-sub-bridge' ), $styles['style_cards_border'], __( 'Border color for all cards.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_cards_shadow_color', __( 'Cards Shadow Color', 'davix-sub-bridge' ), $styles['style_cards_shadow_color'], __( 'Shadow color for card containers.', 'davix-sub-bridge' ) );
                     $this->render_color_input_field( 'style_cards_text', __( 'Cards Text Color (all card text)', 'davix-sub-bridge' ), $styles['style_cards_text'], __( 'Applies to card headers, labels, hints, endpoint eyebrows, and usage labels.', 'davix-sub-bridge' ) );
+                    // Expose card hint color so modal messages and card hints can be customized.
+                    $this->render_color_input_field(
+                        'style_card_hint_color',
+                        __( 'Card Hint Color (optional)', 'davix-sub-bridge' ),
+                        $styles['style_card_hint_color'] ?? '',
+                        __( 'Optional: color for small hint text inside cards and modal helper messages. Falls back to card text if empty.', 'davix-sub-bridge' )
+                    );
+
+                    // Expose endpoint eyebrow color (optional) so endpoint eyebrow can be overridden.
+                    $this->render_color_input_field(
+                        'style_endpoint_eyebrow_color',
+                        __( 'Endpoint Eyebrow Color (optional)', 'davix-sub-bridge' ),
+                        $styles['style_endpoint_eyebrow_color'] ?? '',
+                        __( 'Optional: explicit color for endpoint eyebrow labels (e.g., H2I, PDF). Falls back to card text if empty.', 'davix-sub-bridge' )
+                    );
                     ?>
                 </table>
             </div>
