@@ -335,6 +335,7 @@
                 [
                     displayValue(item.timestamp),
                     displayValue(item.endpoint),
+                    displayValue(item.action),
                     displayValue(item.files),
                     formatBytes(item.bytes_in),
                     formatBytes(item.bytes_out),
@@ -344,11 +345,11 @@
                     const td = document.createElement('td');
                     td.textContent = value;
 
-                    if (index === 6 && status) {
+                    if (index === 7 && status) {
                         td.classList.add(`is-${status}`);
                     }
 
-                    if (index === 5 && status === 'error') {
+                    if (index === 6 && status === 'error') {
                         td.classList.add('dsb-error');
                     }
 

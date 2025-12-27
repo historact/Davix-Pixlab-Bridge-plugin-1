@@ -207,6 +207,7 @@ class DSB_Client {
             'label_tools'                 => __( 'TOOLS', 'davix-sub-bridge' ),
             'label_date_time'             => __( 'Date/Time', 'davix-sub-bridge' ),
             'label_endpoint'              => __( 'Endpoint', 'davix-sub-bridge' ),
+            'label_action'                => __( 'Action', 'davix-sub-bridge' ),
             'label_files'                 => __( 'Files', 'davix-sub-bridge' ),
             'label_bytes_in'              => __( 'Bytes In', 'davix-sub-bridge' ),
             'label_bytes_out'             => __( 'Bytes Out', 'davix-sub-bridge' ),

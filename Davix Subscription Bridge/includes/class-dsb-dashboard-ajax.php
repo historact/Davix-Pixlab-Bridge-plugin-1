@@ -495,6 +495,7 @@ class DSB_Dashboard_Ajax {
             $items[] = [
                 'timestamp' => $this->fmt_datetime( $row['timestamp'] ?? ( $row['created_at'] ?? null ) ),
                 'endpoint'  => $this->placeholder_or_value( sanitize_text_field( $row['endpoint'] ?? '' ) ),
+                'action'    => $this->placeholder_or_value( sanitize_text_field( $row['action'] ?? '' ) ),
                 'status'    => $this->placeholder_or_value( sanitize_text_field( $row['status'] ?? '' ) ),
                 'files'     => $this->placeholder_or_value( isset( $files_processed ) ? (int) $files_processed : null ),
                 'bytes_in'  => $this->placeholder_or_value( isset( $bytes_in ) ? (int) $bytes_in : null ),
