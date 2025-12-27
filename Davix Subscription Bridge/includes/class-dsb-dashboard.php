@@ -140,6 +140,7 @@ class DSB_Dashboard {
                                 <tr>
                                     <th><?php echo esc_html( $labels['label_date_time'] ); ?></th>
                                     <th><?php echo esc_html( $labels['label_endpoint'] ); ?></th>
+                                    <th><?php echo esc_html( $labels['label_action'] ); ?></th>
                                     <th><?php echo esc_html( $labels['label_files'] ); ?></th>
                                     <th><?php echo esc_html( $labels['label_bytes_in'] ); ?></th>
                                     <th><?php echo esc_html( $labels['label_bytes_out'] ); ?></th>
