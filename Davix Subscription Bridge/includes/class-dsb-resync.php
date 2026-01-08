@@ -182,6 +182,7 @@ class DSB_Resync {
             $payload['valid_until'] = $valid_until;
         }
 
+        $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
         $this->client->send_event( $payload );
         dsb_log(
             'debug',
@@ -228,6 +229,7 @@ class DSB_Resync {
                 'subscription_status' => 'expired',
             ];
 
+            $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
             $this->client->send_event( $payload );
             $processed ++;
         }
