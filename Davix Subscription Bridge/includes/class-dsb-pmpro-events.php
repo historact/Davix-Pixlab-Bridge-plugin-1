@@ -71,6 +71,7 @@ class DSB_PMPro_Events {
             dsb_log( 'error', 'PMPro event skipped: missing plan_slug', [ 'event' => 'activated', 'user_id' => $user_id, 'level_id' => $level_id ] );
             return;
         }
+        $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
         self::$client->send_event( $payload );
     }
 
@@ -116,6 +117,7 @@ class DSB_PMPro_Events {
                     'valid_until' => $payload['valid_until'] ?? null,
                 ] );
 
+                $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
                 self::$client->send_event( $payload );
                 return;
             }
@@ -127,6 +129,7 @@ class DSB_PMPro_Events {
                 'subscription_id'     => self::subscription_id( $user_id, 0 ),
                 'subscription_status' => 'expired',
             ];
+            $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
             self::$client->send_event( $payload );
             return;
         }
@@ -174,6 +177,7 @@ class DSB_PMPro_Events {
             dsb_log( 'error', 'PMPro event skipped: missing plan_slug', [ 'event' => 'active', 'user_id' => $user_id, 'level_id' => $level_id ] );
             return;
         }
+        $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
         self::$client->send_event( $payload );
     }
 
@@ -248,6 +252,7 @@ class DSB_PMPro_Events {
             return;
         }
 
+        $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
         self::$client->send_event( $payload );
     }
 

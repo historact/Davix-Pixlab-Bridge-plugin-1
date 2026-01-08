@@ -575,6 +575,8 @@ class DSB_Events {
                 );
             }
 
+            $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
+
             if ( $already_sent && ! ( $backfill_request && $valid_until ) && ! $needs_identity_update && ! $is_patch_event ) {
                 if ( $valid_until && $key_row && empty( $key_valid_until ) && ! $backfill_meta ) {
                     dsb_log(
@@ -745,6 +747,8 @@ class DSB_Events {
         if ( ! $sent_with_valid ) {
             $payload['event_patch'] = 'valid_until';
         }
+
+        $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
 
         dsb_log(
             'debug',
@@ -1105,6 +1109,8 @@ class DSB_Events {
         if ( 'activated' === $event && $subscription_id && empty( $payload['valid_until'] ) ) {
             $this->schedule_valid_until_backfill( $subscription_id, $order );
         }
+
+        $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
 
         return $payload;
     }

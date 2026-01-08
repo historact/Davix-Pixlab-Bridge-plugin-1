@@ -32,6 +32,39 @@ class DSB_Util {
 
         return gmdate( 'c', $timestamp );
     }
+
+    /**
+     * Generate a deterministic event ID for subscription lifecycle payloads.
+     *
+     * @param array $payload Event payload.
+     */
+    public static function event_id_from_payload( array $payload ): string {
+        $event              = isset( $payload['event'] ) ? trim( (string) $payload['event'] ) : '';
+        $subscription_status = isset( $payload['subscription_status'] ) ? trim( (string) $payload['subscription_status'] ) : '';
+        $subscription_id    = isset( $payload['subscription_id'] ) ? trim( (string) $payload['subscription_id'] ) : '';
+        $order_id           = isset( $payload['order_id'] ) ? trim( (string) $payload['order_id'] ) : '';
+        $wp_user_id         = isset( $payload['wp_user_id'] ) ? trim( (string) $payload['wp_user_id'] ) : '';
+        $customer_email     = isset( $payload['customer_email'] ) ? strtolower( trim( (string) $payload['customer_email'] ) ) : '';
+        $plan_slug          = isset( $payload['plan_slug'] ) ? trim( (string) $payload['plan_slug'] ) : '';
+        $valid_from         = isset( $payload['valid_from'] ) ? trim( (string) $payload['valid_from'] ) : '';
+        $valid_until        = isset( $payload['valid_until'] ) ? trim( (string) $payload['valid_until'] ) : '';
+        $event_patch        = isset( $payload['event_patch'] ) ? trim( (string) $payload['event_patch'] ) : '';
+
+        $canonical = 'dsb|v1|' . implode( '|', [
+            $event,
+            $subscription_status,
+            $subscription_id,
+            $order_id,
+            $wp_user_id,
+            $customer_email,
+            $plan_slug,
+            $valid_from,
+            $valid_until,
+            $event_patch,
+        ] );
+
+        return hash( 'sha256', $canonical );
+    }
 }
 
 /**
