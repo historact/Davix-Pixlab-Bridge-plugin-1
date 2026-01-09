@@ -6,7 +6,7 @@ defined( 'ABSPATH' ) || exit;
 class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
     const OPTION_DB_VERSION          = 'dsb_db_version';
-    const DB_VERSION                 = '1.8.0';
+    const DB_VERSION                 = '1.8.1';
     const OPTION_TRIGGERS_STATUS     = 'dsb_triggers_status';
 
     /** @var \wpdb */
@@ -56,6 +56,7 @@ class DSB_DB {
             wp_user_id BIGINT UNSIGNED DEFAULT NULL,
             customer_email varchar(190) DEFAULT NULL,
             subscription_id varchar(64) DEFAULT NULL,
+            api_key_id BIGINT UNSIGNED DEFAULT NULL,
             reason varchar(32) NOT NULL,
             status varchar(16) NOT NULL DEFAULT 'pending',
             attempts INT NOT NULL DEFAULT 0,
@@ -73,6 +74,7 @@ class DSB_DB {
             KEY wp_user_id (wp_user_id),
             KEY customer_email (customer_email),
             KEY subscription_id (subscription_id),
+            KEY api_key_id (api_key_id),
             KEY idx_claim_token (claim_token)
         ) $charset_collate;";
 
@@ -205,6 +207,11 @@ class DSB_DB {
                 DSB_Migration_170::run( $this->wpdb, $this->table_keys, $this->table_user );
             }
 
+            if ( version_compare( (string) $stored_version, '1.8.1', '<' ) ) {
+                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.8.1.php';
+                DSB_Migration_181::run( $this->wpdb, $this->table_purge_queue );
+            }
+
             update_option( self::OPTION_DB_VERSION, self::DB_VERSION );
         }
     }
@@ -298,6 +305,7 @@ class DSB_DB {
             'subscription_id' => null,
             'subscription_ids'=> [],
             'reason'          => '',
+            'api_key_id'      => null,
         ];
 
         $data = wp_parse_args( $args, $defaults );
@@ -307,6 +315,7 @@ class DSB_DB {
         $reason         = sanitize_key( $data['reason'] );
         $subscription_id = $data['subscription_id'] ? sanitize_text_field( $data['subscription_id'] ) : null;
         $subscription_ids = is_array( $data['subscription_ids'] ) ? array_filter( array_map( 'sanitize_text_field', $data['subscription_ids'] ) ) : [];
+        $api_key_id = $data['api_key_id'] ? absint( $data['api_key_id'] ) : null;
 
         if ( empty( $subscription_id ) && ! empty( $subscription_ids ) ) {
             $subscription_id = reset( $subscription_ids );
@@ -331,6 +340,11 @@ class DSB_DB {
             $params[]         = $subscription_id;
         }
 
+        if ( $api_key_id ) {
+            $identity_parts[] = 'api_key_id = %d';
+            $params[]         = $api_key_id;
+        }
+
         if ( $identity_parts ) {
             $identity_sql = implode( ' OR ', $identity_parts );
             $where_sql    = "status = %s AND reason = %s AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {$window_minutes} MINUTE) AND ({$identity_sql})";
@@ -346,6 +360,7 @@ class DSB_DB {
                 'wp_user_id'      => $wp_user_id ?: null,
                 'customer_email'  => $customer_email ?: null,
                 'subscription_id' => $subscription_id ?: null,
+                'api_key_id'      => $api_key_id ?: null,
                 'reason'          => $reason ?: 'manual',
                 'status'          => 'pending',
             ]

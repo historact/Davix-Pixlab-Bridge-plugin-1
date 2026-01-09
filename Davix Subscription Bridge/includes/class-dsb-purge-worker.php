@@ -123,6 +123,7 @@ class DSB_Purge_Worker {
 
         $attempt    = (int) ( $job['attempts'] ?? 0 );
         $wp_user_id = isset( $job['wp_user_id'] ) ? absint( $job['wp_user_id'] ) : 0;
+        $api_key_id = isset( $job['api_key_id'] ) ? absint( $job['api_key_id'] ) : 0;
         $emails     = [];
         $subs       = [];
 
@@ -140,17 +141,14 @@ class DSB_Purge_Worker {
 
         $payload = [ 'reason' => sanitize_key( $job['reason'] ?? 'manual' ) ];
 
-        if ( $wp_user_id ) {
-            $payload['wp_user_id'] = $wp_user_id;
+        if ( ! $api_key_id ) {
+            $error = 'missing_api_key_id';
+            $this->db->mark_job_error( $job, $error, self::MAX_ATTEMPTS );
+            dsb_log( 'error', 'Purge job missing api_key_id; refusing to call PixLab', [ 'job_id' => $job_id ] );
+            return;
         }
 
-        if ( $emails ) {
-            $payload['customer_email'] = $emails[0];
-        }
-
-        if ( $subs ) {
-            $payload['subscription_ids'] = $subs;
-        }
+        $payload['api_key_id'] = $api_key_id;
 
         $response     = $this->client->purge_user_on_node( $payload );
         $response_obj = $response['response'] ?? null;
