@@ -68,6 +68,8 @@ if ( ! function_exists( __NAMESPACE__ . '\\dsb_pixlab_get_identity' ) ) {
 if ( ! class_exists( __NAMESPACE__ . '\\DSB_Dashboard_Ajax' ) ) {
 
 class DSB_Dashboard_Ajax {
+    private const SELF_HEAL_RATE_LIMIT = 10 * MINUTE_IN_SECONDS;
+    private const SELF_HEAL_META_KEY = '_dsb_self_heal_last_at';
     protected $client;
     protected $db;
     protected $diag_enabled;
@@ -94,6 +96,10 @@ class DSB_Dashboard_Ajax {
         try {
             $identity = $this->validate_request();
             $result   = $this->client->user_summary( $identity );
+            $self_heal = $this->maybe_self_heal_missing_key( $identity, $result );
+            if ( ! empty( $self_heal['result'] ) && is_array( $self_heal['result'] ) ) {
+                $result = $self_heal['result'];
+            }
 
             if ( ! is_wp_error( $result['response'] ) && 200 === $result['code'] && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
                 $result['decoded'] = $this->normalize_summary_payload( $result['decoded'] );
@@ -340,6 +346,95 @@ class DSB_Dashboard_Ajax {
             'body'   => $body_excerpt,
             'error'  => $message,
         ];
+    }
+
+    private function maybe_self_heal_missing_key( array $identity, array $result ): array {
+        $code = $result['code'] ?? 0;
+        $decoded = is_array( $result['decoded'] ?? null ) ? $result['decoded'] : [];
+        $message = strtolower( (string) ( $decoded['message'] ?? '' ) );
+        $error_code = strtolower( (string) ( $decoded['code'] ?? '' ) );
+
+        if ( 404 !== (int) $code ) {
+            return [];
+        }
+
+        $missing_key_match = false !== strpos( $message, 'api key' ) || 'no_api_key' === $error_code || 'no_api_key_found' === $error_code;
+        if ( ! $missing_key_match ) {
+            return [];
+        }
+
+        $user_id = isset( $identity['wp_user_id'] ) ? absint( $identity['wp_user_id'] ) : 0;
+        if ( $user_id <= 0 ) {
+            return [];
+        }
+
+        $now = time();
+        $last_attempt = (int) get_user_meta( $user_id, self::SELF_HEAL_META_KEY, true );
+        if ( $last_attempt && ( $now - $last_attempt ) < self::SELF_HEAL_RATE_LIMIT ) {
+            dsb_log(
+                'info',
+                'Self-heal skipped due to rate limit',
+                [
+                    'error_code' => 'pixlab_missing_key',
+                    'user_id'    => $user_id,
+                    'last_attempt' => $last_attempt,
+                ]
+            );
+            return [];
+        }
+
+        update_user_meta( $user_id, self::SELF_HEAL_META_KEY, $now );
+
+        dsb_log(
+            'warning',
+            'Self-heal triggered for missing API key',
+            [
+                'error_code' => 'pixlab_missing_key',
+                'user_id'    => $user_id,
+                'http_code'  => $code,
+                'message'    => $decoded['message'] ?? '',
+            ]
+        );
+
+        $emails = [];
+        $subs   = [];
+        if ( ! empty( $identity['customer_email'] ) ) {
+            $emails[] = sanitize_email( (string) $identity['customer_email'] );
+        }
+        if ( ! empty( $identity['subscription_id'] ) ) {
+            $subs[] = sanitize_text_field( (string) $identity['subscription_id'] );
+        }
+        $this->db->delete_user_rows_local( $user_id, $emails, $subs );
+
+        dsb_log(
+            'info',
+            'Self-heal cleared stale local data',
+            [
+                'user_id' => $user_id,
+                'emails'  => $emails,
+                'subs'    => $subs,
+            ]
+        );
+
+        if ( ! class_exists( __NAMESPACE__ . '\\DSB_PMPro_Events' ) ) {
+            return [];
+        }
+
+        $payload = DSB_PMPro_Events::build_active_payload_for_user( $user_id );
+        if ( ! $payload ) {
+            dsb_log( 'warning', 'Self-heal skipped: unable to build payload', [ 'user_id' => $user_id ] );
+            return [];
+        }
+
+        $dispatch = DSB_PMPro_Events::dispatch_provision_payload( $payload, 'self_heal' );
+        if ( ! empty( $dispatch['success'] ) ) {
+            dsb_log( 'info', 'Self-heal reprovision ok', [ 'user_id' => $user_id, 'event' => $payload['event'] ?? '' ] );
+            $summary = $this->client->user_summary( $identity );
+            return [ 'result' => $summary ];
+        }
+
+        dsb_log( 'error', 'Self-heal reprovision failed', [ 'user_id' => $user_id, 'event' => $payload['event'] ?? '' ] );
+        return [];
     }
 
     private function fmt_date_ymd( $value ): string {

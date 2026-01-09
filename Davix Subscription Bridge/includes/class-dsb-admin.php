@@ -977,6 +977,42 @@ class DSB_Admin {
             }
         }
 
+        if ( isset( $_POST['dsb_reprovision_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_reprovision_nonce'] ) ), 'dsb_reprovision_key' ) ) {
+            $requested_user_id = isset( $_POST['reprovision_user_id'] ) ? absint( $_POST['reprovision_user_id'] ) : 0;
+            $user_id = $requested_user_id ?: get_current_user_id();
+
+            if ( $user_id <= 0 ) {
+                $this->add_notice( __( 'Unable to resolve a user for re-provisioning.', 'davix-sub-bridge' ), 'error' );
+            } elseif ( ! class_exists( __NAMESPACE__ . '\\DSB_PMPro_Events' ) ) {
+                $this->add_notice( __( 'PMPro integration is not available for re-provisioning.', 'davix-sub-bridge' ), 'error' );
+            } else {
+                $user = get_userdata( $user_id );
+                $emails = [];
+                if ( $user instanceof \WP_User && $user->user_email ) {
+                    $emails[] = sanitize_email( $user->user_email );
+                }
+
+                $this->db->delete_user_rows_local( $user_id, $emails, [] );
+                dsb_log( 'info', 'Admin re-provision cleared local records', [ 'user_id' => $user_id ] );
+
+                $payload = DSB_PMPro_Events::build_active_payload_for_user( $user_id );
+                if ( ! $payload ) {
+                    $this->add_notice( __( 'Unable to build a PMPro payload for the selected user.', 'davix-sub-bridge' ), 'error' );
+                } else {
+                    $dispatch = DSB_PMPro_Events::dispatch_provision_payload( $payload, 'admin_reprovision' );
+                    if ( ! empty( $dispatch['success'] ) ) {
+                        $this->add_notice( __( 'Re-provision request sent to PixLab.', 'davix-sub-bridge' ) );
+                    } else {
+                        $error_message = __( 'Re-provision request failed and was queued for retry.', 'davix-sub-bridge' );
+                        if ( isset( $dispatch['decoded']['status'] ) ) {
+                            $error_message .= ' ' . sanitize_text_field( (string) $dispatch['decoded']['status'] );
+                        }
+                        $this->add_notice( $error_message, 'error' );
+                    }
+                }
+            }
+        }
+
         if ( isset( $_POST['dsb_key_action_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_key_action_nonce'] ) ), 'dsb_key_action' ) ) {
             $action          = isset( $_POST['dsb_action'] ) ? sanitize_key( wp_unslash( $_POST['dsb_action'] ) ) : '';
             $subscription_id = isset( $_POST['subscription_id'] ) ? sanitize_text_field( wp_unslash( $_POST['subscription_id'] ) ) : '';
@@ -1839,6 +1875,13 @@ class DSB_Admin {
         <p>
             <button type="button" class="button button-primary dsb-open-key-modal"><?php echo esc_html( $labels['label_create_key'] ); ?></button>
         </p>
+        <form method="post" style="margin-bottom:15px;">
+            <?php wp_nonce_field( 'dsb_reprovision_key', 'dsb_reprovision_nonce' ); ?>
+            <label for="dsb-reprovision-user"><?php esc_html_e( 'Re-provision API key for user ID (optional):', 'davix-sub-bridge' ); ?></label>
+            <input type="number" id="dsb-reprovision-user" name="reprovision_user_id" min="1" step="1" style="width:120px;" />
+            <?php submit_button( __( 'Re-provision API key', 'davix-sub-bridge' ), 'secondary', 'dsb_reprovision_submit', false ); ?>
+            <p class="description"><?php esc_html_e( 'Leave blank to re-provision for the currently logged-in user.', 'davix-sub-bridge' ); ?></p>
+        </form>
         <table class="widefat">
             <thead><tr><th><?php esc_html_e( 'Subscription ID', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Email', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Plan', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Status', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Key Prefix', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Key Last4', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Valid From', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Valid Until', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Updated', 'davix-sub-bridge' ); ?></th><th><?php esc_html_e( 'Actions', 'davix-sub-bridge' ); ?></th></tr></thead>
             <tbody>
