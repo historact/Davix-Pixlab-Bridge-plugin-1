@@ -948,6 +948,22 @@ class DSB_Client {
         $validation   = $this->validate_response( '/internal/subscription/event', $decoded, $payload );
         $success      = $code >= 200 && $code < 300 && ! is_wp_error( $response ) && ( $validation['ok'] ?? false );
         $validation_error = $validation['error'] ?? '';
+        $strict_validation = [ 'ok' => true, 'error' => '', 'missing' => [], 'plan_slug' => $payload['plan_slug'] ?? '' ];
+
+        $subscription_identifier = sanitize_text_field( $payload['subscription_id'] ?? '' );
+        if ( ! $subscription_identifier && isset( $payload['order_id'] ) ) {
+            $subscription_identifier = sanitize_text_field( (string) $payload['order_id'] );
+        }
+
+        if ( $success ) {
+            $strict_validation = $this->strict_validate_mirror_fields( $payload, $decoded );
+            if ( ! $strict_validation['ok'] ) {
+                $success          = false;
+                $validation_error = $strict_validation['error'];
+            } elseif ( ! empty( $strict_validation['plan_slug'] ) ) {
+                $payload['plan_slug'] = $strict_validation['plan_slug'];
+            }
+        }
 
         $log = [
             'event'           => $payload['event'] ?? '',
@@ -985,13 +1001,22 @@ class DSB_Client {
             );
         }
 
-        $subscription_identifier = sanitize_text_field( $payload['subscription_id'] ?? '' );
-        if ( ! $subscription_identifier && isset( $payload['order_id'] ) ) {
-            $subscription_identifier = sanitize_text_field( (string) $payload['order_id'] );
-        }
-
         $event_name = isset( $payload['event'] ) ? strtolower( (string) $payload['event'] ) : '';
         $disable_like_events = [ 'cancelled', 'expired', 'disabled', 'payment_failed', 'payment-failed', 'paused' ];
+
+        if ( ! $success && $validation_error && ! empty( $strict_validation['missing'] ) ) {
+            dsb_log(
+                'error',
+                'Node response missing required mirror fields; mirrors untouched',
+                [
+                    'event'           => $payload['event'] ?? '',
+                    'subscription_id' => $subscription_identifier,
+                    'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : null,
+                    'customer_email'  => $payload['customer_email'] ?? '',
+                    'missing_fields'  => $strict_validation['missing'],
+                ]
+            );
+        }
 
         if ( $success ) {
             $valid_from  = $this->normalize_mysql_datetime(
@@ -1017,6 +1042,10 @@ class DSB_Client {
             $subscription_status = isset( $payload['subscription_status'] ) ? sanitize_text_field( $payload['subscription_status'] ) : null;
             $should_clear_fields = in_array( $event_name, [ 'expired', 'disabled' ], true )
                 || ( 'disabled' === $key_status && in_array( $subscription_status, [ 'expired', 'disabled' ], true ) );
+            $node_plan_id = null;
+            if ( isset( $decoded['plan_id'] ) && is_numeric( $decoded['plan_id'] ) ) {
+                $node_plan_id = absint( $decoded['plan_id'] );
+            }
 
             // For expired/disabled, always clear plan/validity regardless of existing values.
             if ( $should_clear_fields ) {
@@ -1043,7 +1072,7 @@ class DSB_Client {
                     'key_last4'       => isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? substr( $decoded['key'], -4 ) : ( $decoded['key_last4'] ?? null ),
                     'valid_from'      => $valid_from,
                     'valid_until'     => $valid_until,
-                    'node_plan_id'    => $decoded['plan_id'] ?? null,
+                    'node_plan_id'    => $node_plan_id,
                     'last_action'     => $decoded['action'] ?? null,
                     'last_http_code'  => $code,
                     'last_error'      => null,
@@ -1151,6 +1180,68 @@ class DSB_Client {
         }
 
         return [ 'ok' => true, 'error' => '' ];
+    }
+
+    protected function strict_validate_mirror_fields( array $payload, $decoded ): array {
+        $event_name    = isset( $payload['event'] ) ? strtolower( (string) $payload['event'] ) : '';
+        $active_events = [ 'activated', 'active', 'renewed', 'reactivated' ];
+        if ( ! in_array( $event_name, $active_events, true ) ) {
+            return [
+                'ok'        => true,
+                'error'     => '',
+                'missing'   => [],
+                'plan_slug' => $payload['plan_slug'] ?? '',
+            ];
+        }
+
+        $missing = [];
+        $email   = sanitize_email( $payload['customer_email'] ?? '' );
+        if ( '' === $email ) {
+            $missing[] = 'customer_email';
+        }
+
+        $wp_user_id = isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : 0;
+        if ( $wp_user_id <= 0 ) {
+            $missing[] = 'wp_user_id';
+        }
+
+        $plan_slug = $payload['plan_slug'] ?? '';
+        if ( ! $plan_slug && is_array( $decoded ) ) {
+            $plan_slug = $decoded['plan_slug'] ?? ( isset( $decoded['plan'] ) && is_array( $decoded['plan'] ) ? ( $decoded['plan']['plan_slug'] ?? '' ) : '' );
+        }
+        $plan_slug = dsb_normalize_plan_slug( $plan_slug );
+        if ( '' === $plan_slug ) {
+            $missing[] = 'plan_slug';
+        }
+
+        $valid_from  = $this->normalize_mysql_datetime(
+            $decoded['key']['valid_from']
+                ?? $decoded['valid_from']
+                ?? ( $payload['valid_from'] ?? null )
+        );
+        $valid_until = $this->normalize_mysql_datetime(
+            $decoded['key']['valid_until']
+                ?? $decoded['key']['valid_to']
+                ?? $decoded['key']['expires_at']
+                ?? $decoded['key']['expires_on']
+                ?? $decoded['valid_until']
+                ?? $decoded['valid_to']
+                ?? $decoded['expires_at']
+                ?? $decoded['expires_on']
+                ?? ( $payload['valid_until'] ?? null )
+        );
+        if ( ! $valid_from && ! $valid_until ) {
+            $missing[] = 'validity';
+        }
+
+        return [
+            'ok'        => empty( $missing ),
+            'error'     => empty( $missing ) ? '' : 'missing_required_fields',
+            'missing'   => $missing,
+            'plan_slug' => $plan_slug,
+            'valid_from'  => $valid_from,
+            'valid_until' => $valid_until,
+        ];
     }
 
     public function test_connection(): array {

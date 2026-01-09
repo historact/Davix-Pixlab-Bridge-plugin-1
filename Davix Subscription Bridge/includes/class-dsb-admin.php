@@ -1052,6 +1052,15 @@ class DSB_Admin {
         }
         echo '</h2>';
 
+        $settings = $this->client->get_settings();
+        $server_software = isset( $_SERVER['SERVER_SOFTWARE'] ) ? (string) $_SERVER['SERVER_SOFTWARE'] : '';
+        if ( ! empty( $settings['debug_enabled'] ) && $server_software && false !== stripos( $server_software, 'nginx' ) ) {
+            printf(
+                '<div class="notice notice-warning"><p>%s</p></div>',
+                esc_html__( 'You must deny web access to Davix Bridge log directories in Nginx (see docs).', 'davix-sub-bridge' )
+            );
+        }
+
         foreach ( $this->notices as $notice ) {
             printf( '<div class="notice notice-%1$s"><p>%2$s</p></div>', esc_attr( 'error' === $notice['type'] ? 'error' : 'success' ), esc_html( $notice['message'] ) );
         }

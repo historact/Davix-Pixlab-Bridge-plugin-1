@@ -512,6 +512,52 @@ class DSB_Node_Poll {
             $subscription_id = 'free-' . $wp_user_id;
         }
 
+        $status_value = strtolower( $subscription_status ?: $status );
+        $is_active    = in_array( $status_value, [ 'active', 'ok' ], true );
+        $missing_fields = [];
+        if ( $is_active ) {
+            if ( ! $subscription_id && ! $node_api_key_id ) {
+                $missing_fields[] = 'subscription_id';
+            }
+            if ( '' === $plan_slug ) {
+                $missing_fields[] = 'plan_slug';
+            }
+            if ( ! $valid_from && ! $valid_until ) {
+                $missing_fields[] = 'validity';
+            }
+        }
+
+        if ( $is_active && ! empty( $missing_fields ) ) {
+            dsb_log(
+                'warning',
+                'Node poll active item missing required fields; skipping mirrors',
+                [
+                    'subscription_id' => $subscription_id,
+                    'wp_user_id'      => $wp_user_id ?: null,
+                    'customer_email'  => $customer_email,
+                    'plan_slug'       => $plan_slug,
+                    'missing_fields'  => $missing_fields,
+                ]
+            );
+
+            return [
+                'wp_user_id'      => $wp_user_id,
+                'customer_email'  => $customer_email,
+                'subscription_id' => $subscription_id,
+                'node_api_key_id' => $node_api_key_id,
+                'order_id'        => $order_id,
+                'product_id'      => $product_id,
+                'plan_slug'       => $plan_slug,
+                'status'          => $subscription_status ?: ( $status ?: null ),
+                'valid_from'      => $valid_from,
+                'valid_until'     => $valid_until,
+                'pair_key'        => null,
+                'pair_valid'      => false,
+                'key_result'      => [ 'status' => 'skipped' ],
+                'user_result'     => [ 'status' => 'skipped' ],
+            ];
+        }
+
         $key_prefix = null;
         $key_last4  = null;
 
