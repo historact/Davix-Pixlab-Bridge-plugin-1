@@ -23,16 +23,32 @@ function dsb_debug_is_enabled(): bool {
 }
 
 function dsb_get_log_dir(): string {
-    $uploads = wp_upload_dir();
-    return trailingslashit( $uploads['basedir'] ) . 'davix-bridge-logs/';
+    $stored = get_option( 'dsb_log_dir_path' );
+    if ( is_string( $stored ) && '' !== $stored ) {
+        return trailingslashit( $stored );
+    }
+
+    $doc_root = isset( $_SERVER['DOCUMENT_ROOT'] ) ? realpath( (string) $_SERVER['DOCUMENT_ROOT'] ) : '';
+    $content_dir = trailingslashit( WP_CONTENT_DIR ) . 'davix-bridge-logs/';
+    $above_docroot = $doc_root ? trailingslashit( dirname( $doc_root ) ) . 'davix-bridge-logs/' : '';
+
+    if ( $doc_root && $above_docroot && 0 !== strpos( $above_docroot, $doc_root ) ) {
+        return $above_docroot;
+    }
+
+    return $content_dir;
 }
 
 function dsb_ensure_log_dir(): bool {
     $dir = dsb_get_log_dir();
-
     if ( ! wp_mkdir_p( $dir ) ) {
-        return false;
+        $dir = dsb_get_uploads_log_dir();
+        if ( ! wp_mkdir_p( $dir ) ) {
+            return false;
+        }
     }
+
+    update_option( 'dsb_log_dir_path', untrailingslashit( $dir ), false );
 
     // Prevent directory listing.
     $index_file = trailingslashit( $dir ) . 'index.php';
@@ -47,6 +63,18 @@ function dsb_ensure_log_dir(): bool {
     }
 
     return is_dir( $dir );
+}
+
+function dsb_get_uploads_log_dir(): string {
+    $uploads = wp_upload_dir();
+    $base = trailingslashit( $uploads['basedir'] ) . 'davix-bridge-logs/';
+    $token = get_option( 'dsb_log_upload_token' );
+    if ( ! is_string( $token ) || '' === $token ) {
+        $token = wp_generate_password( 12, false, false );
+        update_option( 'dsb_log_upload_token', $token, false );
+    }
+
+    return trailingslashit( $base . $token );
 }
 
 function dsb_get_log_file_path(): string {

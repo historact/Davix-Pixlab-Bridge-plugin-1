@@ -69,10 +69,12 @@ if ( ! class_exists( __NAMESPACE__ . '\\DSB_Dashboard_Ajax' ) ) {
 
 class DSB_Dashboard_Ajax {
     protected $client;
+    protected $db;
     protected $diag_enabled;
 
-    public function __construct( DSB_Client $client ) {
+    public function __construct( DSB_Client $client, DSB_DB $db ) {
         $this->client = $client;
+        $this->db     = $db;
         $this->diag_enabled = defined( 'DSB_DASH_DIAG' ) ? (bool) DSB_DASH_DIAG : current_user_can( 'manage_options' );
     }
 
@@ -95,6 +97,7 @@ class DSB_Dashboard_Ajax {
 
             if ( ! is_wp_error( $result['response'] ) && 200 === $result['code'] && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
                 $result['decoded'] = $this->normalize_summary_payload( $result['decoded'] );
+                $result['decoded'] = array_merge( $result['decoded'], $this->resolve_provisioning_status( $identity, $result['decoded'] ) );
             }
 
             $this->respond_from_result( $result, __( 'Unable to load summary.', 'davix-sub-bridge' ), 'summary' );
@@ -480,6 +483,67 @@ class DSB_Dashboard_Ajax {
                 'end'    => $billingEnd,
             ],
             'plan_validity' => $validity,
+        ];
+    }
+
+    private function resolve_provisioning_status( array $identity, array $summary ): array {
+        $key = isset( $summary['key'] ) && is_array( $summary['key'] ) ? $summary['key'] : [];
+        $key_status = isset( $key['status'] ) ? strtolower( (string) $key['status'] ) : '';
+        $has_key_material = ! empty( $key['key_prefix'] ) || ! empty( $key['key_last4'] );
+        $has_active_key = $has_key_material && ! in_array( $key_status, [ 'disabled', 'error' ], true );
+
+        if ( $has_active_key ) {
+            return [
+                'provisioning_status' => 'ok',
+                'next_retry_at'       => null,
+                'last_error'          => null,
+            ];
+        }
+
+        $jobs = $this->db->get_provision_jobs_for_identity( $identity );
+        if ( empty( $jobs ) ) {
+            return [
+                'provisioning_status' => 'ok',
+                'next_retry_at'       => null,
+                'last_error'          => null,
+            ];
+        }
+
+        $job = $jobs[0];
+        $status = strtolower( (string) ( $job['status'] ?? '' ) );
+
+        if ( in_array( $status, [ 'pending', 'processing', 'retry' ], true ) ) {
+            $next_run_at = $job['next_run_at'] ?? null;
+            $next_retry = null;
+            if ( $next_run_at ) {
+                $ts = strtotime( (string) $next_run_at );
+                $next_retry = $ts ? gmdate( 'c', $ts ) : null;
+            }
+
+            return [
+                'provisioning_status' => 'pending',
+                'next_retry_at'       => $next_retry,
+                'last_error'          => null,
+            ];
+        }
+
+        if ( 'failed' === $status ) {
+            $last_error = $job['last_error'] ?? '';
+            $message = current_user_can( 'manage_options' )
+                ? ( $last_error ? sanitize_text_field( $last_error ) : __( 'Provisioning failed.', 'davix-sub-bridge' ) )
+                : __( 'Provisioning failed. Please contact support.', 'davix-sub-bridge' );
+
+            return [
+                'provisioning_status' => 'failed',
+                'next_retry_at'       => null,
+                'last_error'          => $message,
+            ];
+        }
+
+        return [
+            'provisioning_status' => 'ok',
+            'next_retry_at'       => null,
+            'last_error'          => null,
         ];
     }
 

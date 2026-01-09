@@ -6,7 +6,7 @@ defined( 'ABSPATH' ) || exit;
 class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
     const OPTION_DB_VERSION          = 'dsb_db_version';
-    const DB_VERSION                 = '1.7.0';
+    const DB_VERSION                 = '1.8.0';
     const OPTION_TRIGGERS_STATUS     = 'dsb_triggers_status';
 
     /** @var \wpdb */
@@ -19,6 +19,8 @@ class DSB_DB {
     protected $table_user;
     /** @var string */
     protected $table_purge_queue;
+    /** @var string */
+    protected $table_provision_queue;
 
     public function __construct( \wpdb $wpdb ) {
         $this->wpdb       = $wpdb;
@@ -26,6 +28,7 @@ class DSB_DB {
         $this->table_keys = $wpdb->prefix . 'davix_bridge_keys';
         $this->table_user = $wpdb->prefix . 'davix_bridge_user';
         $this->table_purge_queue = $wpdb->prefix . 'davix_bridge_purge_queue';
+        $this->table_provision_queue = $wpdb->prefix . 'davix_bridge_provision_queue';
     }
 
     public function create_tables(): void {
@@ -70,6 +73,25 @@ class DSB_DB {
             KEY wp_user_id (wp_user_id),
             KEY customer_email (customer_email),
             KEY subscription_id (subscription_id),
+            KEY idx_claim_token (claim_token)
+        ) $charset_collate;";
+
+        $sql_provision_queue = "CREATE TABLE {$this->table_provision_queue} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            event_id varchar(190) NOT NULL,
+            payload longtext NOT NULL,
+            status varchar(16) NOT NULL DEFAULT 'pending',
+            attempts INT NOT NULL DEFAULT 0,
+            next_run_at datetime DEFAULT NULL,
+            locked_until datetime DEFAULT NULL,
+            claim_token varchar(64) DEFAULT NULL,
+            last_error text DEFAULT NULL,
+            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            UNIQUE KEY event_id (event_id),
+            KEY idx_status_next_run (status, next_run_at),
+            KEY idx_locked_until (locked_until),
             KEY idx_claim_token (claim_token)
         ) $charset_collate;";
 
@@ -134,6 +156,10 @@ class DSB_DB {
         dbDelta( $sql_purge_queue );
         dsb_log( 'debug', 'dbDelta result for davix_bridge_purge_queue', [ 'last_error' => $this->wpdb->last_error ] );
 
+        dsb_log( 'debug', 'Running dbDelta for davix_bridge_provision_queue', [ 'sql' => $sql_provision_queue ] );
+        dbDelta( $sql_provision_queue );
+        dsb_log( 'debug', 'dbDelta result for davix_bridge_provision_queue', [ 'last_error' => $this->wpdb->last_error ] );
+
         dsb_log( 'debug', 'Running dbDelta for davix_bridge_keys', [ 'sql' => $sql_keys ] );
         dbDelta( $sql_keys );
         dsb_log( 'debug', 'dbDelta result for davix_bridge_keys', [ 'last_error' => $this->wpdb->last_error ] );
@@ -188,6 +214,7 @@ class DSB_DB {
         $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_keys}" );
         $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_user}" );
         $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_purge_queue}" );
+        $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_provision_queue}" );
     }
 
     protected function maybe_create_triggers(): void {
@@ -359,6 +386,164 @@ class DSB_DB {
             ),
             ARRAY_A
         );
+    }
+
+    public function enqueue_provision_job( array $payload ): int {
+        $event_id = isset( $payload['event_id'] ) ? sanitize_text_field( $payload['event_id'] ) : '';
+        if ( ! $event_id ) {
+            return 0;
+        }
+
+        $existing = $this->wpdb->get_var(
+            $this->wpdb->prepare( "SELECT id FROM {$this->table_provision_queue} WHERE event_id = %s LIMIT 1", $event_id )
+        );
+        if ( $existing ) {
+            return (int) $existing;
+        }
+
+        $encoded = wp_json_encode( $payload, JSON_UNESCAPED_SLASHES );
+        $this->wpdb->insert(
+            $this->table_provision_queue,
+            [
+                'event_id' => $event_id,
+                'payload'  => $encoded,
+                'status'   => 'pending',
+            ]
+        );
+
+        return (int) $this->wpdb->insert_id;
+    }
+
+    public function claim_pending_provision_jobs( int $limit, string $claim_token, int $lease_seconds ): array {
+        $limit         = max( 1, min( 100, $limit ) );
+        $lease_seconds = max( 1, $lease_seconds );
+
+        $this->wpdb->query(
+            $this->wpdb->prepare(
+                "UPDATE {$this->table_provision_queue}
+                SET status = %s,
+                    claim_token = %s,
+                    locked_until = DATE_ADD( UTC_TIMESTAMP(), INTERVAL %d SECOND )
+                WHERE status IN (%s, %s)
+                    AND ( next_run_at IS NULL OR next_run_at <= UTC_TIMESTAMP() )
+                    AND ( locked_until IS NULL OR locked_until < UTC_TIMESTAMP() )
+                ORDER BY id ASC
+                LIMIT %d",
+                'processing',
+                $claim_token,
+                $lease_seconds,
+                'pending',
+                'retry',
+                $limit
+            )
+        );
+
+        return $this->wpdb->get_results(
+            $this->wpdb->prepare(
+                "SELECT * FROM {$this->table_provision_queue} WHERE claim_token = %s ORDER BY id ASC",
+                $claim_token
+            ),
+            ARRAY_A
+        );
+    }
+
+    public function mark_provision_job_done( int $id ): void {
+        $this->wpdb->update(
+            $this->table_provision_queue,
+            [
+                'status'       => 'done',
+                'last_error'   => null,
+                'claim_token'  => null,
+                'locked_until' => null,
+                'next_run_at'  => null,
+            ],
+            [ 'id' => $id ]
+        );
+    }
+
+    public function mark_provision_job_error( array $job, string $error, int $max_attempts, int $next_delay_seconds ): void {
+        $id       = (int) ( $job['id'] ?? 0 );
+        if ( ! $id ) {
+            return;
+        }
+
+        if ( function_exists( 'dsb_mask_string' ) ) {
+            $error = dsb_mask_string( $error );
+        }
+
+        $attempts = (int) ( $job['attempts'] ?? 0 ) + 1;
+        $next_status = $attempts >= $max_attempts ? 'failed' : 'retry';
+
+        $next_run_at = 'retry' === $next_status
+            ? gmdate( 'Y-m-d H:i:s', time() + max( 1, $next_delay_seconds ) )
+            : null;
+
+        $this->wpdb->update(
+            $this->table_provision_queue,
+            [
+                'status'       => $next_status,
+                'attempts'     => $attempts,
+                'last_error'   => wp_strip_all_tags( $error ),
+                'claim_token'  => null,
+                'locked_until' => null,
+                'next_run_at'  => $next_run_at,
+            ],
+            [ 'id' => $id ]
+        );
+    }
+
+    public function get_provision_jobs_for_identity( array $identity, int $limit = 25 ): array {
+        $limit = max( 1, min( 100, $limit ) );
+        $rows  = $this->wpdb->get_results(
+            $this->wpdb->prepare(
+                "SELECT * FROM {$this->table_provision_queue}
+                WHERE status IN (%s, %s, %s, %s)
+                ORDER BY updated_at DESC
+                LIMIT %d",
+                'pending',
+                'processing',
+                'retry',
+                'failed',
+                $limit
+            ),
+            ARRAY_A
+        );
+
+        if ( ! $rows ) {
+            return [];
+        }
+
+        $email = isset( $identity['customer_email'] ) ? sanitize_email( $identity['customer_email'] ) : '';
+        $subscription_id = isset( $identity['subscription_id'] ) ? sanitize_text_field( $identity['subscription_id'] ) : '';
+        $wp_user_id = isset( $identity['wp_user_id'] ) ? absint( $identity['wp_user_id'] ) : 0;
+
+        $matches = [];
+        foreach ( $rows as $row ) {
+            $payload = json_decode( $row['payload'] ?? '', true );
+            if ( ! is_array( $payload ) ) {
+                continue;
+            }
+
+            $payload_email = isset( $payload['customer_email'] ) ? sanitize_email( $payload['customer_email'] ) : '';
+            $payload_sub   = isset( $payload['subscription_id'] ) ? sanitize_text_field( $payload['subscription_id'] ) : '';
+            $payload_user  = isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : 0;
+
+            $matches_identity = false;
+            if ( $subscription_id && $payload_sub && $subscription_id === $payload_sub ) {
+                $matches_identity = true;
+            } elseif ( $email && $payload_email && $email === $payload_email ) {
+                $matches_identity = true;
+            } elseif ( $wp_user_id && $payload_user && $wp_user_id === $payload_user ) {
+                $matches_identity = true;
+            }
+
+            if ( $matches_identity ) {
+                $row['payload_decoded'] = $payload;
+                $matches[] = $row;
+            }
+        }
+
+        return $matches;
     }
 
     public function mark_job_done( int $id ): void {
@@ -699,6 +884,17 @@ class DSB_DB {
             'http_code'       => isset( $data['http_code'] ) ? absint( $data['http_code'] ) : null,
             'error_excerpt'   => isset( $data['error_excerpt'] ) ? wp_strip_all_tags( $data['error_excerpt'] ) : null,
         ];
+
+        if ( function_exists( 'dsb_mask_secrets' ) ) {
+            $record = dsb_mask_secrets( $record );
+        } elseif ( function_exists( 'dsb_mask_string' ) ) {
+            if ( isset( $record['response_action'] ) && is_string( $record['response_action'] ) ) {
+                $record['response_action'] = dsb_mask_string( $record['response_action'] );
+            }
+            if ( isset( $record['error_excerpt'] ) && is_string( $record['error_excerpt'] ) ) {
+                $record['error_excerpt'] = dsb_mask_string( $record['error_excerpt'] );
+            }
+        }
 
         $this->wpdb->insert( $this->table_logs, $record );
 
