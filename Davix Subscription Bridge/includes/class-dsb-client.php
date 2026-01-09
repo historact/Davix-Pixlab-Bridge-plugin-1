@@ -1261,14 +1261,28 @@ class DSB_Client {
     }
 
     public function test_connection(): array {
-        $response = $this->request( '/internal/subscription/debug', 'GET' );
+        $legacy   = false;
+        $endpoint = '/internal/ping';
+        $response = $this->request( $endpoint, 'GET' );
         $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
-        $decoded  = ! is_wp_error( $response ) ? json_decode( wp_remote_retrieve_body( $response ), true ) : null;
+        $ping_code = $code;
+
+        if ( 404 === $code ) {
+            $legacy   = true;
+            $endpoint = '/internal/subscription/debug';
+            $response = $this->request( $endpoint, 'GET' );
+            $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+        }
+
+        $decoded = ! is_wp_error( $response ) ? json_decode( wp_remote_retrieve_body( $response ), true ) : null;
 
         return [
             'response' => $response,
             'decoded'  => $decoded,
             'code'     => $code,
+            'legacy'   => $legacy,
+            'endpoint' => $endpoint,
+            'ping_code' => $ping_code,
         ];
     }
 

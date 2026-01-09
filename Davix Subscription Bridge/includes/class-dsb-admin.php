@@ -662,10 +662,17 @@ class DSB_Admin {
 
         if ( isset( $_POST['dsb_test_connection'] ) && check_admin_referer( 'dsb_test_connection' ) ) {
             $result = $this->client->test_connection();
+            $code   = $result['code'] ?? 0;
+            $ping_code = $result['ping_code'] ?? 0;
+            $is_ping_404 = 404 === $ping_code || ( 404 === $code && ( $result['endpoint'] ?? '' ) === '/internal/ping' );
             if ( is_wp_error( $result['response'] ?? null ) ) {
                 $this->add_notice( $result['response']->get_error_message(), 'error' );
-            } elseif ( ( $result['code'] ?? 0 ) >= 200 && ( $result['code'] ?? 0 ) < 300 ) {
+            } elseif ( $code >= 200 && $code < 300 ) {
                 $this->add_notice( __( 'Connection successful.', 'davix-sub-bridge' ) );
+            } elseif ( 401 === $code || 403 === $code ) {
+                $this->add_notice( __( 'Token/IP allowlist mismatch or unauthorized.', 'davix-sub-bridge' ), 'error' );
+            } elseif ( 404 === $code && $is_ping_404 ) {
+                $this->add_notice( __( 'Your PixLab server is outdated; update PixLab app.', 'davix-sub-bridge' ), 'error' );
             } else {
                 $this->add_notice( __( 'Connection failed. Check URL/token.', 'davix-sub-bridge' ), 'error' );
             }
