@@ -72,7 +72,7 @@ class DSB_PMPro_Events {
             return;
         }
         $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-        self::$db->enqueue_provision_job( $payload );
+        self::dispatch_provision_payload( $payload, 'pmpro_after_checkout' );
     }
 
     public static function handle_change_membership_level( $level_id, $user_id ): void {
@@ -118,7 +118,7 @@ class DSB_PMPro_Events {
                 ] );
 
                 $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-                self::$db->enqueue_provision_job( $payload );
+                self::dispatch_provision_payload( $payload, 'pmpro_change_membership_level_cancelled' );
                 return;
             }
 
@@ -130,7 +130,7 @@ class DSB_PMPro_Events {
             'subscription_status' => 'expired',
         ];
         $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-        self::$db->enqueue_provision_job( $payload );
+        self::dispatch_provision_payload( $payload, 'pmpro_change_membership_level_expired' );
         return;
         }
 
@@ -178,7 +178,7 @@ class DSB_PMPro_Events {
             return;
         }
         $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-        self::$db->enqueue_provision_job( $payload );
+        self::dispatch_provision_payload( $payload, 'pmpro_change_membership_level_active' );
     }
 
     public static function handle_payment_completed( $morder ): void {
@@ -253,7 +253,7 @@ class DSB_PMPro_Events {
         }
 
         $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-        self::$db->enqueue_provision_job( $payload );
+        self::dispatch_provision_payload( $payload, 'pmpro_payment_event' );
     }
 
     protected static function subscription_id( int $user_id, int $level_id ): string {
@@ -393,5 +393,102 @@ class DSB_PMPro_Events {
             'startdate' => $row['startdate'] ?? null,
             'end_ts'    => $end_ts,
         ];
+    }
+
+    public static function build_active_payload_for_user( int $user_id, ?int $level_id = null ): ?array {
+        $user_id = absint( $user_id );
+        $level_id = $level_id ? absint( $level_id ) : 0;
+
+        if ( $user_id <= 0 || ! function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
+            return null;
+        }
+
+        $level = pmpro_getMembershipLevelForUser( $user_id );
+        if ( empty( $level ) || empty( $level->id ) ) {
+            dsb_log( 'warning', 'Self-heal skipped: no PMPro level found', [ 'user_id' => $user_id ] );
+            return null;
+        }
+
+        $resolved_level_id = $level_id > 0 ? $level_id : absint( $level->id );
+        if ( $resolved_level_id <= 0 ) {
+            return null;
+        }
+
+        $plan_slug = self::$client ? self::$client->plan_slug_for_level( $resolved_level_id ) : '';
+        if ( ! $plan_slug ) {
+            dsb_log( 'warning', 'Self-heal skipped: missing plan slug', [ 'user_id' => $user_id, 'level_id' => $resolved_level_id ] );
+            return null;
+        }
+
+        $valid_from = gmdate( 'c' );
+        $end_ts      = self::get_pmpro_end_ts( $user_id, $resolved_level_id );
+        $is_lifetime = self::is_pmpro_lifetime( $user_id, $resolved_level_id, $end_ts );
+        $valid_from_ts = strtotime( $valid_from ) ?: time();
+
+        $payload = [
+            'event'               => 'active',
+            'wp_user_id'          => $user_id,
+            'customer_email'      => self::user_email( $user_id ),
+            'customer_name'       => self::user_name( $user_id ),
+            'subscription_id'     => self::subscription_id( $user_id, $resolved_level_id ),
+            'product_id'          => $resolved_level_id,
+            'plan_slug'           => $plan_slug,
+            'subscription_status' => 'active',
+            'valid_from'          => $valid_from,
+            'pmpro_is_lifetime'   => $is_lifetime,
+        ];
+
+        $payload['valid_until'] = $is_lifetime
+            ? null
+            : (
+                $end_ts > 0
+                    ? gmdate( 'c', $end_ts )
+                    : gmdate( 'c', self::compute_fallback_valid_until_ts( $resolved_level_id, $valid_from_ts ) )
+            );
+
+        $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
+
+        return $payload;
+    }
+
+    public static function dispatch_provision_payload( array $payload, string $context = '' ): array {
+        if ( empty( $payload['event_id'] ) ) {
+            $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
+        }
+
+        $result  = self::$client ? self::$client->send_event( $payload ) : [ 'success' => false, 'code' => 0 ];
+        $success = ! empty( $result['success'] );
+
+        $response_body = '';
+        if ( isset( $result['response'] ) && ! is_wp_error( $result['response'] ) ) {
+            $response_body = wp_remote_retrieve_body( $result['response'] );
+        } elseif ( isset( $result['response'] ) && is_wp_error( $result['response'] ) ) {
+            $response_body = $result['response']->get_error_message();
+        }
+
+        $log_context = [
+            'context'      => $context,
+            'event'        => $payload['event'] ?? '',
+            'wp_user_id'   => $payload['wp_user_id'] ?? null,
+            'plan_slug'    => $payload['plan_slug'] ?? '',
+            'level_id'     => $payload['product_id'] ?? null,
+            'endpoint'     => '/internal/subscription/event',
+            'http_code'    => $result['code'] ?? null,
+            'response'     => $response_body ? dsb_mask_string( substr( (string) $response_body, 0, 500 ) ) : '',
+            'result'       => $result['decoded']['status'] ?? null,
+        ];
+
+        if ( $success ) {
+            dsb_log( 'info', 'Provisioning request sent', $log_context );
+            return $result;
+        }
+
+        if ( self::$db ) {
+            self::$db->enqueue_provision_job( $payload );
+        }
+
+        dsb_log( 'warning', 'Provisioning request failed; queued for retry', $log_context + [ 'queued' => true ] );
+
+        return $result;
     }
 }
