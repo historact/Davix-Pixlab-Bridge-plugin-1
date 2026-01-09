@@ -183,7 +183,7 @@ class DSB_Resync {
         }
 
         $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-        $this->client->send_event( $payload );
+        $this->db->enqueue_provision_job( $payload );
         dsb_log(
             'debug',
             'PMPro resync state resolved',
@@ -230,7 +230,7 @@ class DSB_Resync {
             ];
 
             $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-            $this->client->send_event( $payload );
+            $this->db->enqueue_provision_job( $payload );
             $processed ++;
         }
 

@@ -461,9 +461,20 @@ class DSB_Client {
             $node_base_url = $fallback && $this->is_node_url_allowed( $fallback ) ? $fallback : '';
         }
 
+        $bridge_token = $existing['bridge_token'] ?? '';
+        $bridge_token_clear = isset( $data['bridge_token_clear'] ) && '1' === (string) ( is_array( $data['bridge_token_clear'] ) ? end( $data['bridge_token_clear'] ) : $data['bridge_token_clear'] );
+        if ( $bridge_token_clear ) {
+            $bridge_token = '';
+        } elseif ( array_key_exists( 'bridge_token', $data ) ) {
+            $incoming_token = sanitize_text_field( $data['bridge_token'] );
+            if ( '' !== trim( $incoming_token ) ) {
+                $bridge_token = $incoming_token;
+            }
+        }
+
         $clean = [
             'node_base_url' => $node_base_url,
-            'bridge_token'  => sanitize_text_field( $data['bridge_token'] ?? ( $existing['bridge_token'] ?? '' ) ),
+            'bridge_token'  => $bridge_token,
             'enable_logging'=> $enable_logging_value !== null ? (int) ( '1' === (string) $enable_logging_value ) : ( $existing['enable_logging'] ?? 0 ),
             'debug_enabled' => $debug_enabled,
             'debug_level'   => isset( $data['debug_level'] ) ? sanitize_key( $data['debug_level'] ) : ( $existing['debug_level'] ?? 'info' ),
@@ -1203,6 +1214,11 @@ class DSB_Client {
         $wp_user_id = isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : 0;
         if ( $wp_user_id <= 0 ) {
             $missing[] = 'wp_user_id';
+        }
+
+        $subscription_id = isset( $payload['subscription_id'] ) ? sanitize_text_field( (string) $payload['subscription_id'] ) : '';
+        if ( '' === trim( $subscription_id ) ) {
+            $missing[] = 'subscription_id';
         }
 
         $plan_slug = $payload['plan_slug'] ?? '';
