@@ -1097,8 +1097,10 @@ class DSB_Admin {
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Bridge Token', 'davix-sub-bridge' ); ?></th>
                     <td>
-                        <input type="password" name="bridge_token" class="regular-text" value="<?php echo esc_attr( $settings['bridge_token'] ); ?>" autocomplete="off" />
+                        <input type="password" name="bridge_token" class="regular-text" value="" autocomplete="off" />
                         <p class="description"><?php printf( '%s %s', esc_html__( 'Stored securely, masked in UI.', 'davix-sub-bridge' ), esc_html( $this->client->masked_token() ) ); ?></p>
+                        <p class="description"><?php esc_html_e( 'Leave blank to keep existing token.', 'davix-sub-bridge' ); ?></p>
+                        <label><input type="checkbox" name="bridge_token_clear" value="1" /> <?php esc_html_e( 'Clear token', 'davix-sub-bridge' ); ?></label>
                     </td>
                 </tr>
                 <tr>
@@ -2298,6 +2300,45 @@ class DSB_Admin {
         $provision_status = $this->provision_worker->get_last_status();
         $node_status   = $this->node_poll->get_last_status();
         $resync_status = $this->resync->get_last_status();
+        $now_ts        = time();
+        $warnings      = [];
+
+        if ( defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON ) {
+            $warnings[] = __( 'WP-Cron is disabled (DISABLE_WP_CRON). Ensure a real cron job is hitting wp-cron.php.', 'davix-sub-bridge' );
+        }
+
+        $overdue_jobs = [];
+        $overdue_check = function ( string $job, array $status, int $interval_seconds, bool $enabled ) use ( $now_ts, &$overdue_jobs ): void {
+            if ( ! $enabled ) {
+                return;
+            }
+            $last_run = $status['last_run_at'] ?? '';
+            if ( ! $last_run ) {
+                return;
+            }
+            $last_run_ts = strtotime( (string) $last_run );
+            if ( $last_run_ts && ( $now_ts - $last_run_ts ) > ( 2 * $interval_seconds ) ) {
+                $overdue_jobs[] = $job;
+            }
+        };
+
+        $overdue_check( __( 'Purge Worker', 'davix-sub-bridge' ), $purge_status, 5 * MINUTE_IN_SECONDS, ! empty( $settings['enable_purge_worker'] ) );
+        $overdue_check( __( 'Provision Worker', 'davix-sub-bridge' ), $provision_status, MINUTE_IN_SECONDS, true );
+        $overdue_check(
+            __( 'Node Poll Sync', 'davix-sub-bridge' ),
+            $node_status,
+            max( 5, min( 60, (int) ( $settings['node_poll_interval_minutes'] ?? 10 ) ) ) * MINUTE_IN_SECONDS,
+            ! empty( $settings['enable_node_poll_sync'] )
+        );
+        $overdue_check( __( 'Daily Resync', 'davix-sub-bridge' ), $resync_status, DAY_IN_SECONDS, ! empty( $settings['enable_daily_resync'] ) );
+
+        if ( $overdue_jobs ) {
+            $warnings[] = sprintf(
+                /* translators: 1: job list */
+                __( 'Cron jobs appear overdue: %s', 'davix-sub-bridge' ),
+                implode( ', ', $overdue_jobs )
+            );
+        }
 
         $logs_link = add_query_arg(
             [ 'page' => 'davix-bridge', 'tab' => 'logs' ],
@@ -2306,6 +2347,11 @@ class DSB_Admin {
         ?>
         <div class="wrap dsb-cron-tab">
             <h2 class="dsb-cron-h1"><?php esc_html_e( 'Cron job settings', 'davix-sub-bridge' ); ?></h2>
+            <?php if ( $warnings ) : ?>
+                <div class="notice notice-warning">
+                    <p><?php echo esc_html( implode( ' ', $warnings ) ); ?></p>
+                </div>
+            <?php endif; ?>
             <form method="post" class="dsb-cron-settings">
                 <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
                 <h3 class="dsb-cron-h2"><?php esc_html_e( 'Purge Worker', 'davix-sub-bridge' ); ?></h3>
