@@ -1873,6 +1873,14 @@ class DSB_Admin {
             $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
             if ( $code >= 200 && $code < 300 && isset( $decoded['items'] ) ) {
                 $items = $decoded['items'];
+                if ( is_array( $items ) ) {
+                    foreach ( $items as &$item ) {
+                        if ( is_array( $item ) && empty( $item['api_key_id'] ) && isset( $item['id'] ) ) {
+                            $item['api_key_id'] = $item['id'];
+                        }
+                    }
+                    unset( $item );
+                }
                 $total = (int) ( $decoded['total'] ?? 0 );
                 $per_page = (int) ( $decoded['per_page'] ?? 20 );
             } else {
@@ -1923,6 +1931,7 @@ class DSB_Admin {
                         $api_key_id = absint( $item['id'] );
                     }
                     ?>
+                    <?php $purge_disabled = ! $api_key_id; ?>
                     <tr>
                         <td><?php echo esc_html( $item['subscription_id'] ?? '' ); ?></td>
                         <td><?php echo esc_html( $item['customer_email'] ?? '' ); ?></td>
@@ -1961,7 +1970,12 @@ class DSB_Admin {
                                 <input type="hidden" name="customer_email" value="<?php echo esc_attr( $item['customer_email'] ?? '' ); ?>" />
                                 <input type="hidden" name="wp_user_id" value="<?php echo esc_attr( $item['wp_user_id'] ?? '' ); ?>" />
                                 <input type="hidden" name="api_key_id" value="<?php echo esc_attr( $api_key_id ); ?>" />
-                                <?php submit_button( __( 'Purge', 'davix-sub-bridge' ), 'link', '', false ); ?>
+                                <?php
+                                $purge_attributes = $purge_disabled
+                                    ? 'disabled="disabled" title="' . esc_attr__( 'Cannot purge without api_key_id.', 'davix-sub-bridge' ) . '"'
+                                    : '';
+                                submit_button( __( 'Purge', 'davix-sub-bridge' ), 'link', '', false, $purge_attributes );
+                                ?>
                             </form>
                         </td>
                     </tr>
