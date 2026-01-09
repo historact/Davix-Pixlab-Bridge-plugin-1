@@ -62,6 +62,15 @@ function dsb_ensure_log_dir(): bool {
         @file_put_contents( $htaccess, "Deny from all\n" );
     }
 
+    // Best-effort web.config hardening for IIS hosts.
+    $web_config = trailingslashit( $dir ) . 'web.config';
+    if ( ! file_exists( $web_config ) ) {
+        @file_put_contents(
+            $web_config,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<configuration>\n  <system.webServer>\n    <authorization>\n      <deny users=\"*\" />\n    </authorization>\n  </system.webServer>\n</configuration>\n"
+        );
+    }
+
     return is_dir( $dir );
 }
 

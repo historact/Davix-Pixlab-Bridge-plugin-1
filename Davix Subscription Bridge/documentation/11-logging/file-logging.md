@@ -6,3 +6,13 @@
 - Entries include timestamp, level, message, and JSON context with user/page info; secrets masked via `dsb_mask_secrets`.
 - Pruning removes files older than retention window.
 - JS logs accepted via `dsb_js_log` AJAX, rate limited by transient key per user/minute.
+
+## Nginx hardening
+
+Add deny rules for the log folders if your site uses Nginx:
+
+```nginx
+location ^~ /wp-content/davix-bridge-logs/ { deny all; }
+location ^~ /wp-content/uploads/davix-bridge-logs/ { deny all; }
+location ^~ /wp-content/uploads/davix-bridge-cron-logs/ { deny all; }
+```

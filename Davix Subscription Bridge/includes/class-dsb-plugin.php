@@ -189,7 +189,7 @@ class DSB_Plugin {
         }
 
         $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-        $this->client->send_event( $payload );
+        $this->db->enqueue_provision_job( $payload );
 
         dsb_log( 'info', 'Provisioned free PMPro level on user registration', [ 'user_id' => $user_id, 'email' => $email, 'level_id' => $free_level_id ] );
     }

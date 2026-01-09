@@ -27,6 +27,14 @@ class DSB_Cron_Logger {
             @file_put_contents( $htaccess, "Deny from all\n" );
         }
 
+        $web_config = trailingslashit( $dir ) . 'web.config';
+        if ( ! file_exists( $web_config ) ) {
+            @file_put_contents(
+                $web_config,
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<configuration>\n  <system.webServer>\n    <authorization>\n      <deny users=\"*\" />\n    </authorization>\n  </system.webServer>\n</configuration>\n"
+            );
+        }
+
         return is_dir( $dir );
     }
 
