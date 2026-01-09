@@ -72,7 +72,7 @@ class DSB_PMPro_Events {
             return;
         }
         $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-        self::$client->send_event( $payload );
+        self::$db->enqueue_provision_job( $payload );
     }
 
     public static function handle_change_membership_level( $level_id, $user_id ): void {
@@ -118,7 +118,7 @@ class DSB_PMPro_Events {
                 ] );
 
                 $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-                self::$client->send_event( $payload );
+                self::$db->enqueue_provision_job( $payload );
                 return;
             }
 
@@ -127,11 +127,11 @@ class DSB_PMPro_Events {
                 'wp_user_id'          => $user_id,
                 'customer_email'      => self::user_email( $user_id ),
                 'subscription_id'     => self::subscription_id( $user_id, 0 ),
-                'subscription_status' => 'expired',
-            ];
-            $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-            self::$client->send_event( $payload );
-            return;
+            'subscription_status' => 'expired',
+        ];
+        $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
+        self::$db->enqueue_provision_job( $payload );
+        return;
         }
 
         $plan_slug = self::$client->plan_slug_for_level( $level_id );
@@ -178,7 +178,7 @@ class DSB_PMPro_Events {
             return;
         }
         $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-        self::$client->send_event( $payload );
+        self::$db->enqueue_provision_job( $payload );
     }
 
     public static function handle_payment_completed( $morder ): void {
@@ -253,7 +253,7 @@ class DSB_PMPro_Events {
         }
 
         $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-        self::$client->send_event( $payload );
+        self::$db->enqueue_provision_job( $payload );
     }
 
     protected static function subscription_id( int $user_id, int $level_id ): string {

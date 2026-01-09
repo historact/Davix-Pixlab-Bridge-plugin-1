@@ -11,6 +11,7 @@ class DSB_Admin {
     protected $events;
     protected $resync;
     protected $purge_worker;
+    protected $provision_worker;
     protected $node_poll;
     protected $notices = [];
     protected $synced_product_ids = [];
@@ -19,12 +20,13 @@ class DSB_Admin {
         return function_exists( 'wc_get_product' ) || function_exists( 'WC' ) || class_exists( '\\WooCommerce' );
     }
 
-    public function __construct( DSB_Client $client, DSB_DB $db, DSB_Events $events, DSB_Resync $resync, DSB_Purge_Worker $purge_worker, DSB_Node_Poll $node_poll ) {
+    public function __construct( DSB_Client $client, DSB_DB $db, DSB_Events $events, DSB_Resync $resync, DSB_Purge_Worker $purge_worker, DSB_Provision_Worker $provision_worker, DSB_Node_Poll $node_poll ) {
         $this->client       = $client;
         $this->db           = $db;
         $this->events       = $events;
         $this->resync       = $resync;
         $this->purge_worker = $purge_worker;
+        $this->provision_worker = $provision_worker;
         $this->node_poll    = $node_poll;
     }
 
@@ -718,6 +720,21 @@ class DSB_Admin {
             }
         }
 
+        if ( 'cron' === $tab && isset( $_POST['dsb_run_provision_worker'] ) && check_admin_referer( 'dsb_run_provision_worker' ) ) {
+            $result = $this->provision_worker->run( true );
+            $status = $result['status'] ?? '';
+
+            if ( 'ok' === $status ) {
+                $processed = isset( $result['processed'] ) ? (int) $result['processed'] : 0;
+                $this->add_notice( sprintf( __( 'Provision worker ran successfully. Processed %d jobs.', 'davix-sub-bridge' ), $processed ) );
+            } elseif ( 'skipped_locked' === $status ) {
+                $this->add_notice( __( 'Provision worker skipped because a lock is active.', 'davix-sub-bridge' ), 'error' );
+            } else {
+                $error_message = isset( $result['error'] ) ? $result['error'] : __( 'Unexpected error', 'davix-sub-bridge' );
+                $this->add_notice( sprintf( __( 'Provision worker failed: %s', 'davix-sub-bridge' ), sanitize_text_field( $error_message ) ), 'error' );
+            }
+        }
+
         if ( 'cron' === $tab && isset( $_POST['dsb_clear_purge_lock'] ) && check_admin_referer( 'dsb_clear_purge_lock' ) ) {
             $lock_until = (int) get_option( DSB_Purge_Worker::OPTION_LOCK_UNTIL, 0 );
             if ( $lock_until > time() ) {
@@ -727,6 +744,18 @@ class DSB_Admin {
             } else {
                 $this->purge_worker->clear_lock();
                 $this->add_notice( __( 'Purge lock cleared.', 'davix-sub-bridge' ) );
+            }
+        }
+
+        if ( 'cron' === $tab && isset( $_POST['dsb_clear_provision_lock'] ) && check_admin_referer( 'dsb_clear_provision_lock' ) ) {
+            $lock_until = (int) get_option( DSB_Provision_Worker::OPTION_LOCK_UNTIL, 0 );
+            if ( $lock_until > time() ) {
+                $this->add_notice( __( 'Provision worker lock is still active; not cleared.', 'davix-sub-bridge' ), 'error' );
+            } elseif ( $lock_until <= 0 ) {
+                $this->add_notice( __( 'Provision worker is not locked.', 'davix-sub-bridge' ) );
+            } else {
+                $this->provision_worker->clear_lock();
+                $this->add_notice( __( 'Provision lock cleared.', 'davix-sub-bridge' ) );
             }
         }
 
@@ -1972,7 +2001,7 @@ class DSB_Admin {
         $log_path = dsb_get_latest_log_file();
         ?>
         <h2><?php esc_html_e( 'Debug Logging', 'davix-sub-bridge' ); ?></h2>
-        <p class="description"><?php esc_html_e( 'Writes structured debug entries to wp-content/uploads/davix-bridge-logs/. Avoid storing secrets; sensitive tokens are masked automatically.', 'davix-sub-bridge' ); ?></p>
+        <p class="description"><?php esc_html_e( 'Writes structured debug entries to a protected davix-bridge-logs folder (wp-content by default, uploads fallback). Avoid storing secrets; sensitive tokens are masked automatically.', 'davix-sub-bridge' ); ?></p>
         <form method="post">
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
             <table class="form-table" role="presentation">
@@ -2257,6 +2286,7 @@ class DSB_Admin {
     protected function render_cron_tab(): void {
         $settings      = $this->client->get_settings();
         $purge_status  = $this->purge_worker->get_last_status();
+        $provision_status = $this->provision_worker->get_last_status();
         $node_status   = $this->node_poll->get_last_status();
         $resync_status = $this->resync->get_last_status();
 
@@ -2304,6 +2334,26 @@ class DSB_Admin {
                         <td>
                             <input type="hidden" name="enable_cron_debug_purge_worker" value="0" />
                             <label><input type="checkbox" name="enable_cron_debug_purge_worker" value="1" <?php checked( ! empty( $settings['enable_cron_debug_purge_worker'] ) ); ?> /> <?php esc_html_e( 'Enable purge worker cron debug log', 'davix-sub-bridge' ); ?></label>
+                        </td>
+                    </tr>
+                </table>
+
+                <h3 class="dsb-cron-h2"><?php esc_html_e( 'Provision Worker', 'davix-sub-bridge' ); ?></h3>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Alerts', 'davix-sub-bridge' ); ?></th>
+                        <td>
+                            <input type="hidden" name="enable_alerts_provision_worker" value="0" />
+                            <label><input type="checkbox" name="enable_alerts_provision_worker" value="1" <?php checked( ! empty( $settings['enable_alerts_provision_worker'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'davix-sub-bridge' ); ?></label><br />
+                            <input type="hidden" name="enable_recovery_provision_worker" value="0" />
+                            <label><input type="checkbox" name="enable_recovery_provision_worker" value="1" <?php checked( ! empty( $settings['enable_recovery_provision_worker'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'davix-sub-bridge' ); ?></label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Cron debug log', 'davix-sub-bridge' ); ?></th>
+                        <td>
+                            <input type="hidden" name="enable_cron_debug_provision_worker" value="0" />
+                            <label><input type="checkbox" name="enable_cron_debug_provision_worker" value="1" <?php checked( ! empty( $settings['enable_cron_debug_provision_worker'] ) ); ?> /> <?php esc_html_e( 'Enable provision worker cron debug log', 'davix-sub-bridge' ); ?></label>
                         </td>
                     </tr>
                 </table>
@@ -2438,6 +2488,7 @@ class DSB_Admin {
             <h2 class="dsb-cron-h1"><?php esc_html_e( 'Cron Job Status', 'davix-sub-bridge' ); ?></h2>
 
             <?php $this->render_cron_job_status_section( 'purge_worker', __( 'Purge Worker', 'davix-sub-bridge' ), $settings['enable_purge_worker'] ?? 0, 'Every 5 minutes', wp_next_scheduled( DSB_Purge_Worker::CRON_HOOK ), $purge_status, $logs_link ); ?>
+            <?php $this->render_cron_job_status_section( 'provision_worker', __( 'Provision Worker', 'davix-sub-bridge' ), 1, __( 'Every minute', 'davix-sub-bridge' ), wp_next_scheduled( DSB_Provision_Worker::CRON_HOOK ), $provision_status, $logs_link ); ?>
             <?php $this->render_cron_job_status_section( 'node_poll', __( 'Node Poll Sync', 'davix-sub-bridge' ), $settings['enable_node_poll_sync'] ?? 0, sprintf( __( 'Every %d minutes', 'davix-sub-bridge' ), (int) ( $settings['node_poll_interval_minutes'] ?? 10 ) ), wp_next_scheduled( DSB_Node_Poll::CRON_HOOK ), $node_status, $logs_link ); ?>
             <?php $this->render_cron_job_status_section( 'resync', __( 'Daily Resync', 'davix-sub-bridge' ), $settings['enable_daily_resync'] ?? 0, sprintf( __( 'Daily at %02d:00', 'davix-sub-bridge' ), (int) ( $settings['resync_run_hour'] ?? 3 ) ), wp_next_scheduled( DSB_Resync::CRON_HOOK ), $resync_status, $logs_link ); ?>
         </div>
@@ -2519,6 +2570,11 @@ class DSB_Admin {
                         <?php wp_nonce_field( 'dsb_run_purge_worker' ); ?>
                         <button type="submit" name="dsb_run_purge_worker" class="button button-secondary"><?php esc_html_e( 'Run now', 'davix-sub-bridge' ); ?></button>
                     </form>
+                <?php elseif ( 'provision_worker' === $job_key ) : ?>
+                    <form method="post" style="display:inline-block;">
+                        <?php wp_nonce_field( 'dsb_run_provision_worker' ); ?>
+                        <button type="submit" name="dsb_run_provision_worker" class="button button-secondary"><?php esc_html_e( 'Run now', 'davix-sub-bridge' ); ?></button>
+                    </form>
                 <?php elseif ( 'node_poll' === $job_key ) : ?>
                     <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
                         <input type="hidden" name="action" value="dsb_run_node_poll_now" />
@@ -2539,6 +2595,11 @@ class DSB_Admin {
                     <form method="post" style="display:inline-block;margin-left:8px;">
                         <?php wp_nonce_field( 'dsb_clear_purge_lock' ); ?>
                         <button type="submit" name="dsb_clear_purge_lock" class="button" <?php disabled( ! $lock_stale ); ?>><?php esc_html_e( 'Clear lock', 'davix-sub-bridge' ); ?></button>
+                    </form>
+                <?php elseif ( 'provision_worker' === $job_key ) : ?>
+                    <form method="post" style="display:inline-block;margin-left:8px;">
+                        <?php wp_nonce_field( 'dsb_clear_provision_lock' ); ?>
+                        <button type="submit" name="dsb_clear_provision_lock" class="button" <?php disabled( ! $lock_stale ); ?>><?php esc_html_e( 'Clear lock', 'davix-sub-bridge' ); ?></button>
                     </form>
                 <?php elseif ( 'node_poll' === $job_key ) : ?>
                     <form method="post" style="display:inline-block;margin-left:8px;">

@@ -51,11 +51,14 @@ class DSB_Client {
                 'alert_cooldown_minutes' => 60,
                 'enable_alerts_purge_worker'   => 0,
                 'enable_recovery_purge_worker' => 0,
+                'enable_alerts_provision_worker'   => 0,
+                'enable_recovery_provision_worker' => 0,
                 'enable_alerts_node_poll'      => 0,
                 'enable_recovery_node_poll'    => 0,
                 'enable_alerts_resync'         => 0,
                 'enable_recovery_resync'       => 0,
                 'enable_cron_debug_purge_worker' => 0,
+                'enable_cron_debug_provision_worker' => 0,
                 'enable_cron_debug_node_poll'    => 0,
                 'enable_cron_debug_resync'       => 0,
             ],
@@ -450,8 +453,16 @@ class DSB_Client {
             return (int) $existing_default;
         };
 
+        $node_base_url = esc_url_raw( $data['node_base_url'] ?? ( $existing['node_base_url'] ?? '' ) );
+        if ( $node_base_url && ! $this->is_node_url_allowed( $node_base_url ) ) {
+            $masked = function_exists( 'dsb_mask_string' ) ? dsb_mask_string( $node_base_url ) : $node_base_url;
+            dsb_log( 'error', 'Rejected node base URL', [ 'node_base_url' => $masked ] );
+            $fallback = $existing['node_base_url'] ?? '';
+            $node_base_url = $fallback && $this->is_node_url_allowed( $fallback ) ? $fallback : '';
+        }
+
         $clean = [
-            'node_base_url' => esc_url_raw( $data['node_base_url'] ?? ( $existing['node_base_url'] ?? '' ) ),
+            'node_base_url' => $node_base_url,
             'bridge_token'  => sanitize_text_field( $data['bridge_token'] ?? ( $existing['bridge_token'] ?? '' ) ),
             'enable_logging'=> $enable_logging_value !== null ? (int) ( '1' === (string) $enable_logging_value ) : ( $existing['enable_logging'] ?? 0 ),
             'debug_enabled' => $debug_enabled,
@@ -483,11 +494,14 @@ class DSB_Client {
             'alert_cooldown_minutes' => isset( $data['alert_cooldown_minutes'] ) ? (int) $data['alert_cooldown_minutes'] : ( $existing['alert_cooldown_minutes'] ?? 60 ),
             'enable_alerts_purge_worker'   => $bool_from_post( $data, 'enable_alerts_purge_worker', $existing['enable_alerts_purge_worker'] ?? 0 ),
             'enable_recovery_purge_worker' => $bool_from_post( $data, 'enable_recovery_purge_worker', $existing['enable_recovery_purge_worker'] ?? 0 ),
+            'enable_alerts_provision_worker'   => $bool_from_post( $data, 'enable_alerts_provision_worker', $existing['enable_alerts_provision_worker'] ?? 0 ),
+            'enable_recovery_provision_worker' => $bool_from_post( $data, 'enable_recovery_provision_worker', $existing['enable_recovery_provision_worker'] ?? 0 ),
             'enable_alerts_node_poll'      => $bool_from_post( $data, 'enable_alerts_node_poll', $existing['enable_alerts_node_poll'] ?? 0 ),
             'enable_recovery_node_poll'    => $bool_from_post( $data, 'enable_recovery_node_poll', $existing['enable_recovery_node_poll'] ?? 0 ),
             'enable_alerts_resync'         => $bool_from_post( $data, 'enable_alerts_resync', $existing['enable_alerts_resync'] ?? 0 ),
             'enable_recovery_resync'       => $bool_from_post( $data, 'enable_recovery_resync', $existing['enable_recovery_resync'] ?? 0 ),
             'enable_cron_debug_purge_worker' => $bool_from_post( $data, 'enable_cron_debug_purge_worker', $existing['enable_cron_debug_purge_worker'] ?? 0 ),
+            'enable_cron_debug_provision_worker' => $bool_from_post( $data, 'enable_cron_debug_provision_worker', $existing['enable_cron_debug_provision_worker'] ?? 0 ),
             'enable_cron_debug_node_poll'    => $bool_from_post( $data, 'enable_cron_debug_node_poll', $existing['enable_cron_debug_node_poll'] ?? 0 ),
             'enable_cron_debug_resync'       => $bool_from_post( $data, 'enable_cron_debug_resync', $existing['enable_cron_debug_resync'] ?? 0 ),
         ];
@@ -812,6 +826,11 @@ class DSB_Client {
         }
 
         $url = $this->build_url( $path, $query );
+        if ( ! $this->is_node_url_allowed( $url ) ) {
+            $masked = function_exists( 'dsb_mask_string' ) ? dsb_mask_string( $url ) : $url;
+            dsb_log( 'error', 'Blocked node request to invalid host', [ 'url' => $masked ] );
+            return new \WP_Error( 'dsb_invalid_node_url', __( 'Invalid Node URL', 'davix-sub-bridge' ) );
+        }
 
         $args = [
             'timeout' => 25,
@@ -850,6 +869,66 @@ class DSB_Client {
         return $url;
     }
 
+    protected function is_node_url_allowed( string $url ): bool {
+        $parts  = wp_parse_url( $url );
+        $scheme = isset( $parts['scheme'] ) ? strtolower( (string) $parts['scheme'] ) : '';
+        $host   = isset( $parts['host'] ) ? strtolower( (string) $parts['host'] ) : '';
+
+        if ( 'https' !== $scheme || '' === $host ) {
+            return false;
+        }
+
+        $host = trim( $host, '[]' );
+        if ( 'localhost' === $host || ( strlen( $host ) > 10 && '.localhost' === substr( $host, -10 ) ) ) {
+            return false;
+        }
+
+        if ( filter_var( $host, FILTER_VALIDATE_IP ) ) {
+            return ! $this->is_private_ip( $host );
+        }
+
+        $ips = $this->resolve_host_ips( $host );
+        foreach ( $ips as $ip ) {
+            if ( $this->is_private_ip( $ip ) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    protected function resolve_host_ips( string $host ): array {
+        $ips = [];
+
+        if ( function_exists( 'dns_get_record' ) ) {
+            $records = dns_get_record( $host, DNS_A | DNS_AAAA );
+            if ( is_array( $records ) ) {
+                foreach ( $records as $record ) {
+                    if ( isset( $record['ip'] ) ) {
+                        $ips[] = $record['ip'];
+                    }
+                    if ( isset( $record['ipv6'] ) ) {
+                        $ips[] = $record['ipv6'];
+                    }
+                }
+            }
+        }
+
+        if ( empty( $ips ) ) {
+            $ipv4 = gethostbyname( $host );
+            if ( $ipv4 && $ipv4 !== $host ) {
+                $ips[] = $ipv4;
+            }
+        }
+
+        return array_values( array_unique( array_filter( $ips ) ) );
+    }
+
+    protected function is_private_ip( string $ip ): bool {
+        $flags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE;
+        return ! filter_var( $ip, FILTER_VALIDATE_IP, $flags );
+    }
+
     protected function post_internal( string $path, array $body = [] ): array {
         $response = $this->request( $path, 'POST', $body );
         $result   = $this->prepare_response( $response );
@@ -864,18 +943,11 @@ class DSB_Client {
         $body     = is_wp_error( $response ) ? null : wp_remote_retrieve_body( $response );
         $decoded  = $body ? json_decode( $body, true ) : null;
         $code     = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
-        $success  = false;
-        if ( $code >= 200 && $code < 300 && is_array( $decoded ) ) {
-            $status_value = isset( $decoded['status'] ) && is_string( $decoded['status'] ) ? strtolower( $decoded['status'] ) : ( $decoded['status'] ?? '' );
-            $action_value = isset( $decoded['action'] ) && is_string( $decoded['action'] ) ? strtolower( $decoded['action'] ) : ( $decoded['action'] ?? '' );
-            $ok_actions   = [ 'created', 'updated', 'reactivated', 'activated', 'renewed' ];
-            $ok_statuses  = [ 'ok', 'active', 'disabled' ];
-            $has_marker   = ( ! empty( $decoded['api_key_id'] ) || ! empty( $decoded['key'] ) || ! empty( $decoded['subscription_id'] ) );
-
-            if ( 'error' !== $status_value && ( in_array( $status_value, $ok_statuses, true ) || in_array( $action_value, $ok_actions, true ) || $has_marker ) ) {
-                $success = true;
-            }
-        }
+        $status_value = is_array( $decoded ) && isset( $decoded['status'] ) ? strtolower( (string) $decoded['status'] ) : '';
+        $action_value = is_array( $decoded ) && isset( $decoded['action'] ) ? strtolower( (string) $decoded['action'] ) : '';
+        $validation   = $this->validate_response( '/internal/subscription/event', $decoded, $payload );
+        $success      = $code >= 200 && $code < 300 && ! is_wp_error( $response ) && ( $validation['ok'] ?? false );
+        $validation_error = $validation['error'] ?? '';
 
         $log = [
             'event'           => $payload['event'] ?? '',
@@ -885,7 +957,11 @@ class DSB_Client {
             'order_id'        => $payload['order_id'] ?? '',
             'response_action' => $decoded['action'] ?? null,
             'http_code'       => $code,
-            'error_excerpt'   => is_wp_error( $response ) ? $response->get_error_message() : ( is_array( $decoded ) ? ( $decoded['status'] ?? '' ) : ( $body ? substr( $body, 0, 200 ) : '' ) ),
+            'error_excerpt'   => is_wp_error( $response )
+                ? $response->get_error_message()
+                : ( $success
+                    ? ( is_array( $decoded ) ? ( $decoded['status'] ?? '' ) : '' )
+                    : ( $validation_error ?: ( is_array( $decoded ) ? ( $decoded['status'] ?? '' ) : ( $body ? substr( $body, 0, 200 ) : '' ) ) ) ),
         ];
         $settings = $this->get_settings();
         if ( $settings['enable_logging'] ) {
@@ -1008,7 +1084,7 @@ class DSB_Client {
                     );
                 }
             }
-        } elseif ( $settings['enable_logging'] ) {
+        } elseif ( $settings['enable_logging'] && $validation_error ) {
             if ( 200 === $code && ! is_array( $decoded ) ) {
                 dsb_log(
                     'error',
@@ -1019,38 +1095,15 @@ class DSB_Client {
                     ]
                 );
             } else {
-                $this->db->upsert_key(
+                dsb_log(
+                    'error',
+                    'Node response failed validation; mirrors untouched',
                     [
                         'subscription_id' => $subscription_identifier,
-                        'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
-                        'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : null,
-                        'customer_name'   => isset( $payload['customer_name'] ) ? sanitize_text_field( $payload['customer_name'] ) : null,
-                        'subscription_status' => isset( $payload['subscription_status'] ) ? sanitize_text_field( $payload['subscription_status'] ) : null,
-                        'plan_slug'       => sanitize_text_field( $payload['plan_slug'] ?? '' ),
-                        'status'          => 'error',
-                        'last_action'     => $payload['event'] ?? '',
-                        'last_http_code'  => $code,
-                        'last_error'      => is_wp_error( $response ) ? $response->get_error_message() : ( is_array( $decoded ) ? ( $decoded['status'] ?? '' ) : ( $body ? substr( $body, 0, 200 ) : '' ) ),
+                        'error'           => $validation_error,
+                        'http_code'       => $code,
                     ]
                 );
-
-                if ( in_array( $event_name, [ 'expired', 'disabled' ], true ) ) {
-                    $this->db->upsert_user(
-                        [
-                            'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : 0,
-                            'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
-                            'subscription_id' => $subscription_identifier,
-                            'order_id'        => isset( $payload['order_id'] ) ? absint( $payload['order_id'] ) : null,
-                            'product_id'      => null,
-                            'plan_slug'       => null,
-                            'status'          => 'disabled',
-                            'valid_from'      => null,
-                            'valid_until'     => null,
-                            'source'          => 'subscription_event',
-                            'last_sync_at'    => current_time( 'mysql', true ),
-                        ]
-                    );
-                }
             }
         }
 
@@ -1058,7 +1111,46 @@ class DSB_Client {
             'response' => $response,
             'decoded'  => $decoded,
             'code'     => $code,
+            'success'  => $success,
+            'validation_error' => $validation_error,
         ];
+    }
+
+    protected function validate_response( string $endpoint, $decoded, array $payload = [] ): array {
+        if ( '/internal/subscription/event' !== $endpoint ) {
+            return [ 'ok' => is_array( $decoded ), 'error' => is_array( $decoded ) ? '' : 'invalid_json' ];
+        }
+
+        if ( ! is_array( $decoded ) ) {
+            return [ 'ok' => false, 'error' => 'invalid_json' ];
+        }
+
+        $status = isset( $decoded['status'] ) ? strtolower( (string) $decoded['status'] ) : '';
+        $allowed_statuses = [ 'ok', 'active', 'disabled' ];
+        if ( ! in_array( $status, $allowed_statuses, true ) ) {
+            return [ 'ok' => false, 'error' => 'unexpected_status' ];
+        }
+
+        $subscription_id = $decoded['subscription_id'] ?? null;
+        $api_key_id = $decoded['api_key_id'] ?? ( $decoded['key']['api_key_id'] ?? ( $decoded['key']['id'] ?? null ) );
+        if ( empty( $subscription_id ) && empty( $api_key_id ) ) {
+            return [ 'ok' => false, 'error' => 'missing_identifiers' ];
+        }
+
+        $event_name = isset( $payload['event'] ) ? strtolower( (string) $payload['event'] ) : '';
+        $needs_key  = in_array( $event_name, [ 'activated', 'active', 'renewed', 'reactivated' ], true );
+        if ( $needs_key ) {
+            $key_value = $decoded['key'] ?? null;
+            $key_prefix = $decoded['key_prefix'] ?? ( is_array( $decoded['key'] ?? null ) ? ( $decoded['key']['prefix'] ?? $decoded['key']['key_prefix'] ?? null ) : null );
+            $key_last4  = $decoded['key_last4'] ?? ( is_array( $decoded['key'] ?? null ) ? ( $decoded['key']['last4'] ?? $decoded['key']['key_last4'] ?? null ) : null );
+
+            $has_key = ( is_string( $key_value ) && $key_value ) || ( $key_prefix && $key_last4 );
+            if ( ! $has_key ) {
+                return [ 'ok' => false, 'error' => 'missing_key_material' ];
+            }
+        }
+
+        return [ 'ok' => true, 'error' => '' ];
     }
 
     public function test_connection(): array {

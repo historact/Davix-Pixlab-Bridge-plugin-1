@@ -8,6 +8,7 @@ class DSB_Cron_Alerts {
 
     protected static $job_labels = [
         'purge_worker' => 'Purge Worker',
+        'provision_worker' => 'Provision Worker',
         'node_poll'    => 'Node Poll Sync',
         'resync'       => 'Daily Resync',
     ];

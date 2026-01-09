@@ -106,6 +106,7 @@
         const usage = res.usage || {};
         const per = res.per_endpoint || {};
         const validity = res.plan_validity || '';
+        const provisioningStatus = (res.provisioning_status || '').toLowerCase();
 
         state.lastSummary = res;
 
@@ -121,7 +122,16 @@
             els.keyCreated.textContent = key.created_at ? `${createdLabel} ${key.created_at}` : '';
         }
         updateToggleButton();
-        setStatus(enabled ? 'Active' : 'Disabled', enabled ? 'success' : 'muted');
+        if (provisioningStatus === 'pending') {
+            const pendingText = data.strings.provisioning || 'Provisioning…';
+            const nextRetry = res.next_retry_at ? ` ${data.strings.provisioningNext} ${res.next_retry_at}` : '';
+            setStatus(`${pendingText}${nextRetry}`, 'muted');
+        } else if (provisioningStatus === 'failed') {
+            const failedText = res.last_error || data.strings.provisioningFailed;
+            setStatus(failedText, 'error');
+        } else {
+            setStatus(enabled ? 'Active' : 'Disabled', enabled ? 'success' : 'muted');
+        }
 
         if (els.planName) {
             els.planName.textContent = plan.name || '—';

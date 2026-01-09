@@ -28,6 +28,7 @@ require_once __DIR__ . '/includes/class-dsb-cron-alerts.php';
 require_once __DIR__ . '/includes/class-dsb-client.php';
 require_once __DIR__ . '/includes/class-dsb-resync.php';
 require_once __DIR__ . '/includes/class-dsb-purge-worker.php';
+require_once __DIR__ . '/includes/class-dsb-provision-worker.php';
 require_once __DIR__ . '/includes/class-dsb-node-poll.php';
 require_once __DIR__ . '/includes/class-dsb-admin.php';
 require_once __DIR__ . '/includes/class-dsb-events.php';
