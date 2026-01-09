@@ -1018,6 +1018,7 @@ class DSB_Admin {
             $subscription_id = isset( $_POST['subscription_id'] ) ? sanitize_text_field( wp_unslash( $_POST['subscription_id'] ) ) : '';
             $customer_email  = isset( $_POST['customer_email'] ) ? sanitize_email( wp_unslash( $_POST['customer_email'] ) ) : '';
             $wp_user_id      = isset( $_POST['wp_user_id'] ) ? absint( $_POST['wp_user_id'] ) : 0;
+            $api_key_id      = isset( $_POST['api_key_id'] ) ? absint( $_POST['api_key_id'] ) : 0;
 
             if ( 'disable' === $action ) {
                 $response = $this->client->disable_key(
@@ -1036,11 +1037,36 @@ class DSB_Admin {
                 );
                 $this->handle_key_response( $response, __( 'Key rotated.', 'davix-sub-bridge' ) );
             } elseif ( 'purge' === $action ) {
+                if ( ! $api_key_id ) {
+                    $this->add_notice( __( 'Cannot purge: missing api_key_id for this key.', 'davix-sub-bridge' ), 'error' );
+                    dsb_log(
+                        'error',
+                        'Admin purge aborted due to missing api_key_id',
+                        [
+                            'subscription_id' => $subscription_id,
+                            'customer_email'  => $customer_email,
+                            'wp_user_id'      => $wp_user_id ?: null,
+                        ]
+                    );
+                    return;
+                }
+
+                dsb_log(
+                    'info',
+                    'Admin purge requested',
+                    [
+                        'api_key_id'      => $api_key_id,
+                        'subscription_id' => $subscription_id,
+                        'customer_email'  => $customer_email,
+                        'wp_user_id'      => $wp_user_id ?: null,
+                    ]
+                );
                 $job_id = $this->db->enqueue_purge_job(
                     [
                         'wp_user_id'      => $wp_user_id ?: null,
                         'customer_email'  => $customer_email,
                         'subscription_id' => $subscription_id,
+                        'api_key_id'      => $api_key_id,
                         'reason'          => 'admin_purge',
                     ]
                 );
@@ -1889,6 +1915,14 @@ class DSB_Admin {
                 <tr><td colspan="10"><?php esc_html_e( 'No keys found.', 'davix-sub-bridge' ); ?></td></tr>
             <?php else : ?>
                 <?php foreach ( $items as $item ) : ?>
+                    <?php
+                    $api_key_id = 0;
+                    if ( isset( $item['api_key_id'] ) ) {
+                        $api_key_id = absint( $item['api_key_id'] );
+                    } elseif ( isset( $item['id'] ) ) {
+                        $api_key_id = absint( $item['id'] );
+                    }
+                    ?>
                     <tr>
                         <td><?php echo esc_html( $item['subscription_id'] ?? '' ); ?></td>
                         <td><?php echo esc_html( $item['customer_email'] ?? '' ); ?></td>
@@ -1906,6 +1940,7 @@ class DSB_Admin {
                                 <input type="hidden" name="subscription_id" value="<?php echo esc_attr( $item['subscription_id'] ?? '' ); ?>" />
                                 <input type="hidden" name="customer_email" value="<?php echo esc_attr( $item['customer_email'] ?? '' ); ?>" />
                                 <input type="hidden" name="wp_user_id" value="<?php echo esc_attr( $item['wp_user_id'] ?? '' ); ?>" />
+                                <input type="hidden" name="api_key_id" value="<?php echo esc_attr( $api_key_id ); ?>" />
                                 <?php submit_button( __( 'Rotate', 'davix-sub-bridge' ), 'link', '', false ); ?>
                             </form>
                             |
@@ -1915,6 +1950,7 @@ class DSB_Admin {
                                 <input type="hidden" name="subscription_id" value="<?php echo esc_attr( $item['subscription_id'] ?? '' ); ?>" />
                                 <input type="hidden" name="customer_email" value="<?php echo esc_attr( $item['customer_email'] ?? '' ); ?>" />
                                 <input type="hidden" name="wp_user_id" value="<?php echo esc_attr( $item['wp_user_id'] ?? '' ); ?>" />
+                                <input type="hidden" name="api_key_id" value="<?php echo esc_attr( $api_key_id ); ?>" />
                                 <?php submit_button( __( 'Disable', 'davix-sub-bridge' ), 'link', '', false ); ?>
                             </form>
                             |
@@ -1924,6 +1960,7 @@ class DSB_Admin {
                                 <input type="hidden" name="subscription_id" value="<?php echo esc_attr( $item['subscription_id'] ?? '' ); ?>" />
                                 <input type="hidden" name="customer_email" value="<?php echo esc_attr( $item['customer_email'] ?? '' ); ?>" />
                                 <input type="hidden" name="wp_user_id" value="<?php echo esc_attr( $item['wp_user_id'] ?? '' ); ?>" />
+                                <input type="hidden" name="api_key_id" value="<?php echo esc_attr( $api_key_id ); ?>" />
                                 <?php submit_button( __( 'Purge', 'davix-sub-bridge' ), 'link', '', false ); ?>
                             </form>
                         </td>
