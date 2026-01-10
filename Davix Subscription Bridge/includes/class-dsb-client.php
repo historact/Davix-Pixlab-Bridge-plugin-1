@@ -1065,6 +1065,23 @@ class DSB_Client {
         $event_name = isset( $payload['event'] ) ? strtolower( (string) $payload['event'] ) : '';
         $disable_like_events = [ 'cancelled', 'expired', 'disabled', 'payment_failed', 'payment-failed', 'paused' ];
 
+        if ( ! $success && 'missing_api_key_id' === $validation_error ) {
+            $response = new \WP_Error(
+                'missing_api_key_id',
+                __( 'PixLab response missing api_key_id for active events; provisioning will retry.', 'davix-sub-bridge' )
+            );
+            dsb_log(
+                'error',
+                'PixLab response missing api_key_id for active events; provisioning will retry.',
+                [
+                    'event'           => $payload['event'] ?? '',
+                    'subscription_id' => $subscription_identifier,
+                    'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : null,
+                    'customer_email'  => $payload['customer_email'] ?? '',
+                ]
+            );
+        }
+
         if ( ! $success && $validation_error && ! empty( $strict_validation['missing'] ) ) {
             dsb_log(
                 'error',
@@ -1237,6 +1254,10 @@ class DSB_Client {
         $event_name = isset( $payload['event'] ) ? strtolower( (string) $payload['event'] ) : '';
         $needs_key  = in_array( $event_name, [ 'activated', 'active', 'renewed', 'reactivated' ], true );
         if ( $needs_key ) {
+            $node_api_key_id = $this->extract_node_api_key_id_from_response( $decoded );
+            if ( $node_api_key_id <= 0 ) {
+                return [ 'ok' => false, 'error' => 'missing_api_key_id' ];
+            }
             $key_value = $decoded['key'] ?? null;
             $key_prefix = $decoded['key_prefix'] ?? ( is_array( $decoded['key'] ?? null ) ? ( $decoded['key']['prefix'] ?? $decoded['key']['key_prefix'] ?? null ) : null );
             $key_last4  = $decoded['key_last4'] ?? ( is_array( $decoded['key'] ?? null ) ? ( $decoded['key']['last4'] ?? $decoded['key']['key_last4'] ?? null ) : null );

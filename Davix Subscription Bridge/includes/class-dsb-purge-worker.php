@@ -157,9 +157,19 @@ class DSB_Purge_Worker {
         }
 
         if ( ! $api_key_id ) {
-            $error = 'missing_api_key_id';
+            $error = 'Cannot purge because node_api_key_id is missing; provisioning response did not return api_key_id; run node poll or fix PixLab response.';
             $this->db->mark_job_error( $job, $error, self::MAX_ATTEMPTS );
-            dsb_log( 'error', 'Purge job missing api_key_id; refusing to call PixLab', [ 'job_id' => $job_id ] );
+            $this->db->log_event(
+                [
+                    'event'           => 'purge',
+                    'customer_email'  => $emails[0] ?? null,
+                    'subscription_id' => $subs[0] ?? null,
+                    'response_action' => $job['reason'] ?? '',
+                    'http_code'       => null,
+                    'error_excerpt'   => $error,
+                ]
+            );
+            dsb_log( 'error', $error, [ 'job_id' => $job_id ] );
             return;
         }
 
