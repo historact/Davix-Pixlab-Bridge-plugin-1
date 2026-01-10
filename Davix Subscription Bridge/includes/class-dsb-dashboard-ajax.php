@@ -263,7 +263,8 @@ class DSB_Dashboard_Ajax {
         $decoded = $result['decoded'] ?? [];
         $error_code = strtolower( (string) ( $decoded['code'] ?? '' ) );
         if ( 403 === (int) ( $result['code'] ?? 0 ) && 'subscription_expired' === $error_code ) {
-            $decoded['message'] = __( 'Your API key is expired. Please renew to enable.', 'davix-sub-bridge' );
+            $labels = $this->client->get_label_settings();
+            $decoded['message'] = $labels['dsb_label_expired_message'] ?? __( 'Your API key is expired. Please renew to enable.', 'davix-sub-bridge' );
             $result['decoded']  = $decoded;
         }
         if ( 200 !== $result['code'] || ( $decoded['status'] ?? '' ) !== 'ok' ) {

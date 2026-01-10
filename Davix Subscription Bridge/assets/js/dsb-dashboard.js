@@ -9,6 +9,15 @@
         return;
     }
 
+    const statusLabels = {
+        enabled: labels.dsb_label_enabled || 'Enabled',
+        disabled: labels.dsb_label_disabled || 'Disabled',
+        provisioning: labels.dsb_label_provisioning || (data.strings && data.strings.provisioning) || 'Provisioning...',
+        expiredMessage:
+            labels.dsb_label_expired_message ||
+            'Your API key is expired. Please renew to enable.',
+    };
+
     const els = {
         planName: root.querySelector('[data-plan-name]'),
         planLimit: root.querySelector('[data-plan-limit]'),
@@ -110,8 +119,14 @@
 
         state.lastSummary = res;
 
-        const enabled = key.enabled !== false && (key.status || '').toLowerCase() !== 'disabled';
-        state.keyEnabled = enabled;
+        const keyStatus = (key.status || '').toLowerCase();
+        const hasKeyMaterial = Boolean(key.key_prefix || key.key_last4);
+        const isExpired = isKeyExpired(res);
+        const isActive = keyStatus === 'active' && !isExpired;
+        const isDisabled = keyStatus === 'disabled' || isExpired;
+        const isProvisioning = provisioningStatus === 'pending' && !hasKeyMaterial && !isExpired;
+
+        state.keyEnabled = isActive;
         state.maskedKey = key.key_prefix || key.key_last4 ? formatMasked(key.key_prefix, key.key_last4) : data.strings.loading;
 
         if (els.keyDisplay) {
@@ -122,15 +137,17 @@
             els.keyCreated.textContent = key.created_at ? `${createdLabel} ${key.created_at}` : '';
         }
         updateToggleButton();
-        if (provisioningStatus === 'pending') {
-            const pendingText = data.strings.provisioning || 'Provisioning…';
+        if (isProvisioning) {
+            const pendingText = statusLabels.provisioning;
             const nextRetry = res.next_retry_at ? ` ${data.strings.provisioningNext} ${res.next_retry_at}` : '';
             setStatus(`${pendingText}${nextRetry}`, 'muted');
-        } else if (provisioningStatus === 'failed') {
+        } else if (provisioningStatus === 'failed' && !isActive && !isDisabled) {
             const failedText = res.last_error || data.strings.provisioningFailed;
             setStatus(failedText, 'error');
+        } else if (isActive) {
+            setStatus(statusLabels.enabled, 'success');
         } else {
-            setStatus(enabled ? 'Active' : 'Disabled', enabled ? 'success' : 'muted');
+            setStatus(statusLabels.disabled, 'muted');
         }
 
         if (els.planName) {
@@ -224,8 +241,8 @@
         }
 
         if (nextState && isKeyExpired(state.lastSummary)) {
-            const message = 'Your API key is expired. Please renew to enable.';
-            setStatus(message, 'error');
+            setStatus(statusLabels.disabled, 'muted');
+            alert(statusLabels.expiredMessage);
             if (els.keyToggle) {
                 els.keyToggle.disabled = false;
             }
@@ -237,7 +254,7 @@
             .then(() => {
                 state.keyEnabled = nextState;
                 updateToggleButton();
-                setStatus(nextState ? 'Active' : 'Disabled', nextState ? 'success' : 'muted');
+                setStatus(nextState ? statusLabels.enabled : statusLabels.disabled, nextState ? 'success' : 'muted');
                 fetchSummary();
                 showToast(data.strings.toastSuccess);
             })

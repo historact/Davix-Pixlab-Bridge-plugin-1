@@ -242,7 +242,7 @@ class DSB_Dashboard {
                     'toggleOff'     => $labels['label_disable_key'],
                     'toggleError'   => __( 'Unable to update key.', 'davix-sub-bridge' ),
                     'toastSuccess'  => __( 'Updated', 'davix-sub-bridge' ),
-                    'provisioning'  => __( 'Provisioning…', 'davix-sub-bridge' ),
+                    'provisioning'  => $labels['dsb_label_provisioning'],
                     'provisioningFailed' => __( 'Provisioning failed. Please contact support.', 'davix-sub-bridge' ),
                     'provisioningNext'   => __( 'Next retry:', 'davix-sub-bridge' ),
                 ],
