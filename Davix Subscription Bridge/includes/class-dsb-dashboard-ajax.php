@@ -95,7 +95,17 @@ class DSB_Dashboard_Ajax {
 
         try {
             $identity = $this->validate_request();
-            $result   = $this->client->user_summary( $identity );
+            $request = $this->request_with_identity_fallback(
+                $identity,
+                function ( array $primary_identity ) {
+                    return $this->client->user_summary( $primary_identity );
+                },
+                function ( array $fallback_identity ) {
+                    return $this->client->user_summary( $fallback_identity );
+                }
+            );
+            $result   = $request['result'];
+            $identity = $request['identity'];
             $self_heal = $this->maybe_self_heal_missing_key( $identity, $result );
             if ( ! empty( $self_heal['result'] ) && is_array( $self_heal['result'] ) ) {
                 $result = $self_heal['result'];
@@ -127,14 +137,30 @@ class DSB_Dashboard_Ajax {
 
             $window = $this->get_window_for_range( $range );
 
-            $result = $this->client->user_usage(
-                array_merge( $identity, [
-                    'range'  => $range,
-                    'window' => $window,
-                ] ),
-                $range,
-                [ 'window' => $window ]
+            $request = $this->request_with_identity_fallback(
+                $identity,
+                function ( array $primary_identity ) use ( $range, $window ) {
+                    return $this->client->user_usage(
+                        array_merge( $primary_identity, [
+                            'range'  => $range,
+                            'window' => $window,
+                        ] ),
+                        $range,
+                        [ 'window' => $window ]
+                    );
+                },
+                function ( array $fallback_identity ) use ( $range, $window ) {
+                    return $this->client->user_usage(
+                        array_merge( $fallback_identity, [
+                            'range'  => $range,
+                            'window' => $window,
+                        ] ),
+                        $range,
+                        [ 'window' => $window ]
+                    );
+                }
             );
+            $result = $request['result'];
 
             if ( ! is_wp_error( $result['response'] ) && 200 === $result['code'] && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
                 $result['decoded'] = [
@@ -176,7 +202,16 @@ class DSB_Dashboard_Ajax {
                 $filters['status'] = $maybe_status;
             }
 
-            $result = $this->client->user_logs( $identity, $page, $per_page, $filters );
+            $request = $this->request_with_identity_fallback(
+                $identity,
+                function ( array $primary_identity ) use ( $page, $per_page, $filters ) {
+                    return $this->client->user_logs( $primary_identity, $page, $per_page, $filters );
+                },
+                function ( array $fallback_identity ) use ( $page, $per_page, $filters ) {
+                    return $this->client->user_logs( $fallback_identity, $page, $per_page, $filters );
+                }
+            );
+            $result = $request['result'];
 
             if ( ! is_wp_error( $result['response'] ) && 200 === $result['code'] && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
                 $result['decoded'] = $this->normalize_logs_payload( $result['decoded'], $page, $per_page );
@@ -205,7 +240,16 @@ class DSB_Dashboard_Ajax {
                 wp_send_json( [ 'status' => 'error', 'message' => __( 'Please wait before rotating again.', 'davix-sub-bridge' ) ], 429 );
             }
 
-            $result = $this->client->rotate_user_key( $identity );
+            $request = $this->request_with_identity_fallback(
+                $identity,
+                function ( array $primary_identity ) {
+                    return $this->client->rotate_user_key( $primary_identity );
+                },
+                function ( array $fallback_identity ) {
+                    return $this->client->rotate_user_key( $fallback_identity );
+                }
+            );
+            $result = $request['result'];
 
             if ( $user && $user->ID && ! is_wp_error( $result['response'] ) && 200 === $result['code'] && ( $result['decoded']['status'] ?? '' ) === 'ok' ) {
                 update_user_meta( $user->ID, $metaKey, $now );
@@ -226,7 +270,16 @@ class DSB_Dashboard_Ajax {
             $identity = $this->validate_request();
             $enabled  = isset( $_POST['enabled'] ) ? (bool) sanitize_text_field( wp_unslash( $_POST['enabled'] ) ) : true;
 
-            $result = $this->client->user_toggle( $identity, $enabled );
+            $request = $this->request_with_identity_fallback(
+                $identity,
+                function ( array $primary_identity ) use ( $enabled ) {
+                    return $this->client->user_toggle( $primary_identity, $enabled );
+                },
+                function ( array $fallback_identity ) use ( $enabled ) {
+                    return $this->client->user_toggle( $fallback_identity, $enabled );
+                }
+            );
+            $result = $request['result'];
             $this->respond_from_result( $result, __( 'Unable to update key.', 'davix-sub-bridge' ), 'toggle' );
         } catch ( \Throwable $e ) {
             $this->handle_exception( $e );
@@ -324,8 +377,7 @@ class DSB_Dashboard_Ajax {
     }
 
     protected function log_error( string $message, $context = [] ): void {
-        $settings = $this->client->get_settings();
-        $token    = $settings['bridge_token'] ?? '';
+        $token    = $this->client->get_bridge_token();
         if ( $token ) {
             $message = str_replace( $token, '***', $message );
         }
@@ -352,6 +404,100 @@ class DSB_Dashboard_Ajax {
             'body'   => $body_excerpt,
             'error'  => $message,
         ];
+    }
+
+    private function request_with_identity_fallback( array $identity, callable $primary_request, callable $fallback_request ): array {
+        $primary_identity = $this->primary_identity( $identity );
+        $result = $primary_request( $primary_identity );
+        $identity_used = $primary_identity;
+
+        if ( $this->should_retry_with_fallback( $result ) ) {
+            $fallback_email = $this->get_fallback_email( $identity );
+            if ( $fallback_email ) {
+                $fallback_identity = $identity;
+                $fallback_identity['customer_email'] = $fallback_email;
+                $wp_user_id = isset( $identity['wp_user_id'] ) ? absint( $identity['wp_user_id'] ) : 0;
+                if ( $wp_user_id ) {
+                    $this->log_identity_fallback( $wp_user_id, $fallback_email );
+                }
+                $result = $fallback_request( $fallback_identity );
+                $identity_used = $fallback_identity;
+            }
+        }
+
+        return [
+            'result'   => $result,
+            'identity' => $identity_used,
+        ];
+    }
+
+    private function primary_identity( array $identity ): array {
+        $primary = $identity;
+        $primary['customer_email'] = null;
+        return $primary;
+    }
+
+    private function should_retry_with_fallback( array $result ): bool {
+        if ( is_wp_error( $result['response'] ?? null ) ) {
+            return false;
+        }
+
+        $code = (int) ( $result['code'] ?? 0 );
+        if ( 404 === $code ) {
+            return true;
+        }
+
+        $decoded = is_array( $result['decoded'] ?? null ) ? $result['decoded'] : [];
+        $error_code = strtolower( (string) ( $decoded['code'] ?? '' ) );
+        $message = strtolower( (string) ( $decoded['message'] ?? '' ) );
+        $not_found_codes = [ 'not_found', 'user_not_found', 'no_user', 'no_user_found', 'customer_not_found', 'subscription_not_found' ];
+
+        if ( $error_code && in_array( $error_code, $not_found_codes, true ) ) {
+            return true;
+        }
+
+        return '' !== $message && false !== strpos( $message, 'not found' );
+    }
+
+    private function get_fallback_email( array $identity ): ?string {
+        $wp_user_id = isset( $identity['wp_user_id'] ) ? absint( $identity['wp_user_id'] ) : 0;
+        if ( ! $wp_user_id ) {
+            return null;
+        }
+
+        $emails = [];
+        $known = $this->db->get_identities_for_wp_user_id( $wp_user_id );
+        if ( ! empty( $known['emails'] ) && is_array( $known['emails'] ) ) {
+            $emails = array_merge( $emails, $known['emails'] );
+        }
+
+        if ( ! empty( $identity['customer_email'] ) ) {
+            $emails[] = $identity['customer_email'];
+        }
+
+        $emails = array_values( array_filter( array_unique( array_map( 'sanitize_email', $emails ) ) ) );
+        return $emails[0] ?? null;
+    }
+
+    private function log_identity_fallback( int $wp_user_id, string $email ): void {
+        $masked = $this->mask_email( $email );
+        dsb_log( 'info', 'Dashboard identity fallback used', [
+            'wp_user_id'     => $wp_user_id,
+            'customer_email' => $masked,
+        ] );
+    }
+
+    private function mask_email( string $email ): string {
+        $email = sanitize_email( $email );
+        if ( ! $email ) {
+            return '';
+        }
+
+        $parts = explode( '@', $email, 2 );
+        $local = $parts[0] ?? '';
+        $domain = $parts[1] ?? '';
+        $prefix = '' !== $local ? substr( $local, 0, 1 ) : '';
+        return $prefix . '***' . ( $domain ? '@' . $domain : '' );
     }
 
     private function maybe_self_heal_missing_key( array $identity, array $result ): array {

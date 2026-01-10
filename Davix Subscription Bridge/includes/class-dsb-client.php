@@ -69,6 +69,46 @@ class DSB_Client {
         return wp_parse_args( is_array( $options ) ? $options : [], $defaults );
     }
 
+    public function has_external_bridge_token(): bool {
+        if ( defined( 'DSB_BRIDGE_TOKEN' ) && DSB_BRIDGE_TOKEN ) {
+            return true;
+        }
+
+        $env = getenv( 'DSB_BRIDGE_TOKEN' );
+        return is_string( $env ) && '' !== trim( $env );
+    }
+
+    public function is_settings_locked(): bool {
+        if ( defined( 'DSB_LOCK_SETTINGS' ) && DSB_LOCK_SETTINGS ) {
+            return true;
+        }
+
+        if ( defined( 'WP_ENV' ) && 'production' === WP_ENV ) {
+            return true;
+        }
+
+        $env = getenv( 'WP_ENV' );
+        return is_string( $env ) && 'production' === $env;
+    }
+
+    public function get_bridge_token(): string {
+        if ( defined( 'DSB_BRIDGE_TOKEN' ) && DSB_BRIDGE_TOKEN ) {
+            return trim( (string) DSB_BRIDGE_TOKEN );
+        }
+
+        $env = getenv( 'DSB_BRIDGE_TOKEN' );
+        if ( is_string( $env ) && '' !== trim( $env ) ) {
+            return trim( $env );
+        }
+
+        if ( $this->is_settings_locked() ) {
+            return '';
+        }
+
+        $settings = $this->get_settings();
+        return (string) ( $settings['bridge_token'] ?? '' );
+    }
+
     public function get_style_defaults(): array {
         return [
             'style_header_text'              => '#f8fafc',
@@ -445,6 +485,9 @@ class DSB_Client {
             $debug_value   = is_array( $data['debug_enabled'] ) ? end( $data['debug_enabled'] ) : $data['debug_enabled'];
             $debug_enabled = (int) ( '1' === (string) $debug_value );
         }
+        if ( $debug_enabled && function_exists( __NAMESPACE__ . '\\dsb_is_production_env' ) && dsb_is_production_env() && function_exists( __NAMESPACE__ . '\\dsb_is_log_path_public' ) && dsb_is_log_path_public( dsb_get_log_dir() ) ) {
+            $debug_enabled = 0;
+        }
 
         $enable_logging_value = isset( $data['enable_logging'] ) ? ( is_array( $data['enable_logging'] ) ? end( $data['enable_logging'] ) : $data['enable_logging'] ) : null;
         $allow_without_refs_value = isset( $data['allow_provision_without_refs'] ) ? ( is_array( $data['allow_provision_without_refs'] ) ? end( $data['allow_provision_without_refs'] ) : $data['allow_provision_without_refs'] ) : null;
@@ -467,7 +510,9 @@ class DSB_Client {
 
         $bridge_token = $existing['bridge_token'] ?? '';
         $bridge_token_clear = isset( $data['bridge_token_clear'] ) && '1' === (string) ( is_array( $data['bridge_token_clear'] ) ? end( $data['bridge_token_clear'] ) : $data['bridge_token_clear'] );
-        if ( $bridge_token_clear ) {
+        if ( $this->has_external_bridge_token() || $this->is_settings_locked() ) {
+            $bridge_token = '';
+        } elseif ( $bridge_token_clear ) {
             $bridge_token = '';
         } elseif ( array_key_exists( 'bridge_token', $data ) ) {
             $incoming_token = sanitize_text_field( $data['bridge_token'] );
@@ -836,7 +881,8 @@ class DSB_Client {
             return new \WP_Error( 'dsb_missing_base', __( 'Node base URL missing', 'davix-sub-bridge' ) );
         }
 
-        if ( empty( $settings['bridge_token'] ) ) {
+        $bridge_token = $this->get_bridge_token();
+        if ( empty( $bridge_token ) ) {
             return new \WP_Error( 'dsb_missing_token', __( 'Bridge token missing', 'davix-sub-bridge' ) );
         }
 
@@ -850,7 +896,7 @@ class DSB_Client {
         $args = [
             'timeout' => 25,
             'headers' => [
-                'x-davix-bridge-token' => $settings['bridge_token'],
+                'x-davix-bridge-token' => $bridge_token,
             ],
         ];
 

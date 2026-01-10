@@ -22,6 +22,49 @@ function dsb_debug_is_enabled(): bool {
     return ! empty( $settings['enabled'] );
 }
 
+function dsb_is_production_env(): bool {
+    if ( defined( 'WP_ENV' ) && 'production' === WP_ENV ) {
+        return true;
+    }
+
+    $env = getenv( 'WP_ENV' );
+    return is_string( $env ) && 'production' === $env;
+}
+
+function dsb_is_log_path_public( string $path ): bool {
+    if ( '' === $path ) {
+        return true;
+    }
+
+    $resolved = realpath( $path );
+    $normalized = wp_normalize_path( $resolved ? $resolved : $path );
+    $normalized = trailingslashit( $normalized );
+
+    $roots = [
+        ABSPATH,
+        WP_CONTENT_DIR,
+    ];
+
+    $uploads = wp_upload_dir();
+    if ( ! empty( $uploads['basedir'] ) ) {
+        $roots[] = $uploads['basedir'];
+    }
+
+    foreach ( $roots as $root ) {
+        if ( ! $root ) {
+            continue;
+        }
+        $root_resolved = realpath( $root );
+        $root_normalized = wp_normalize_path( $root_resolved ? $root_resolved : $root );
+        $root_normalized = trailingslashit( $root_normalized );
+        if ( 0 === strpos( $normalized, $root_normalized ) ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function dsb_get_log_dir(): string {
     $stored = get_option( 'dsb_log_dir_path' );
     if ( is_string( $stored ) && '' !== $stored ) {
@@ -29,7 +72,7 @@ function dsb_get_log_dir(): string {
     }
 
     $doc_root = isset( $_SERVER['DOCUMENT_ROOT'] ) ? realpath( (string) $_SERVER['DOCUMENT_ROOT'] ) : '';
-    $content_dir = trailingslashit( WP_CONTENT_DIR ) . 'davix-bridge-logs/';
+    $content_dir = trailingslashit( dirname( ABSPATH ) ) . 'davix-bridge-logs/';
     $above_docroot = $doc_root ? trailingslashit( dirname( $doc_root ) ) . 'davix-bridge-logs/' : '';
 
     if ( $doc_root && $above_docroot && 0 !== strpos( $above_docroot, $doc_root ) ) {
@@ -41,8 +84,14 @@ function dsb_get_log_dir(): string {
 
 function dsb_ensure_log_dir(): bool {
     $dir = dsb_get_log_dir();
+    if ( dsb_is_production_env() && dsb_is_log_path_public( $dir ) ) {
+        return false;
+    }
     if ( ! wp_mkdir_p( $dir ) ) {
         $dir = dsb_get_uploads_log_dir();
+        if ( dsb_is_production_env() && dsb_is_log_path_public( $dir ) ) {
+            return false;
+        }
         if ( ! wp_mkdir_p( $dir ) ) {
             return false;
         }
