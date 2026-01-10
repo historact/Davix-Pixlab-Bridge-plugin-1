@@ -321,6 +321,17 @@ class DSB_DB {
             $subscription_id = reset( $subscription_ids );
         }
 
+        if ( ! $api_key_id ) {
+            $api_key_id = $this->find_api_key_id_for_identity(
+                [
+                    'wp_user_id'       => $wp_user_id,
+                    'customer_email'   => $customer_email,
+                    'subscription_id'  => $subscription_id,
+                    'subscription_ids' => $subscription_ids,
+                ]
+            );
+        }
+
         $window_minutes = 30;
         $params         = [ 'pending', $reason ];
         $identity_parts = [];
@@ -576,6 +587,22 @@ class DSB_DB {
         );
     }
 
+    public function update_purge_job_api_key_id( int $id, int $api_key_id ): void {
+        $id         = absint( $id );
+        $api_key_id = absint( $api_key_id );
+        if ( ! $id || ! $api_key_id ) {
+            return;
+        }
+
+        $this->wpdb->update(
+            $this->table_purge_queue,
+            [
+                'api_key_id' => $api_key_id,
+            ],
+            [ 'id' => $id ]
+        );
+    }
+
     public function mark_job_error( array $job, string $error, int $max_attempts ): void {
         $id       = (int) ( $job['id'] ?? 0 );
         $attempts = (int) ( $job['attempts'] ?? 0 );
@@ -646,6 +673,64 @@ class DSB_DB {
         $subs   = array_values( array_filter( array_unique( $subs ) ) );
 
         return [ 'emails' => $emails, 'subscription_ids' => $subs ];
+    }
+
+    public function find_api_key_id_for_identity( array $identity ): int {
+        $wp_user_id = isset( $identity['wp_user_id'] ) ? absint( $identity['wp_user_id'] ) : 0;
+        $customer_email = '';
+        $subscription_id = '';
+
+        if ( ! empty( $identity['customer_email'] ) ) {
+            $customer_email = sanitize_email( $identity['customer_email'] );
+        } elseif ( ! empty( $identity['emails'] ) && is_array( $identity['emails'] ) ) {
+            $email = reset( $identity['emails'] );
+            $customer_email = $email ? sanitize_email( $email ) : '';
+        }
+
+        if ( ! empty( $identity['subscription_id'] ) ) {
+            $subscription_id = sanitize_text_field( $identity['subscription_id'] );
+        } elseif ( ! empty( $identity['subscription_ids'] ) && is_array( $identity['subscription_ids'] ) ) {
+            $sub = reset( $identity['subscription_ids'] );
+            $subscription_id = $sub ? sanitize_text_field( $sub ) : '';
+        }
+
+        if ( $wp_user_id ) {
+            $found = $this->wpdb->get_var(
+                $this->wpdb->prepare(
+                    "SELECT node_api_key_id FROM {$this->table_keys} WHERE wp_user_id = %d AND node_api_key_id IS NOT NULL ORDER BY updated_at DESC LIMIT 1",
+                    $wp_user_id
+                )
+            );
+            if ( $found ) {
+                return (int) $found;
+            }
+        }
+
+        if ( $customer_email ) {
+            $found = $this->wpdb->get_var(
+                $this->wpdb->prepare(
+                    "SELECT node_api_key_id FROM {$this->table_keys} WHERE customer_email = %s AND node_api_key_id IS NOT NULL ORDER BY updated_at DESC LIMIT 1",
+                    $customer_email
+                )
+            );
+            if ( $found ) {
+                return (int) $found;
+            }
+        }
+
+        if ( $subscription_id ) {
+            $found = $this->wpdb->get_var(
+                $this->wpdb->prepare(
+                    "SELECT node_api_key_id FROM {$this->table_keys} WHERE subscription_id = %s AND node_api_key_id IS NOT NULL ORDER BY updated_at DESC LIMIT 1",
+                    $subscription_id
+                )
+            );
+            if ( $found ) {
+                return (int) $found;
+            }
+        }
+
+        return 0;
     }
 
     public function delete_user_rows_local( int $wp_user_id, array $emails = [], array $subscription_ids = [] ): void {
