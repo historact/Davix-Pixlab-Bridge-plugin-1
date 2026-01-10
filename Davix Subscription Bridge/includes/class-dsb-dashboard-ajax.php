@@ -261,6 +261,11 @@ class DSB_Dashboard_Ajax {
         }
 
         $decoded = $result['decoded'] ?? [];
+        $error_code = strtolower( (string) ( $decoded['code'] ?? '' ) );
+        if ( 403 === (int) ( $result['code'] ?? 0 ) && 'subscription_expired' === $error_code ) {
+            $decoded['message'] = __( 'Your API key is expired. Please renew to enable.', 'davix-sub-bridge' );
+            $result['decoded']  = $decoded;
+        }
         if ( 200 !== $result['code'] || ( $decoded['status'] ?? '' ) !== 'ok' ) {
             $message = $decoded['message'] ?? $default_message;
             $payload = [ 'status' => 'error', 'message' => $message ];
@@ -420,10 +425,26 @@ class DSB_Dashboard_Ajax {
             return [];
         }
 
-        $payload = DSB_PMPro_Events::build_active_payload_for_user( $user_id );
-        if ( ! $payload ) {
-            dsb_log( 'warning', 'Self-heal skipped: unable to build payload', [ 'user_id' => $user_id ] );
-            return [];
+        $no_entitlement_message = __( 'No active subscription. Renew.', 'davix-sub-bridge' );
+        $payload = null;
+
+        if ( $this->has_active_pmpro_entitlement( $user_id ) ) {
+            $payload = DSB_PMPro_Events::build_active_payload_for_user( $user_id );
+            if ( ! $payload ) {
+                dsb_log( 'warning', 'Self-heal skipped: unable to build active payload', [ 'user_id' => $user_id ] );
+                return $this->self_heal_error_result( $result, $no_entitlement_message );
+            }
+        } else {
+            $cancel_ts = (int) get_user_meta( $user_id, 'dsb_cancelled_valid_until', true );
+            if ( $cancel_ts > time() ) {
+                $payload = DSB_PMPro_Events::build_cancelled_payload_for_user( $user_id );
+                if ( is_wp_error( $payload ) ) {
+                    dsb_log( 'warning', 'Self-heal skipped: unable to build cancelled payload', [ 'user_id' => $user_id ] );
+                    return $this->self_heal_error_result( $result, $no_entitlement_message );
+                }
+            } else {
+                return $this->self_heal_error_result( $result, $no_entitlement_message );
+            }
         }
 
         $dispatch = DSB_PMPro_Events::dispatch_provision_payload( $payload, 'self_heal' );
@@ -435,6 +456,40 @@ class DSB_Dashboard_Ajax {
 
         dsb_log( 'error', 'Self-heal reprovision failed', [ 'user_id' => $user_id, 'event' => $payload['event'] ?? '' ] );
         return [];
+    }
+
+    private function self_heal_error_result( array $result, string $message ): array {
+        $decoded = is_array( $result['decoded'] ?? null ) ? $result['decoded'] : [];
+        $decoded['status']  = 'error';
+        $decoded['message'] = $message;
+        $result['decoded']  = $decoded;
+        return [ 'result' => $result ];
+    }
+
+    private function has_active_pmpro_entitlement( int $user_id ): bool {
+        if ( ! function_exists( 'pmpro_getMembershipLevelForUser' ) ) {
+            return false;
+        }
+
+        $level = pmpro_getMembershipLevelForUser( $user_id );
+        if ( empty( $level ) || empty( $level->id ) ) {
+            return false;
+        }
+
+        if ( empty( $level->enddate ) ) {
+            return true;
+        }
+
+        if ( is_numeric( $level->enddate ) ) {
+            return (int) $level->enddate > 0 ? (int) $level->enddate > time() : true;
+        }
+
+        if ( is_string( $level->enddate ) ) {
+            $ts = strtotime( $level->enddate );
+            return $ts && $ts > time();
+        }
+
+        return false;
     }
 
     private function fmt_date_ymd( $value ): string {
@@ -560,6 +615,7 @@ class DSB_Dashboard_Ajax {
                 'created_at' => $this->fmt_date_ymd( $key['created_at'] ?? null ),
                 'valid_from' => $validFrom,
                 'valid_until'=> $validUntil,
+                'subscription_status' => $key['subscription_status'] ?? ( $decoded['subscription_status'] ?? null ),
             ],
             'usage'  => [
                 'total_calls_used'  => $used,

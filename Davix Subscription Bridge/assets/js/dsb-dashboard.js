@@ -223,6 +223,15 @@
             els.keyToggle.disabled = true;
         }
 
+        if (nextState && isKeyExpired(state.lastSummary)) {
+            const message = 'Your API key is expired. Please renew to enable.';
+            setStatus(message, 'error');
+            if (els.keyToggle) {
+                els.keyToggle.disabled = false;
+            }
+            return;
+        }
+
         post('dsb_dashboard_toggle', { enabled: nextState ? '1' : '' })
             .then(handleResponse)
             .then(() => {
@@ -245,6 +254,21 @@
         const toggleOff = (data.strings && data.strings.toggleOff) || 'Disable Key';
         const toggleOn = (data.strings && data.strings.toggleOn) || 'Enable Key';
         els.keyToggle.textContent = state.keyEnabled ? toggleOff : toggleOn;
+    }
+
+    function isKeyExpired(summary) {
+        if (!summary) return false;
+        const key = summary.key || {};
+        const status = (key.subscription_status || '').toLowerCase();
+        if (status === 'expired') return true;
+
+        const validUntil = key.valid_until || '';
+        if (!validUntil || validUntil === '—') return false;
+
+        const normalized = String(validUntil).replace(/\//g, '-');
+        const parsed = Date.parse(`${normalized}T23:59:59Z`);
+        if (Number.isNaN(parsed)) return false;
+        return parsed < Date.now();
     }
 
     function openKeyModal(key) {
