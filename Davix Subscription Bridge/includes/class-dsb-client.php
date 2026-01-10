@@ -1120,8 +1120,8 @@ class DSB_Client {
                 $key_status = 'active';
             }
 
-            $this->db->upsert_key(
-                [
+            $node_api_key_id = $this->extract_node_api_key_id_from_response( $decoded );
+            $key_data = [
                     'subscription_id' => $subscription_identifier,
                     'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
                     'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : null,
@@ -1137,14 +1137,17 @@ class DSB_Client {
                     'last_action'     => $decoded['action'] ?? null,
                     'last_http_code'  => $code,
                     'last_error'      => null,
-                ]
-            );
+            ];
+            if ( $node_api_key_id > 0 ) {
+                $key_data['node_api_key_id'] = $node_api_key_id;
+            }
+
+            $this->db->upsert_key( $key_data );
 
             if ( isset( $payload['event'] ) && ( in_array( $payload['event'], [ 'activated', 'renewed', 'reactivated', 'active' ], true ) || in_array( $event_name, $disable_like_events, true ) ) ) {
                 $user_status = $should_clear_fields ? 'disabled' : ( 'cancelled' === $event_name ? 'active' : ( in_array( $event_name, $disable_like_events, true ) ? 'disabled' : 'active' ) );
 
-                $this->db->upsert_user(
-                    [
+                $user_data = [
                         'wp_user_id'      => isset( $payload['wp_user_id'] ) ? absint( $payload['wp_user_id'] ) : 0,
                         'customer_email'  => sanitize_email( $payload['customer_email'] ?? '' ),
                         'subscription_id' => $subscription_identifier,
@@ -1156,8 +1159,12 @@ class DSB_Client {
                         'valid_until'     => $should_clear_fields ? null : $valid_until,
                         'source'          => 'subscription_event',
                         'last_sync_at'    => current_time( 'mysql', true ),
-                    ]
-                );
+                ];
+                if ( $node_api_key_id > 0 ) {
+                    $user_data['node_api_key_id'] = $node_api_key_id;
+                }
+
+                $this->db->upsert_user( $user_data );
 
                 if ( $settings['enable_logging'] ) {
                     $this->db->log_event(
@@ -1241,6 +1248,17 @@ class DSB_Client {
         }
 
         return [ 'ok' => true, 'error' => '' ];
+    }
+
+    protected function extract_node_api_key_id_from_response( $decoded ): int {
+        if ( ! is_array( $decoded ) ) {
+            return 0;
+        }
+
+        $api_key_id = $decoded['api_key_id']
+            ?? ( $decoded['key']['api_key_id'] ?? ( $decoded['key']['id'] ?? null ) );
+
+        return $api_key_id ? absint( $api_key_id ) : 0;
     }
 
     protected function strict_validate_mirror_fields( array $payload, $decoded ): array {

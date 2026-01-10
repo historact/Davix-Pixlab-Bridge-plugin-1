@@ -918,6 +918,9 @@ class DSB_DB {
         );
 
         if ( $existing ) {
+            if ( empty( $data['node_api_key_id'] ) && ! empty( $existing['node_api_key_id'] ) ) {
+                $data['node_api_key_id'] = absint( $existing['node_api_key_id'] );
+            }
             $this->wpdb->update( $this->table_user, $data, [ 'id' => $existing['id'] ] );
             dsb_log( 'info', 'Updated user truth row', [ 'wp_user_id' => $data['wp_user_id'], 'subscription_id' => $data['subscription_id'] ] );
             $result['status'] = 'updated';
@@ -1095,6 +1098,9 @@ class DSB_DB {
         );
 
         if ( $existing ) {
+            if ( empty( $data['node_api_key_id'] ) && ! empty( $existing['node_api_key_id'] ) ) {
+                $data['node_api_key_id'] = absint( $existing['node_api_key_id'] );
+            }
             $this->wpdb->update( $this->table_keys, $data, [ 'id' => $existing['id'] ] );
             dsb_log( 'info', 'Updated key record via strict mirror', [ 'id' => $existing['id'], 'wp_user_id' => $data['wp_user_id'], 'subscription_id' => $data['subscription_id'] ] );
             $result['status'] = 'updated';
