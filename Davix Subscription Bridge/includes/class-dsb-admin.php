@@ -599,6 +599,12 @@ class DSB_Admin {
                 dsb_log( 'info', 'Saving style settings', [ 'keys' => $received, 'count' => count( $received ) ] );
             }
 
+                $debug_requested = isset( $_POST['debug_enabled'] ) && '1' === (string) ( is_array( $_POST['debug_enabled'] ) ? end( $_POST['debug_enabled'] ) : $_POST['debug_enabled'] );
+                if ( $debug_requested && function_exists( __NAMESPACE__ . '\\dsb_is_production_env' ) && dsb_is_production_env() && function_exists( __NAMESPACE__ . '\\dsb_is_log_path_public' ) && dsb_is_log_path_public( dsb_get_log_dir() ) ) {
+                    $_POST['debug_enabled'] = '0';
+                    $this->add_notice( __( 'Debug logging disabled because the log directory is publicly accessible. Configure a non-public path.', 'davix-sub-bridge' ), 'error' );
+                }
+
                 $this->client->save_settings( wp_unslash( $_POST ) );
                 if ( isset( $_POST['dsb_plan_slug_meta'] ) && is_array( $_POST['dsb_plan_slug_meta'] ) ) {
                     foreach ( $_POST['dsb_plan_slug_meta'] as $product_id => $slug ) {
@@ -1155,6 +1161,8 @@ class DSB_Admin {
 
     protected function render_settings_tab(): void {
         $settings = $this->client->get_settings();
+        $has_external_token = $this->client->has_external_bridge_token();
+        $settings_locked = $this->client->is_settings_locked();
         ?>
         <form method="post">
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
@@ -1166,10 +1174,17 @@ class DSB_Admin {
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Bridge Token', 'davix-sub-bridge' ); ?></th>
                     <td>
-                        <input type="password" name="bridge_token" class="regular-text" value="" autocomplete="off" />
-                        <p class="description"><?php printf( '%s %s', esc_html__( 'Stored securely, masked in UI.', 'davix-sub-bridge' ), esc_html( $this->client->masked_token() ) ); ?></p>
-                        <p class="description"><?php esc_html_e( 'Leave blank to keep existing token.', 'davix-sub-bridge' ); ?></p>
-                        <label><input type="checkbox" name="bridge_token_clear" value="1" /> <?php esc_html_e( 'Clear token', 'davix-sub-bridge' ); ?></label>
+                        <?php if ( $has_external_token ) : ?>
+                            <p class="description"><?php esc_html_e( 'Bridge token managed via wp-config.php or environment variable (DSB_BRIDGE_TOKEN).', 'davix-sub-bridge' ); ?></p>
+                        <?php elseif ( $settings_locked ) : ?>
+                            <input type="password" class="regular-text" value="" autocomplete="off" disabled />
+                            <p class="description"><?php esc_html_e( 'Bridge token locked in production. Set DSB_BRIDGE_TOKEN in wp-config.php or environment variables.', 'davix-sub-bridge' ); ?></p>
+                        <?php else : ?>
+                            <input type="password" name="bridge_token" class="regular-text" value="" autocomplete="off" />
+                            <p class="description"><?php printf( '%s %s', esc_html__( 'Stored securely, masked in UI.', 'davix-sub-bridge' ), esc_html( $this->client->masked_token() ) ); ?></p>
+                            <p class="description"><?php esc_html_e( 'Leave blank to keep existing token.', 'davix-sub-bridge' ); ?></p>
+                            <label><input type="checkbox" name="bridge_token_clear" value="1" /> <?php esc_html_e( 'Clear token', 'davix-sub-bridge' ); ?></label>
+                        <?php endif; ?>
                     </td>
                 </tr>
                 <tr>
@@ -2115,9 +2130,15 @@ class DSB_Admin {
         $levels   = [ 'debug', 'info', 'warn', 'error' ];
         $tail     = dsb_get_log_tail( 200 );
         $log_path = dsb_get_latest_log_file();
+        $log_dir  = dsb_get_log_dir();
+        $log_is_public = function_exists( __NAMESPACE__ . '\\dsb_is_log_path_public' ) ? dsb_is_log_path_public( $log_dir ) : false;
+        $log_blocked = function_exists( __NAMESPACE__ . '\\dsb_is_production_env' ) ? ( dsb_is_production_env() && $log_is_public ) : false;
         ?>
         <h2><?php esc_html_e( 'Debug Logging', 'davix-sub-bridge' ); ?></h2>
         <p class="description"><?php esc_html_e( 'Writes structured debug entries to a protected davix-bridge-logs folder (wp-content by default, uploads fallback). Avoid storing secrets; sensitive tokens are masked automatically.', 'davix-sub-bridge' ); ?></p>
+        <?php if ( $log_blocked ) : ?>
+            <div class="notice notice-error"><p><?php esc_html_e( 'Debug logging is blocked because the log directory is publicly accessible. Move logs outside the web root to enable.', 'davix-sub-bridge' ); ?></p></div>
+        <?php endif; ?>
         <form method="post">
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
             <table class="form-table" role="presentation">
@@ -2125,7 +2146,7 @@ class DSB_Admin {
                     <th scope="row"><?php esc_html_e( 'Enable debug logging', 'davix-sub-bridge' ); ?></th>
                     <td>
                         <input type="hidden" name="debug_enabled" value="0" />
-                        <label><input type="checkbox" name="debug_enabled" value="1" <?php checked( $settings['debug_enabled'], 1 ); ?> /> <?php esc_html_e( 'Turn on file-based debug logging', 'davix-sub-bridge' ); ?></label>
+                        <label><input type="checkbox" name="debug_enabled" value="1" <?php checked( $settings['debug_enabled'], 1 ); ?> <?php disabled( $log_blocked ); ?> /> <?php esc_html_e( 'Turn on file-based debug logging', 'davix-sub-bridge' ); ?></label>
                     </td>
                 </tr>
                 <tr>
