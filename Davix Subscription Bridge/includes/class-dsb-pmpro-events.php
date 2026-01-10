@@ -87,58 +87,46 @@ class DSB_PMPro_Events {
             $end_ts     = isset( $membership['end_ts'] ) ? (int) $membership['end_ts'] : 0;
             $prev_level = isset( $membership['level_id'] ) ? absint( $membership['level_id'] ) : 0;
             $is_lifetime = $end_ts <= 0;
-            $has_remaining = $is_lifetime || $end_ts > $now_ts;
-
-            if ( $has_remaining && $prev_level > 0 ) {
-                $plan_slug = self::$client->plan_slug_for_level( $prev_level );
-                $payload   = [
-                    'event'               => 'cancelled',
-                    'wp_user_id'          => $user_id,
-                    'customer_email'      => self::user_email( $user_id ),
-                    'customer_name'       => self::user_name( $user_id ),
-                    'subscription_id'     => self::subscription_id( $user_id, $prev_level ),
-                    'product_id'          => $prev_level,
-                    'plan_slug'           => $plan_slug,
-                    'subscription_status' => 'cancelled',
-                    'pmpro_is_lifetime'   => $is_lifetime,
-                ];
-
-                update_user_meta( $user_id, 'dsb_cancelled_valid_until', $end_ts );
-                update_user_meta( $user_id, 'dsb_cancelled_plan_slug', $plan_slug );
-                update_user_meta( $user_id, 'dsb_cancelled_subscription_id', $payload['subscription_id'] );
-
-                if ( ! empty( $membership['startdate'] ) ) {
-                    $payload['valid_from'] = DSB_Util::to_iso_utc( $membership['startdate'] );
-                }
-
-                if ( ! $is_lifetime && $end_ts > 0 ) {
-                    $payload['valid_until'] = gmdate( 'c', $end_ts );
-                }
-
-                dsb_log( 'debug', 'PMPro cancellation with remaining time', [
-                    'user_id'     => $user_id,
-                    'level_id'    => $prev_level,
-                    'end_ts'      => $end_ts,
-                    'plan_slug'   => $plan_slug,
-                    'valid_until' => $payload['valid_until'] ?? null,
-                ] );
-
-                $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-                self::dispatch_provision_payload( $payload, 'pmpro_change_membership_level_cancelled' );
-                return;
-            }
-
-            self::clear_cancelled_snapshot( $user_id );
+            $plan_slug = $prev_level > 0 ? self::$client->plan_slug_for_level( $prev_level ) : '';
+            $subscription_id = self::subscription_id( $user_id, $prev_level );
 
             $payload = [
-                'event'               => 'expired',
+                'event'               => 'cancelled',
                 'wp_user_id'          => $user_id,
                 'customer_email'      => self::user_email( $user_id ),
-                'subscription_id'     => self::subscription_id( $user_id, 0 ),
-                'subscription_status' => 'expired',
+                'customer_name'       => self::user_name( $user_id ),
+                'subscription_id'     => $subscription_id,
+                'product_id'          => $prev_level ?: null,
+                'plan_slug'           => $plan_slug,
+                'subscription_status' => 'cancelled',
+                'pmpro_is_lifetime'   => $is_lifetime,
             ];
+
+            update_user_meta( $user_id, 'dsb_cancelled_valid_until', $end_ts > 0 ? $end_ts : 0 );
+            if ( $plan_slug ) {
+                update_user_meta( $user_id, 'dsb_cancelled_plan_slug', $plan_slug );
+            }
+            update_user_meta( $user_id, 'dsb_cancelled_subscription_id', $subscription_id );
+
+            if ( ! empty( $membership['startdate'] ) ) {
+                $payload['valid_from'] = DSB_Util::to_iso_utc( $membership['startdate'] );
+            }
+
+            if ( $end_ts > 0 ) {
+                $payload['valid_until'] = gmdate( 'c', $end_ts );
+            }
+
+            dsb_log( 'debug', 'PMPro cancellation on membership removal', [
+                'user_id'     => $user_id,
+                'level_id'    => $prev_level,
+                'end_ts'      => $end_ts,
+                'plan_slug'   => $plan_slug,
+                'valid_until' => $payload['valid_until'] ?? null,
+                'now_ts'      => $now_ts,
+            ] );
+
             $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
-            self::dispatch_provision_payload( $payload, 'pmpro_change_membership_level_expired' );
+            self::dispatch_provision_payload( $payload, 'pmpro_change_membership_level_cancelled' );
             return;
         }
 
@@ -472,18 +460,10 @@ class DSB_PMPro_Events {
         }
 
         $cancel_ts = (int) get_user_meta( $user_id, 'dsb_cancelled_valid_until', true );
-        if ( $cancel_ts <= time() ) {
-            return new \WP_Error( 'no_entitlement', 'No cancelled entitlement.' );
-        }
-
         $plan_slug = (string) get_user_meta( $user_id, 'dsb_cancelled_plan_slug', true );
-        if ( ! $plan_slug ) {
-            return new \WP_Error( 'missing_plan_slug', 'Missing plan slug.' );
-        }
-
         $subscription_id = (string) get_user_meta( $user_id, 'dsb_cancelled_subscription_id', true );
         if ( ! $subscription_id ) {
-            $subscription_id = self::subscription_id( $user_id, 0 );
+            return new \WP_Error( 'missing_subscription_id', 'Missing subscription id.' );
         }
 
         $payload = [
@@ -492,11 +472,17 @@ class DSB_PMPro_Events {
             'customer_email'      => self::user_email( $user_id ),
             'customer_name'       => self::user_name( $user_id ),
             'subscription_id'     => $subscription_id,
-            'plan_slug'           => $plan_slug,
             'subscription_status' => 'cancelled',
-            'pmpro_is_lifetime'   => false,
-            'valid_until'         => gmdate( 'c', $cancel_ts ),
+            'pmpro_is_lifetime'   => $cancel_ts <= 0,
         ];
+
+        if ( $plan_slug ) {
+            $payload['plan_slug'] = $plan_slug;
+        }
+
+        if ( $cancel_ts > 0 ) {
+            $payload['valid_until'] = gmdate( 'c', $cancel_ts );
+        }
 
         $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
 

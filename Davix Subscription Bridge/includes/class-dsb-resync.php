@@ -136,11 +136,13 @@ class DSB_Resync {
         }
 
         $cancel_ts = (int) get_user_meta( $user_id, 'dsb_cancelled_valid_until', true );
-        if ( $cancel_ts > time() ) {
-            dsb_log( 'info', 'Resync skipped: cancelled subscription still valid', [
-                'user_id'    => $user_id,
-                'level_id'   => $level_id,
-                'cancel_ts'  => $cancel_ts,
+        $cancel_subscription_id = (string) get_user_meta( $user_id, 'dsb_cancelled_subscription_id', true );
+        if ( $cancel_ts > time() || $cancel_subscription_id ) {
+            dsb_log( 'info', 'Resync skipped: cancelled subscription snapshot present', [
+                'user_id'                 => $user_id,
+                'level_id'                => $level_id,
+                'cancel_ts'               => $cancel_ts,
+                'cancel_subscription_id'  => $cancel_subscription_id,
             ] );
             return true;
         }

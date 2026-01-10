@@ -435,8 +435,9 @@ class DSB_Dashboard_Ajax {
                 return $this->self_heal_error_result( $result, $no_entitlement_message );
             }
         } else {
-            $cancel_ts = (int) get_user_meta( $user_id, 'dsb_cancelled_valid_until', true );
-            if ( $cancel_ts > time() ) {
+            $plan_slug = (string) get_user_meta( $user_id, 'dsb_cancelled_plan_slug', true );
+            $subscription_id = (string) get_user_meta( $user_id, 'dsb_cancelled_subscription_id', true );
+            if ( $plan_slug || $subscription_id ) {
                 $payload = DSB_PMPro_Events::build_cancelled_payload_for_user( $user_id );
                 if ( is_wp_error( $payload ) ) {
                     dsb_log( 'warning', 'Self-heal skipped: unable to build cancelled payload', [ 'user_id' => $user_id ] );
