@@ -142,6 +142,21 @@ class DSB_Purge_Worker {
         $payload = [ 'reason' => sanitize_key( $job['reason'] ?? 'manual' ) ];
 
         if ( ! $api_key_id ) {
+            $api_key_id = $this->db->find_api_key_id_for_identity(
+                [
+                    'wp_user_id'       => $wp_user_id,
+                    'customer_email'   => $emails[0] ?? null,
+                    'subscription_id'  => $subs[0] ?? null,
+                    'emails'           => $emails,
+                    'subscription_ids' => $subs,
+                ]
+            );
+            if ( $api_key_id ) {
+                $this->db->update_purge_job_api_key_id( $job_id, $api_key_id );
+            }
+        }
+
+        if ( ! $api_key_id ) {
             $error = 'missing_api_key_id';
             $this->db->mark_job_error( $job, $error, self::MAX_ATTEMPTS );
             dsb_log( 'error', 'Purge job missing api_key_id; refusing to call PixLab', [ 'job_id' => $job_id ] );

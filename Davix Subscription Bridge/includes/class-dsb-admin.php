@@ -2433,6 +2433,10 @@ class DSB_Admin {
             $warnings[] = __( 'WP-Cron is disabled (DISABLE_WP_CRON). Ensure a real cron job is hitting wp-cron.php.', 'davix-sub-bridge' );
         }
 
+        if ( dsb_is_production_env() && ! DSB_Cron_Logger::is_logging_allowed() ) {
+            $warnings[] = __( 'Cron debug logging is disabled because the log directory is public. Configure a non-public log path to enable it.', 'davix-sub-bridge' );
+        }
+
         $overdue_jobs = [];
         $overdue_check = function ( string $job, array $status, int $interval_seconds, bool $enabled ) use ( $now_ts, &$overdue_jobs ): void {
             if ( ! $enabled ) {

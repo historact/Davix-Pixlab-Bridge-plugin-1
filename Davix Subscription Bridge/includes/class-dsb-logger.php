@@ -36,7 +36,7 @@ function dsb_is_log_path_public( string $path ): bool {
         return true;
     }
 
-    $resolved = realpath( $path );
+    $resolved   = realpath( $path );
     $normalized = wp_normalize_path( $resolved ? $resolved : $path );
     $normalized = trailingslashit( $normalized );
 
@@ -44,6 +44,10 @@ function dsb_is_log_path_public( string $path ): bool {
         ABSPATH,
         WP_CONTENT_DIR,
     ];
+
+    if ( isset( $_SERVER['DOCUMENT_ROOT'] ) && $_SERVER['DOCUMENT_ROOT'] ) {
+        $roots[] = (string) $_SERVER['DOCUMENT_ROOT'];
+    }
 
     $uploads = wp_upload_dir();
     if ( ! empty( $uploads['basedir'] ) ) {
@@ -54,7 +58,7 @@ function dsb_is_log_path_public( string $path ): bool {
         if ( ! $root ) {
             continue;
         }
-        $root_resolved = realpath( $root );
+        $root_resolved   = realpath( $root );
         $root_normalized = wp_normalize_path( $root_resolved ? $root_resolved : $root );
         $root_normalized = trailingslashit( $root_normalized );
         if ( 0 === strpos( $normalized, $root_normalized ) ) {

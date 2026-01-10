@@ -7,12 +7,32 @@ class DSB_Cron_Logger {
     const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2MB
 
     public static function get_dir(): string {
-        $uploads = wp_upload_dir();
-        return trailingslashit( $uploads['basedir'] ) . 'davix-bridge-cron-logs/';
+        $base = dsb_get_log_dir();
+        return trailingslashit( $base ) . 'cron/';
+    }
+
+    public static function is_logging_allowed(): bool {
+        $dir = self::get_dir();
+        if ( dsb_is_production_env() && dsb_is_log_path_public( $dir ) ) {
+            return false;
+        }
+
+        return true;
     }
 
     public static function ensure_dir(): bool {
+        if ( ! self::is_logging_allowed() ) {
+            return false;
+        }
+
+        if ( ! dsb_ensure_log_dir() ) {
+            return false;
+        }
+
         $dir = self::get_dir();
+        if ( dsb_is_production_env() && dsb_is_log_path_public( $dir ) ) {
+            return false;
+        }
         if ( ! wp_mkdir_p( $dir ) ) {
             return false;
         }
@@ -52,6 +72,10 @@ class DSB_Cron_Logger {
     public static function log( string $job, string $message, array $context = [] ): void {
         $settings = get_option( DSB_Client::OPTION_SETTINGS, [] );
         if ( empty( $settings[ 'enable_cron_debug_' . $job ] ) ) {
+            return;
+        }
+
+        if ( ! self::is_logging_allowed() ) {
             return;
         }
 
