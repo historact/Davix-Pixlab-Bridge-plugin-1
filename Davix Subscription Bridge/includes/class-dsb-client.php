@@ -1555,6 +1555,13 @@ class DSB_Client {
         return $this->post_internal( '/internal/user/summary', $payload );
     }
 
+    public function lookup_api_key_id_for_identity( array $payload ): array {
+        $response = $this->post_internal( '/internal/user/lookup-key-id', $payload );
+        $decoded  = $response['decoded'] ?? null;
+        $response['api_key_id'] = $this->extract_node_api_key_id_from_response( $decoded );
+        return $response;
+    }
+
     public function rotate_user_key( array $payload ): array {
         return $this->post_internal( '/internal/user/key/rotate', $payload );
     }
