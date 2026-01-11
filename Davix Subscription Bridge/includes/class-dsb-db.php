@@ -410,7 +410,7 @@ class DSB_DB {
                     locked_until = DATE_ADD( UTC_TIMESTAMP(), INTERVAL %d SECOND ),
                     started_at = IFNULL( started_at, UTC_TIMESTAMP() ),
                     attempts = attempts + 1
-                WHERE status = %s
+                WHERE status IN (%s, %s)
                     AND ( next_run_at IS NULL OR next_run_at <= UTC_TIMESTAMP() )
                     AND ( locked_until IS NULL OR locked_until < UTC_TIMESTAMP() )
                 ORDER BY id ASC
@@ -419,6 +419,7 @@ class DSB_DB {
                 $claim_token,
                 $lease_seconds,
                 'pending',
+                'missing_api_key_id',
                 $limit
             )
         );
@@ -749,6 +750,53 @@ class DSB_DB {
         }
 
         return 0;
+    }
+
+    public function set_node_api_key_id_for_identity( int $api_key_id, array $identity ): array {
+        $api_key_id = absint( $api_key_id );
+        if ( ! $api_key_id ) {
+            return [ 'keys' => 0, 'user' => 0 ];
+        }
+
+        $wp_user_id     = isset( $identity['wp_user_id'] ) ? absint( $identity['wp_user_id'] ) : 0;
+        $customer_email = isset( $identity['customer_email'] ) ? sanitize_email( $identity['customer_email'] ) : '';
+        $subscription_id = isset( $identity['subscription_id'] ) ? sanitize_text_field( $identity['subscription_id'] ) : '';
+
+        $identity_parts = [];
+        $params         = [ $api_key_id ];
+
+        if ( $wp_user_id ) {
+            $identity_parts[] = 'wp_user_id = %d';
+            $params[]         = $wp_user_id;
+        }
+
+        if ( $customer_email ) {
+            $identity_parts[] = 'customer_email = %s';
+            $params[]         = $customer_email;
+        }
+
+        if ( $subscription_id ) {
+            $identity_parts[] = 'subscription_id = %s';
+            $params[]         = $subscription_id;
+        }
+
+        if ( ! $identity_parts ) {
+            return [ 'keys' => 0, 'user' => 0 ];
+        }
+
+        $identity_sql = implode( ' OR ', $identity_parts );
+        $where_sql    = "({$identity_sql}) AND (node_api_key_id IS NULL OR node_api_key_id = 0 OR node_api_key_id <> %d)";
+        $params[]     = $api_key_id;
+
+        $keys_sql = "UPDATE {$this->table_keys} SET node_api_key_id = %d WHERE {$where_sql}";
+        $this->wpdb->query( $this->wpdb->prepare( $keys_sql, ...$params ) );
+        $keys_updated = (int) $this->wpdb->rows_affected;
+
+        $user_sql = "UPDATE {$this->table_user} SET node_api_key_id = %d WHERE {$where_sql}";
+        $this->wpdb->query( $this->wpdb->prepare( $user_sql, ...$params ) );
+        $user_updated = (int) $this->wpdb->rows_affected;
+
+        return [ 'keys' => $keys_updated, 'user' => $user_updated ];
     }
 
     public function delete_user_rows_local( int $wp_user_id, array $emails = [], array $subscription_ids = [] ): void {

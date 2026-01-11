@@ -157,6 +157,62 @@ class DSB_Purge_Worker {
         }
 
         if ( ! $api_key_id ) {
+            $lookup_payload = [
+                'wp_user_id'      => $wp_user_id ?: null,
+                'customer_email'  => $emails[0] ?? null,
+                'subscription_id' => $subs[0] ?? null,
+                'reason'          => sanitize_key( $job['reason'] ?? 'purge' ),
+                'source'          => 'purge_worker',
+            ];
+            $lookup_payload = array_filter(
+                $lookup_payload,
+                static function ( $value ) {
+                    return null !== $value && '' !== $value;
+                }
+            );
+
+            $lookup_result = $this->client->lookup_api_key_id_for_identity( $lookup_payload );
+            $lookup_api_key_id = absint( $lookup_result['api_key_id'] ?? 0 );
+            if ( $lookup_api_key_id ) {
+                $api_key_id = $lookup_api_key_id;
+                $this->db->update_purge_job_api_key_id( $job_id, $api_key_id );
+                $this->db->set_node_api_key_id_for_identity(
+                    $api_key_id,
+                    [
+                        'wp_user_id'      => $wp_user_id,
+                        'customer_email'  => $emails[0] ?? null,
+                        'subscription_id' => $subs[0] ?? null,
+                    ]
+                );
+                dsb_log(
+                    'info',
+                    'Recovered api_key_id via lookup',
+                    [
+                        'job_id'     => $job_id,
+                        'api_key_id' => $api_key_id,
+                        'wp_user_id' => $wp_user_id ?: null,
+                    ]
+                );
+            } else {
+                $log_email = $emails[0] ?? null;
+                if ( $log_email && function_exists( 'dsb_mask_string' ) ) {
+                    $log_email = dsb_mask_string( $log_email );
+                }
+                dsb_log(
+                    'warning',
+                    'Lookup failed to resolve api_key_id for purge job',
+                    [
+                        'job_id'          => $job_id,
+                        'wp_user_id'      => $wp_user_id ?: null,
+                        'customer_email'  => $log_email,
+                        'subscription_id' => $subs[0] ?? null,
+                        'reason'          => $job['reason'] ?? '',
+                    ]
+                );
+            }
+        }
+
+        if ( ! $api_key_id ) {
             $error = 'Cannot purge because node_api_key_id is missing; provisioning response did not return api_key_id; run node poll or fix PixLab response.';
             $this->db->mark_job_error( $job, $error, self::MAX_ATTEMPTS );
             $this->db->log_event(
