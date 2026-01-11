@@ -169,7 +169,18 @@ class DSB_Purge_Worker {
                     'error_excerpt'   => $error,
                 ]
             );
-            dsb_log( 'error', $error, [ 'job_id' => $job_id ] );
+            dsb_log(
+                'error',
+                'Purge job blocked; local mirrors retained due to missing api_key_id.',
+                [
+                    'job_id'          => $job_id,
+                    'wp_user_id'      => $wp_user_id ?: null,
+                    'customer_email'  => $emails[0] ?? null,
+                    'subscription_id' => $subs[0] ?? null,
+                    'reason'          => $job['reason'] ?? '',
+                    'error'           => $error,
+                ]
+            );
             return;
         }
 
@@ -210,7 +221,20 @@ class DSB_Purge_Worker {
             dsb_log( 'info', 'Purge job completed', [ 'job_id' => $job_id, 'code' => $code, 'wp_user_id' => $wp_user_id ?: null ] );
         } else {
             $this->db->mark_job_error( $job, $error, self::MAX_ATTEMPTS );
-            dsb_log( 'error', 'Purge job failed', [ 'job_id' => $job_id, 'code' => $code, 'error' => $error, 'attempt' => $attempt ] );
+            dsb_log(
+                'error',
+                'Purge job failed; local mirrors retained for retry.',
+                [
+                    'job_id'          => $job_id,
+                    'code'            => $code,
+                    'error'           => $error,
+                    'attempt'         => $attempt,
+                    'wp_user_id'      => $wp_user_id ?: null,
+                    'customer_email'  => $emails[0] ?? null,
+                    'subscription_id' => $subs[0] ?? null,
+                    'reason'          => $job['reason'] ?? '',
+                ]
+            );
         }
     }
 
