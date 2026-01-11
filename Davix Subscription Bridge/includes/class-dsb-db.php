@@ -236,20 +236,29 @@ class DSB_DB {
         ];
         $errors = [];
 
-        $existing_keys = $this->wpdb->get_var(
+        $existing_keys_statement = $this->wpdb->get_var(
             $this->wpdb->prepare(
-                'SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s',
+                'SELECT ACTION_STATEMENT FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s',
                 $db_name,
                 $trigger_keys
             )
         );
+        $existing_keys = $existing_keys_statement ? true : false;
+        $keys_needs_update = $existing_keys_statement
+            && ( false === stripos( $existing_keys_statement, 'api_key_id' ) || false === stripos( $existing_keys_statement, 'node_api_key_id' ) );
+        if ( $keys_needs_update ) {
+            $this->wpdb->query( "DROP TRIGGER IF EXISTS {$trigger_keys}" );
+            $existing_keys = false;
+        }
 
         if ( $existing_keys ) {
             $status['keys'] = 'ok';
         } else {
             $sql = "CREATE TRIGGER {$trigger_keys} AFTER DELETE ON {$this->table_keys} FOR EACH ROW "
-                . "INSERT INTO {$this->table_purge_queue} (wp_user_id, customer_email, subscription_id, reason, status) "
-                . "VALUES (OLD.wp_user_id, OLD.customer_email, OLD.subscription_id, 'manual_key_delete', 'pending')";
+                . "INSERT INTO {$this->table_purge_queue} (wp_user_id, customer_email, subscription_id, api_key_id, reason, status) "
+                . "VALUES (OLD.wp_user_id, OLD.customer_email, OLD.subscription_id, OLD.node_api_key_id, "
+                . "IF(OLD.node_api_key_id IS NULL, 'manual_key_delete_missing_api_key_id', 'manual_key_delete'), "
+                . "IF(OLD.node_api_key_id IS NULL, 'missing_api_key_id', 'pending'))";
             $this->wpdb->query( $sql );
             if ( $this->wpdb->last_error ) {
                 $status['keys']   = 'failed';
@@ -261,20 +270,29 @@ class DSB_DB {
             }
         }
 
-        $existing_user = $this->wpdb->get_var(
+        $existing_user_statement = $this->wpdb->get_var(
             $this->wpdb->prepare(
-                'SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s',
+                'SELECT ACTION_STATEMENT FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s',
                 $db_name,
                 $trigger_user
             )
         );
+        $existing_user = $existing_user_statement ? true : false;
+        $user_needs_update = $existing_user_statement
+            && ( false === stripos( $existing_user_statement, 'api_key_id' ) || false === stripos( $existing_user_statement, 'node_api_key_id' ) );
+        if ( $user_needs_update ) {
+            $this->wpdb->query( "DROP TRIGGER IF EXISTS {$trigger_user}" );
+            $existing_user = false;
+        }
 
         if ( $existing_user ) {
             $status['user'] = 'ok';
         } else {
             $sql = "CREATE TRIGGER {$trigger_user} AFTER DELETE ON {$this->table_user} FOR EACH ROW "
-                . "INSERT INTO {$this->table_purge_queue} (wp_user_id, customer_email, subscription_id, reason, status) "
-                . "VALUES (OLD.wp_user_id, OLD.customer_email, OLD.subscription_id, 'manual_user_delete', 'pending')";
+                . "INSERT INTO {$this->table_purge_queue} (wp_user_id, customer_email, subscription_id, api_key_id, reason, status) "
+                . "VALUES (OLD.wp_user_id, OLD.customer_email, OLD.subscription_id, OLD.node_api_key_id, "
+                . "IF(OLD.node_api_key_id IS NULL, 'manual_user_delete_missing_api_key_id', 'manual_user_delete'), "
+                . "IF(OLD.node_api_key_id IS NULL, 'missing_api_key_id', 'pending'))";
             $this->wpdb->query( $sql );
             if ( $this->wpdb->last_error ) {
                 $status['user']  = 'failed';

@@ -56,12 +56,7 @@ class DSB_User_Purger {
         if ( ! $user_id || ! self::$db ) {
             return;
         }
-
-        $identities       = self::$db->get_identities_for_wp_user_id( $user_id );
-        $emails           = $identities['emails'] ?? [];
-        $subscription_ids = $identities['subscription_ids'] ?? [];
-
-        self::$db->delete_user_rows_local( $user_id, $emails, $subscription_ids );
+        return;
     }
 }
 
