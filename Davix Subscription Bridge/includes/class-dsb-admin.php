@@ -1386,10 +1386,10 @@ class DSB_Admin {
                     </td>
                 </tr>
                 <tr>
-                    <th scope="row"><?php esc_html_e( 'Delete data on uninstall', 'davix-sub-bridge' ); ?></th>
+                    <th scope="row"><?php esc_html_e( 'Free Level ID', 'davix-sub-bridge' ); ?></th>
                     <td>
-                        <input type="hidden" name="delete_data" value="0" />
-                        <label><input type="checkbox" name="delete_data" value="1" <?php checked( $settings['delete_data'], 1 ); ?> /> <?php esc_html_e( 'Drop plugin tables/options on uninstall', 'davix-sub-bridge' ); ?></label>
+                        <input type="number" name="free_level_id" class="regular-text" value="<?php echo esc_attr( $settings['free_level_id'] ); ?>" placeholder="<?php esc_attr_e( 'e.g. 1', 'davix-sub-bridge' ); ?>" />
+                        <p class="description"><?php esc_html_e( 'PMPro level ID to assign automatically on user signup. Leave blank to use the first level marked as Free.', 'davix-sub-bridge' ); ?></p>
                     </td>
                 </tr>
                 <tr>
@@ -1405,22 +1405,26 @@ class DSB_Admin {
 
                             <div class="dsb-settings-access__roles<?php echo $settings_access_enabled ? '' : ' is-hidden'; ?>">
                                 <label class="dsb-settings-access__label" for="dsb-settings-access-role-select"><?php esc_html_e( 'Allowed roles', 'davix-sub-bridge' ); ?></label>
-                                <select id="dsb-settings-access-role-select" class="dsb-settings-access-select">
-                                    <option value=""><?php esc_html_e( 'Select a role', 'davix-sub-bridge' ); ?></option>
-                                    <?php foreach ( $role_labels as $role_key => $role_label ) : ?>
-                                        <option value="<?php echo esc_attr( $role_key ); ?>"><?php echo esc_html( $role_label ); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                                <p class="description"><?php esc_html_e( 'Optional role restrictions for the settings page. Leave empty to fall back to manage_options when restrictions are enabled.', 'davix-sub-bridge' ); ?></p>
-                                <div class="dsb-settings-access-chips" aria-live="polite">
-                                    <?php foreach ( $allowed_roles as $role_key ) : ?>
-                                        <?php $role_label = $role_labels[ $role_key ] ?? $role_key; ?>
-                                        <span class="dsb-settings-access-chip" data-role="<?php echo esc_attr( $role_key ); ?>">
-                                            <span class="dsb-settings-access-chip__label"><?php echo esc_html( $role_label ); ?></span>
-                                            <button type="button" class="dsb-settings-access-chip__remove" data-role-remove="<?php echo esc_attr( $role_key ); ?>" aria-label="<?php echo esc_attr( sprintf( __( 'Remove %s', 'davix-sub-bridge' ), $role_label ) ); ?>">×</button>
-                                        </span>
-                                    <?php endforeach; ?>
+                                <div class="dsb-settings-access__picker">
+                                    <div class="dsb-settings-access-chips" aria-live="polite">
+                                        <?php foreach ( $allowed_roles as $role_key ) : ?>
+                                            <?php $role_label = $role_labels[ $role_key ] ?? $role_key; ?>
+                                            <span class="dsb-settings-access-chip" data-role="<?php echo esc_attr( $role_key ); ?>">
+                                                <span class="dsb-settings-access-chip__label"><?php echo esc_html( $role_label ); ?></span>
+                                                <button type="button" class="dsb-settings-access-chip__remove" data-role-remove="<?php echo esc_attr( $role_key ); ?>" aria-label="<?php echo esc_attr( sprintf( __( 'Remove %s', 'davix-sub-bridge' ), $role_label ) ); ?>">×</button>
+                                            </span>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <div class="dsb-settings-access-select-wrap">
+                                        <select id="dsb-settings-access-role-select" class="dsb-settings-access-select">
+                                            <option value=""><?php esc_html_e( 'Select a role', 'davix-sub-bridge' ); ?></option>
+                                            <?php foreach ( $role_labels as $role_key => $role_label ) : ?>
+                                                <option value="<?php echo esc_attr( $role_key ); ?>"><?php echo esc_html( $role_label ); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
                                 </div>
+                                <p class="description"><?php esc_html_e( 'Optional role restrictions for the settings page. Leave empty to fall back to manage_options when restrictions are enabled.', 'davix-sub-bridge' ); ?></p>
                                 <div class="dsb-settings-access-inputs">
                                     <?php foreach ( $allowed_roles as $role_key ) : ?>
                                         <input type="hidden" name="settings_access[allowed_roles][]" value="<?php echo esc_attr( $role_key ); ?>" />
@@ -1431,10 +1435,10 @@ class DSB_Admin {
                     </td>
                 </tr>
                 <tr>
-                    <th scope="row"><?php esc_html_e( 'Free Level ID', 'davix-sub-bridge' ); ?></th>
+                    <th scope="row"><?php esc_html_e( 'Delete data on uninstall', 'davix-sub-bridge' ); ?></th>
                     <td>
-                        <input type="number" name="free_level_id" class="regular-text" value="<?php echo esc_attr( $settings['free_level_id'] ); ?>" placeholder="<?php esc_attr_e( 'e.g. 1', 'davix-sub-bridge' ); ?>" />
-                        <p class="description"><?php esc_html_e( 'PMPro level ID to assign automatically on user signup. Leave blank to use the first level marked as Free.', 'davix-sub-bridge' ); ?></p>
+                        <input type="hidden" name="delete_data" value="0" />
+                        <label><input type="checkbox" name="delete_data" value="1" <?php checked( $settings['delete_data'], 1 ); ?> /> <?php esc_html_e( 'Drop plugin tables/options on uninstall', 'davix-sub-bridge' ); ?></label>
                     </td>
                 </tr>
             </table>

@@ -111,6 +111,12 @@ body.dsb-modal-open {
     font-weight: 600;
 }
 
+.toplevel_page_davix-bridge .dsb-settings-access__picker {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
 .toplevel_page_davix-bridge .dsb-settings-access-select {
     width: 100%;
     max-width: 320px;
@@ -124,11 +130,40 @@ body.dsb-modal-open {
     box-shadow: 0 0 0 1px #38bdf8;
 }
 
+.toplevel_page_davix-bridge .dsb-settings-access-select option {
+    background: #0b1220;
+    color: #f8fafc;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access .select2-container .select2-selection__rendered {
+    color: #f8fafc;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access .select2-container--default .select2-selection--single {
+    background: #0b1220;
+    border-color: #1e293b;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access .select2-container--default .select2-results__option {
+    background: #0b1220;
+    color: #f8fafc;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access .select2-container--default .select2-results__option--highlighted[aria-selected],
+.toplevel_page_davix-bridge .dsb-settings-access .select2-container--default .select2-results__option[aria-selected="true"] {
+    background: #1e293b;
+    color: #f8fafc;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access .select2-dropdown {
+    background: #0b1220;
+    border-color: #1e293b;
+}
+
 .toplevel_page_davix-bridge .dsb-settings-access-chips {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin-top: 10px;
 }
 
 .toplevel_page_davix-bridge .dsb-settings-access-chip {
