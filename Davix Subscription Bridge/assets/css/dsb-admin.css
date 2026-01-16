@@ -87,3 +87,107 @@ body.dsb-modal-open {
     font-size: 13px;
     color: #555;
 }
+
+.toplevel_page_davix-bridge .dsb-settings-access {
+    max-width: 640px;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access__roles {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 10px;
+    background: #0f172a;
+    border: 1px solid #1e293b;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access__roles.is-hidden {
+    display: none;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access__label {
+    display: block;
+    margin-bottom: 6px;
+    color: #e2e8f0;
+    font-weight: 600;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access__picker {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access-select {
+    width: 100%;
+    max-width: 320px;
+    background: #0b1220;
+    color: #f8fafc;
+    border-color: #1e293b;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access-select:focus {
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 1px #38bdf8;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access-select option {
+    background: #0b1220;
+    color: #f8fafc;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access .select2-container .select2-selection__rendered {
+    color: #f8fafc;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access .select2-container--default .select2-selection--single {
+    background: #0b1220;
+    border-color: #1e293b;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access .select2-container--default .select2-results__option {
+    background: #0b1220;
+    color: #f8fafc;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access .select2-container--default .select2-results__option--highlighted[aria-selected],
+.toplevel_page_davix-bridge .dsb-settings-access .select2-container--default .select2-results__option[aria-selected="true"] {
+    background: #1e293b;
+    color: #f8fafc;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access .select2-dropdown {
+    background: #0b1220;
+    border-color: #1e293b;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    font-size: 13px;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access-chip__remove {
+    border: none;
+    background: transparent;
+    color: #f8fafc;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+}
+
+.toplevel_page_davix-bridge .dsb-settings-access-chip__remove:hover {
+    color: #38bdf8;
+}

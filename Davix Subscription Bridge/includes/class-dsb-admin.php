@@ -16,6 +16,9 @@ class DSB_Admin {
     protected $notices = [];
     protected $synced_product_ids = [];
     protected $diagnostics_result = null;
+    protected $settings_access_safe_mode = null;
+    protected $settings_access_allowed_roles = null;
+    protected $settings_access_notice_added = false;
     protected static function woocommerce_active(): bool {
         return function_exists( 'wc_get_product' ) || function_exists( 'WC' ) || class_exists( '\\WooCommerce' );
     }
@@ -34,6 +37,7 @@ class DSB_Admin {
         add_action( 'admin_menu', [ $this, 'register_menu' ] );
         add_action( 'admin_init', [ $this, 'handle_actions' ] );
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
+        add_filter( 'pre_update_option_' . DSB_Client::OPTION_SETTINGS, [ $this, 'filter_pre_update_settings' ], 10, 2 );
         add_action( 'admin_post_dsb_download_log', [ $this, 'handle_download_log' ] );
         add_action( 'admin_post_dsb_clear_log', [ $this, 'handle_clear_log' ] );
         add_action( 'admin_post_dsb_clear_db_logs', [ $this, 'handle_clear_db_logs' ] );
@@ -48,10 +52,19 @@ class DSB_Admin {
     }
 
     public function register_menu(): void {
+        if ( ! $this->current_user_can_manage_settings() ) {
+            return;
+        }
+
+        $capability = 'manage_options';
+        if ( $this->settings_access_enabled() && ! $this->settings_access_safe_mode() ) {
+            $capability = 'read';
+        }
+
         add_menu_page(
             __( 'Davix Bridge', 'davix-sub-bridge' ),
             __( 'Davix Bridge', 'davix-sub-bridge' ),
-            'manage_options',
+            $capability,
             'davix-bridge',
             [ $this, 'render_page' ],
             'dashicons-admin-links'
@@ -533,8 +546,181 @@ class DSB_Admin {
         ];
     }
 
+    protected function get_settings_access(): array {
+        $settings = $this->client->get_settings();
+        $access   = isset( $settings['settings_access'] ) && is_array( $settings['settings_access'] ) ? $settings['settings_access'] : [];
+        return wp_parse_args(
+            $access,
+            [
+                'enabled'       => 0,
+                'allowed_roles' => [],
+            ]
+        );
+    }
+
+    protected function settings_access_enabled(): bool {
+        $access = $this->get_settings_access();
+        return ! empty( $access['enabled'] );
+    }
+
+    protected function normalize_role_keys( $roles ): array {
+        $roles = is_array( $roles ) ? $roles : [];
+        $role_source = function_exists( 'get_editable_roles' ) ? get_editable_roles() : [];
+        $wp_roles = function_exists( 'wp_roles' ) ? wp_roles() : null;
+        if ( $wp_roles && is_array( $wp_roles->roles ) ) {
+            $role_source = array_merge( $role_source, $wp_roles->roles );
+        }
+
+        $role_source = is_array( $role_source ) ? $role_source : [];
+        $valid_keys  = array_keys( $role_source );
+        $name_map    = [];
+
+        foreach ( $role_source as $role_key => $role_data ) {
+            if ( ! is_array( $role_data ) || empty( $role_data['name'] ) ) {
+                continue;
+            }
+            $name_map[ strtolower( (string) $role_data['name'] ) ] = $role_key;
+        }
+
+        $clean = [];
+        foreach ( $roles as $role ) {
+            if ( ! is_string( $role ) ) {
+                continue;
+            }
+            $role = trim( $role );
+            if ( '' === $role ) {
+                continue;
+            }
+            $key = sanitize_key( $role );
+            if ( in_array( $key, $valid_keys, true ) ) {
+                $clean[ $key ] = true;
+                continue;
+            }
+            $lower = strtolower( $role );
+            if ( isset( $name_map[ $lower ] ) ) {
+                $clean[ $name_map[ $lower ] ] = true;
+            }
+        }
+
+        return array_values( array_keys( $clean ) );
+    }
+
+    protected function get_settings_access_roles(): array {
+        if ( null !== $this->settings_access_allowed_roles ) {
+            return $this->settings_access_allowed_roles;
+        }
+
+        $access = $this->get_settings_access();
+        $roles = $this->normalize_role_keys( $access['allowed_roles'] ?? [] );
+        $this->settings_access_allowed_roles = $roles;
+        return $roles;
+    }
+
+    protected function settings_access_safe_mode(): bool {
+        if ( null !== $this->settings_access_safe_mode ) {
+            return $this->settings_access_safe_mode;
+        }
+
+        if ( ! $this->settings_access_enabled() ) {
+            $this->settings_access_safe_mode = false;
+            return false;
+        }
+
+        $roles = $this->get_settings_access_roles();
+        if ( empty( $roles ) ) {
+            $this->settings_access_safe_mode = true;
+            return true;
+        }
+
+        $has_users = false;
+        foreach ( $roles as $role ) {
+            $query = new \WP_User_Query(
+                [
+                    'role'         => $role,
+                    'number'       => 1,
+                    'fields'       => 'ID',
+                    'count_total'  => false,
+                ]
+            );
+            if ( ! empty( $query->get_results() ) ) {
+                $has_users = true;
+                break;
+            }
+        }
+
+        $this->settings_access_safe_mode = ! $has_users;
+        return $this->settings_access_safe_mode;
+    }
+
+    protected function current_user_can_manage_settings(): bool {
+        if ( ! $this->settings_access_enabled() ) {
+            return current_user_can( 'manage_options' );
+        }
+
+        if ( $this->settings_access_safe_mode() ) {
+            return current_user_can( 'manage_options' );
+        }
+
+        if ( ! is_user_logged_in() ) {
+            return false;
+        }
+
+        $user = wp_get_current_user();
+        $user_roles = array_map( 'sanitize_key', is_array( $user->roles ) ? $user->roles : [] );
+        $allowed_roles = $this->get_settings_access_roles();
+
+        return ! empty( array_intersect( $user_roles, $allowed_roles ) );
+    }
+
+    protected function maybe_add_settings_access_safe_mode_notice(): void {
+        if ( $this->settings_access_notice_added || ! $this->settings_access_enabled() ) {
+            return;
+        }
+
+        if ( ! $this->settings_access_safe_mode() || ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+
+        $this->settings_access_notice_added = true;
+        $this->add_notice(
+            __( 'Settings page access restriction is enabled but misconfigured. Safe Mode restored administrator access because no allowed roles are available.', 'davix-sub-bridge' ),
+            'error'
+        );
+    }
+
+    public function filter_pre_update_settings( $new_value, $old_value ) {
+        if ( $this->current_user_can_manage_settings() ) {
+            return $new_value;
+        }
+
+        $old_access = isset( $old_value['settings_access'] ) && is_array( $old_value['settings_access'] ) ? $old_value['settings_access'] : [];
+        $new_access = isset( $new_value['settings_access'] ) && is_array( $new_value['settings_access'] ) ? $new_value['settings_access'] : [];
+        $old_enabled = ! empty( $old_access['enabled'] );
+        $new_enabled = ! empty( $new_access['enabled'] );
+
+        if ( $old_enabled && ! $new_enabled && current_user_can( 'manage_options' ) ) {
+            return $new_value;
+        }
+
+        if ( is_admin() ) {
+            $this->add_notice(
+                __( 'You are not allowed to update Davix Bridge settings.', 'davix-sub-bridge' ),
+                'error'
+            );
+        }
+
+        return $old_value;
+    }
+
     public function handle_actions(): void {
-        if ( ! current_user_can( 'manage_options' ) ) {
+        $settings_nonce_valid = 'POST' === $_SERVER['REQUEST_METHOD'] && isset( $_POST['dsb_settings_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_settings_nonce'] ) ), 'dsb_save_settings' );
+        $plan_mapping_nonce_valid = 'POST' === $_SERVER['REQUEST_METHOD'] && isset( $_POST['dsb_plans_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_plans_nonce'] ) ), 'dsb_save_plans' );
+        $settings_action = $settings_nonce_valid || $plan_mapping_nonce_valid;
+        if ( $settings_action ) {
+            if ( ! $this->current_user_can_manage_settings() ) {
+                return;
+            }
+        } elseif ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
 
@@ -587,7 +773,7 @@ class DSB_Admin {
             }
         }
 
-        if ( 'POST' === $_SERVER['REQUEST_METHOD'] && isset( $_POST['dsb_settings_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_settings_nonce'] ) ), 'dsb_save_settings' ) ) {
+        if ( $settings_nonce_valid ) {
             if ( 'style' === $tab ) {
                 $style_keys = array_keys( $this->client->get_style_defaults() );
                 $received   = [];
@@ -687,8 +873,6 @@ class DSB_Admin {
         if ( 'settings' === $tab && isset( $_POST['dsb_request_log_diagnostics_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_request_log_diagnostics_nonce'] ) ), 'dsb_request_log_diagnostics' ) ) {
             $this->diagnostics_result = $this->run_request_log_diagnostics();
         }
-
-        $plan_mapping_nonce_valid = isset( $_POST['dsb_plans_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_plans_nonce'] ) ), 'dsb_save_plans' );
 
         if ( 'plan-mapping' === $tab && ( $plan_mapping_nonce_valid || ( isset( $_POST['dsb_settings_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_settings_nonce'] ) ), 'dsb_save_settings' ) ) ) ) {
             $plans = [];
@@ -1104,8 +1288,12 @@ class DSB_Admin {
     }
 
     public function render_page(): void {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            return;
+        if ( ! $this->current_user_can_manage_settings() ) {
+            wp_die(
+                esc_html__( 'You are not allowed to access this page.', 'davix-sub-bridge' ),
+                esc_html__( 'Access denied', 'davix-sub-bridge' ),
+                [ 'response' => 403 ]
+            );
         }
 
         $tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'settings';
@@ -1136,6 +1324,8 @@ class DSB_Admin {
             );
         }
 
+        $this->maybe_add_settings_access_safe_mode_notice();
+
         foreach ( $this->notices as $notice ) {
             printf( '<div class="notice notice-%1$s"><p>%2$s</p></div>', esc_attr( 'error' === $notice['type'] ? 'error' : 'success' ), esc_html( $notice['message'] ) );
         }
@@ -1163,6 +1353,14 @@ class DSB_Admin {
         $settings = $this->client->get_settings();
         $has_external_token = $this->client->has_external_bridge_token();
         $settings_locked = $this->client->is_settings_locked();
+        $settings_access = isset( $settings['settings_access'] ) && is_array( $settings['settings_access'] ) ? $settings['settings_access'] : [];
+        $settings_access_enabled = ! empty( $settings_access['enabled'] );
+        $allowed_roles = $this->normalize_role_keys( $settings_access['allowed_roles'] ?? [] );
+        $editable_roles = function_exists( 'get_editable_roles' ) ? get_editable_roles() : [];
+        $role_labels = [];
+        foreach ( $editable_roles as $role_key => $role_data ) {
+            $role_labels[ $role_key ] = isset( $role_data['name'] ) ? (string) $role_data['name'] : $role_key;
+        }
         ?>
         <form method="post">
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
@@ -1188,17 +1386,59 @@ class DSB_Admin {
                     </td>
                 </tr>
                 <tr>
-                    <th scope="row"><?php esc_html_e( 'Delete data on uninstall', 'davix-sub-bridge' ); ?></th>
-                    <td>
-                        <input type="hidden" name="delete_data" value="0" />
-                        <label><input type="checkbox" name="delete_data" value="1" <?php checked( $settings['delete_data'], 1 ); ?> /> <?php esc_html_e( 'Drop plugin tables/options on uninstall', 'davix-sub-bridge' ); ?></label>
-                    </td>
-                </tr>
-                <tr>
                     <th scope="row"><?php esc_html_e( 'Free Level ID', 'davix-sub-bridge' ); ?></th>
                     <td>
                         <input type="number" name="free_level_id" class="regular-text" value="<?php echo esc_attr( $settings['free_level_id'] ); ?>" placeholder="<?php esc_attr_e( 'e.g. 1', 'davix-sub-bridge' ); ?>" />
                         <p class="description"><?php esc_html_e( 'PMPro level ID to assign automatically on user signup. Leave blank to use the first level marked as Free.', 'davix-sub-bridge' ); ?></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Settings page access', 'davix-sub-bridge' ); ?></th>
+                    <td>
+                        <div class="dsb-settings-access">
+                            <input type="hidden" name="settings_access[enabled]" value="0" />
+                            <label for="dsb-settings-access-enabled">
+                                <input type="checkbox" id="dsb-settings-access-enabled" name="settings_access[enabled]" value="1" <?php checked( $settings_access_enabled ); ?> />
+                                <?php esc_html_e( 'Enable Settings Page Access Restriction', 'davix-sub-bridge' ); ?>
+                            </label>
+                            <p class="description"><?php esc_html_e( 'Controls who can access this settings page in the WordPress admin. It does not affect subscription sync behavior.', 'davix-sub-bridge' ); ?></p>
+
+                            <div class="dsb-settings-access__roles<?php echo $settings_access_enabled ? '' : ' is-hidden'; ?>">
+                                <label class="dsb-settings-access__label" for="dsb-settings-access-role-select"><?php esc_html_e( 'Allowed roles', 'davix-sub-bridge' ); ?></label>
+                                <div class="dsb-settings-access__picker">
+                                    <div class="dsb-settings-access-chips" aria-live="polite">
+                                        <?php foreach ( $allowed_roles as $role_key ) : ?>
+                                            <?php $role_label = $role_labels[ $role_key ] ?? $role_key; ?>
+                                            <span class="dsb-settings-access-chip" data-role="<?php echo esc_attr( $role_key ); ?>">
+                                                <span class="dsb-settings-access-chip__label"><?php echo esc_html( $role_label ); ?></span>
+                                                <button type="button" class="dsb-settings-access-chip__remove" data-role-remove="<?php echo esc_attr( $role_key ); ?>" aria-label="<?php echo esc_attr( sprintf( __( 'Remove %s', 'davix-sub-bridge' ), $role_label ) ); ?>">×</button>
+                                            </span>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <div class="dsb-settings-access-select-wrap">
+                                        <select id="dsb-settings-access-role-select" class="dsb-settings-access-select">
+                                            <option value=""><?php esc_html_e( 'Select a role', 'davix-sub-bridge' ); ?></option>
+                                            <?php foreach ( $role_labels as $role_key => $role_label ) : ?>
+                                                <option value="<?php echo esc_attr( $role_key ); ?>"><?php echo esc_html( $role_label ); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <p class="description"><?php esc_html_e( 'Optional role restrictions for the settings page. Leave empty to fall back to manage_options when restrictions are enabled.', 'davix-sub-bridge' ); ?></p>
+                                <div class="dsb-settings-access-inputs">
+                                    <?php foreach ( $allowed_roles as $role_key ) : ?>
+                                        <input type="hidden" name="settings_access[allowed_roles][]" value="<?php echo esc_attr( $role_key ); ?>" />
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Delete data on uninstall', 'davix-sub-bridge' ); ?></th>
+                    <td>
+                        <input type="hidden" name="delete_data" value="0" />
+                        <label><input type="checkbox" name="delete_data" value="1" <?php checked( $settings['delete_data'], 1 ); ?> /> <?php esc_html_e( 'Drop plugin tables/options on uninstall', 'davix-sub-bridge' ); ?></label>
                     </td>
                 </tr>
             </table>

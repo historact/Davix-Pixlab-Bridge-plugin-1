@@ -61,6 +61,10 @@ class DSB_Client {
                 'enable_cron_debug_provision_worker' => 0,
                 'enable_cron_debug_node_poll'    => 0,
                 'enable_cron_debug_resync'       => 0,
+                'settings_access' => [
+                    'enabled'       => 0,
+                    'allowed_roles' => [],
+                ],
             ],
             $this->get_style_defaults(),
             $this->get_label_defaults()
@@ -566,6 +570,18 @@ class DSB_Client {
             'enable_cron_debug_resync'       => $bool_from_post( $data, 'enable_cron_debug_resync', $existing['enable_cron_debug_resync'] ?? 0 ),
         ];
 
+        $settings_access_data = isset( $data['settings_access'] ) && is_array( $data['settings_access'] ) ? $data['settings_access'] : [];
+        $settings_access_existing = isset( $existing['settings_access'] ) && is_array( $existing['settings_access'] ) ? $existing['settings_access'] : [];
+        $settings_access_enabled_value = $settings_access_data['enabled'] ?? ( $settings_access_existing['enabled'] ?? 0 );
+        $settings_access_enabled_value = is_array( $settings_access_enabled_value ) ? end( $settings_access_enabled_value ) : $settings_access_enabled_value;
+        $settings_access_enabled = (int) ( '1' === (string) $settings_access_enabled_value );
+        $settings_access_roles = $settings_access_data['allowed_roles'] ?? ( $settings_access_existing['allowed_roles'] ?? [] );
+        $settings_access_roles = $this->normalize_role_keys( $settings_access_roles );
+        $clean['settings_access'] = [
+            'enabled'       => $settings_access_enabled,
+            'allowed_roles' => $settings_access_roles,
+        ];
+
         $allowed_levels          = [ 'debug', 'info', 'warn', 'error' ];
         $clean['debug_level']    = in_array( $clean['debug_level'], $allowed_levels, true ) ? $clean['debug_level'] : 'info';
         $clean['debug_retention_days'] = max( 1, (int) $clean['debug_retention_days'] );
@@ -664,6 +680,48 @@ class DSB_Client {
         update_option( self::OPTION_PLAN_PRODUCTS, $plan_products );
         update_option( self::OPTION_LEVEL_PLANS, $level_plans );
         update_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL, $clean['delete_data'] );
+    }
+
+    protected function normalize_role_keys( $roles ): array {
+        $roles = is_array( $roles ) ? $roles : [];
+        $role_source = function_exists( 'get_editable_roles' ) ? get_editable_roles() : [];
+        $wp_roles = function_exists( 'wp_roles' ) ? wp_roles() : null;
+        if ( $wp_roles && is_array( $wp_roles->roles ) ) {
+            $role_source = array_merge( $role_source, $wp_roles->roles );
+        }
+
+        $role_source = is_array( $role_source ) ? $role_source : [];
+        $valid_keys  = array_keys( $role_source );
+        $name_map    = [];
+
+        foreach ( $role_source as $role_key => $role_data ) {
+            if ( ! is_array( $role_data ) || empty( $role_data['name'] ) ) {
+                continue;
+            }
+            $name_map[ strtolower( (string) $role_data['name'] ) ] = $role_key;
+        }
+
+        $clean = [];
+        foreach ( $roles as $role ) {
+            if ( ! is_string( $role ) ) {
+                continue;
+            }
+            $role = trim( $role );
+            if ( '' === $role ) {
+                continue;
+            }
+            $key = sanitize_key( $role );
+            if ( in_array( $key, $valid_keys, true ) ) {
+                $clean[ $key ] = true;
+                continue;
+            }
+            $lower = strtolower( $role );
+            if ( isset( $name_map[ $lower ] ) ) {
+                $clean[ $name_map[ $lower ] ] = true;
+            }
+        }
+
+        return array_values( array_keys( $clean ) );
     }
 
     public function masked_token(): string {
