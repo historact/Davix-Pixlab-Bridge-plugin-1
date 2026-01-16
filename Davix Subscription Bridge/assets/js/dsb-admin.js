@@ -97,11 +97,84 @@
             });
         }
 
+        function initSettingsAccess(){
+            if (!config || config.page !== 'davix-bridge') {
+                return;
+            }
+
+            var $container = $('.dsb-settings-access');
+            if (!$container.length) {
+                return;
+            }
+
+            var $toggle = $('#dsb-settings-access-enabled');
+            var $rolesWrap = $container.find('.dsb-settings-access__roles');
+            var $select = $('#dsb-settings-access-role-select');
+            var $chips = $container.find('.dsb-settings-access-chips');
+            var $inputs = $container.find('.dsb-settings-access-inputs');
+
+            function syncVisibility(){
+                if ($toggle.is(':checked')) {
+                    $rolesWrap.removeClass('is-hidden');
+                } else {
+                    $rolesWrap.addClass('is-hidden');
+                }
+            }
+
+            function hasRole(role){
+                return $inputs.find('input').filter(function(){
+                    return $(this).val() === role;
+                }).length > 0;
+            }
+
+            function addRole(role, label){
+                if (!role || hasRole(role)) {
+                    return;
+                }
+
+                var $chip = $('<span class="dsb-settings-access-chip" />').attr('data-role', role);
+                $('<span class="dsb-settings-access-chip__label" />').text(label).appendTo($chip);
+                $('<button type="button" class="dsb-settings-access-chip__remove" />')
+                    .attr('data-role-remove', role)
+                    .attr('aria-label', 'Remove ' + label)
+                    .text('×')
+                    .appendTo($chip);
+                $chips.append($chip);
+
+                $('<input type="hidden" />')
+                    .attr('name', 'settings_access[allowed_roles][]')
+                    .val(role)
+                    .appendTo($inputs);
+            }
+
+            $toggle.on('change', syncVisibility);
+            syncVisibility();
+
+            $select.on('change', function(){
+                var role = $(this).val();
+                if (!role) {
+                    return;
+                }
+                var label = $(this).find('option:selected').text();
+                addRole(role, label);
+                $(this).val('');
+            });
+
+            $(document).on('click', '.dsb-settings-access-chip__remove', function(){
+                var role = $(this).data('role-remove');
+                $(this).closest('.dsb-settings-access-chip').remove();
+                $inputs.find('input').filter(function(){
+                    return $(this).val() === role;
+                }).remove();
+            });
+        }
+
         $(function(){
             window.DSB_ADMIN_LOADED = true;
             console.log('[DSB] admin JS loaded', location.href);
 
             bindSelects();
+            initSettingsAccess();
 
             var hasPicker = typeof $.fn.wpColorPicker === 'function';
             var colorCount = $('.dsb-color-field').length;
