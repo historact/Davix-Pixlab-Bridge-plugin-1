@@ -4,7 +4,7 @@
 - `dsb_product_plans`: product/variation ID → plan slug mapping.
 - `dsb_plan_products`: list of product IDs selected for plan sync.
 - `dsb_plan_sync`: last plan sync status summary.
-- `dsb_db_version`: schema version string.
+- `pixlab_license_db_version`: schema version string.
 - `dsb_delete_on_uninstall`: boolean flag controlling cleanup.
 - Resync options: `dsb_resync_lock_until`, `dsb_resync_last_run_at`, `dsb_resync_last_result`, `dsb_resync_last_error`.
 - Node poll options: `dsb_node_poll_lock_until`, `dsb_node_poll_last_run_at`, `dsb_node_poll_last_result`, `dsb_node_poll_last_error`, `dsb_node_poll_last_http_code`, `dsb_node_poll_last_url`, `dsb_node_poll_last_body_excerpt`.
