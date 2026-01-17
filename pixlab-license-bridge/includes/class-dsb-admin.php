@@ -2452,6 +2452,9 @@ class DSB_Admin {
         if ( ! $body && ! is_wp_error( $response ) ) {
             $body = wp_remote_retrieve_body( $response );
         }
+        if ( is_string( $body ) && '' !== $body ) {
+            $body = $this->mask_diagnostic_string( $body );
+        }
 
         $this->add_notice( __( 'Diagnostics response loaded. Copy/paste below output for support.', 'pixlab-license-bridge' ) );
 
@@ -2577,6 +2580,28 @@ class DSB_Admin {
         }
 
         return false;
+    }
+
+    protected function mask_diagnostic_string( string $value ): string {
+        if ( function_exists( 'dsb_mask_string' ) ) {
+            $value = dsb_mask_string( $value );
+        }
+
+        return (string) preg_replace_callback(
+            '/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i',
+            static function ( array $matches ): string {
+                $email = sanitize_email( $matches[0] );
+                if ( ! $email ) {
+                    return '';
+                }
+                $parts = explode( '@', $email, 2 );
+                $local = $parts[0] ?? '';
+                $domain = $parts[1] ?? '';
+                $prefix = '' !== $local ? substr( $local, 0, 1 ) : '';
+                return $prefix . '***' . ( $domain ? '@' . $domain : '' );
+            },
+            $value
+        );
     }
 
     public function ajax_search_users(): void {

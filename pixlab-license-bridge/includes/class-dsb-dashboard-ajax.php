@@ -77,7 +77,9 @@ class DSB_Dashboard_Ajax {
     public function __construct( DSB_Client $client, DSB_DB $db ) {
         $this->client = $client;
         $this->db     = $db;
-        $this->diag_enabled = defined( 'DSB_DASH_DIAG' ) ? (bool) DSB_DASH_DIAG : current_user_can( 'manage_options' );
+        $is_admin = current_user_can( 'manage_options' );
+        $diag_flag = defined( 'DSB_DASH_DIAG' ) ? (bool) DSB_DASH_DIAG : true;
+        $this->diag_enabled = $is_admin && $diag_flag;
     }
 
     public function init(): void {
@@ -396,13 +398,26 @@ class DSB_Dashboard_Ajax {
         if ( isset( $result['response'] ) && ! is_wp_error( $result['response'] ) && isset( $result['response']['body'] ) ) {
             $body_excerpt = wp_trim_words( (string) $result['response']['body'], 40, '…' );
         }
+        if ( '' !== $body_excerpt ) {
+            $body_excerpt = $this->mask_debug_string( $body_excerpt );
+        }
+
+        $url = $result['url'] ?? '';
+        if ( '' !== $url ) {
+            $url = $this->mask_debug_string( $url );
+        }
+
+        $error = $message;
+        if ( '' !== $error ) {
+            $error = $this->mask_debug_string( $error );
+        }
 
         return [
-            'url'    => $result['url'] ?? '',
+            'url'    => $url,
             'method' => $result['method'] ?? 'POST',
             'http'   => $result['code'] ?? 0,
             'body'   => $body_excerpt,
-            'error'  => $message,
+            'error'  => $error,
         ];
     }
 
@@ -498,6 +513,20 @@ class DSB_Dashboard_Ajax {
         $domain = $parts[1] ?? '';
         $prefix = '' !== $local ? substr( $local, 0, 1 ) : '';
         return $prefix . '***' . ( $domain ? '@' . $domain : '' );
+    }
+
+    private function mask_debug_string( string $value ): string {
+        if ( function_exists( 'dsb_mask_string' ) ) {
+            $value = dsb_mask_string( $value );
+        }
+
+        return (string) preg_replace_callback(
+            '/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i',
+            function ( array $matches ): string {
+                return $this->mask_email( $matches[0] );
+            },
+            $value
+        );
     }
 
     private function maybe_self_heal_missing_key( array $identity, array $result ): array {
