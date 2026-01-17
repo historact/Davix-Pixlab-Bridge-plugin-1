@@ -1,0 +1,47 @@
+<?php
+/**
+ * Plugin Name: PixLab License Bridge
+ * Plugin URI: https://pixlab.davix.dev
+ * Description: Sync WooCommerce & memberships with PixLab licensing and key provisioning.
+ * Version: 1.1.0
+ * Author: Davix
+ * License: GPL2+
+ * Text Domain: pixlab-license-bridge
+ * Domain Path: /languages
+ * Requires at least: 6.0
+ * Requires PHP: 7.4
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+define( 'DSB_VERSION', '1.1.0' );
+define( 'DSB_PLUGIN_FILE', __FILE__ );
+define( 'DSB_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
+define( 'DSB_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
+defined( 'DSB_ENABLE_WPS_LEGACY' ) || define( 'DSB_ENABLE_WPS_LEGACY', false );
+
+require_once __DIR__ . '/includes/class-dsb-db.php';
+require_once __DIR__ . '/includes/class-dsb-util.php';
+require_once __DIR__ . '/includes/class-dsb-logger.php';
+require_once __DIR__ . '/includes/class-dsb-cron-logger.php';
+require_once __DIR__ . '/includes/class-dsb-cron-alerts.php';
+require_once __DIR__ . '/includes/class-dsb-client.php';
+require_once __DIR__ . '/includes/class-dsb-resync.php';
+require_once __DIR__ . '/includes/class-dsb-purge-worker.php';
+require_once __DIR__ . '/includes/class-dsb-provision-worker.php';
+require_once __DIR__ . '/includes/class-dsb-node-poll.php';
+require_once __DIR__ . '/includes/class-dsb-admin.php';
+require_once __DIR__ . '/includes/class-dsb-events.php';
+require_once __DIR__ . '/includes/class-dsb-keys-table.php';
+require_once __DIR__ . '/includes/class-dsb-dashboard.php';
+require_once __DIR__ . '/includes/class-dsb-dashboard-ajax.php';
+require_once __DIR__ . '/includes/class-dsb-user-purger.php';
+require_once __DIR__ . '/includes/class-dsb-plugin.php';
+
+register_activation_hook( __FILE__, '\\Davix\\SubscriptionBridge\\DSB_Plugin::activate' );
+register_deactivation_hook( __FILE__, '\\Davix\\SubscriptionBridge\\DSB_Plugin::deactivate' );
+register_uninstall_hook( __FILE__, '\\Davix\\SubscriptionBridge\\DSB_Plugin::uninstall' );
+
+add_action( 'plugins_loaded', static function () {
+    \Davix\SubscriptionBridge\DSB_Plugin::instance();
+}, 20 );
