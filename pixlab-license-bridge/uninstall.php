@@ -14,6 +14,7 @@ if ( get_option( \Davix\SubscriptionBridge\DSB_DB::OPTION_DELETE_ON_UNINSTALL ) 
     $db->drop_tables();
     delete_option( \Davix\SubscriptionBridge\DSB_DB::OPTION_DELETE_ON_UNINSTALL );
     delete_option( \Davix\SubscriptionBridge\DSB_DB::OPTION_DB_VERSION );
+    delete_option( 'dsb_db_version' );
     delete_option( \Davix\SubscriptionBridge\DSB_Client::OPTION_SETTINGS );
     delete_option( \Davix\SubscriptionBridge\DSB_Client::OPTION_PRODUCT_PLANS );
     delete_option( \Davix\SubscriptionBridge\DSB_Client::OPTION_PLAN_PRODUCTS );

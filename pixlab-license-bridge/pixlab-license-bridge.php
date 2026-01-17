@@ -3,7 +3,7 @@
  * Plugin Name: PixLab License Bridge
  * Plugin URI: https://pixlab.davix.dev
  * Description: Sync WooCommerce & memberships with PixLab licensing and key provisioning.
- * Version: 1.1.0
+ * Version: 1.0.0
  * Author: Davix
  * License: GPL2+
  * Text Domain: pixlab-license-bridge
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'DSB_VERSION', '1.1.0' );
+define( 'DSB_VERSION', '1.0.0' );
 define( 'DSB_PLUGIN_FILE', __FILE__ );
 define( 'DSB_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DSB_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

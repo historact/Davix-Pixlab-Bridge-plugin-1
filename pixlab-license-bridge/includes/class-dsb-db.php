@@ -5,8 +5,8 @@ defined( 'ABSPATH' ) || exit;
 
 class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
-    const OPTION_DB_VERSION          = 'dsb_db_version';
-    const DB_VERSION                 = '1.8.1';
+    const OPTION_DB_VERSION          = 'pixlab_license_db_version';
+    const DB_VERSION                 = '1.0.0';
     const OPTION_TRIGGERS_STATUS     = 'dsb_triggers_status';
 
     /** @var \wpdb */
@@ -36,119 +36,11 @@ class DSB_DB {
 
         $charset_collate = $this->wpdb->get_charset_collate();
 
-        $sql_logs = "CREATE TABLE {$this->table_logs} (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            event varchar(80) NOT NULL,
-            customer_email varchar(190) DEFAULT NULL,
-            plan_slug varchar(190) DEFAULT NULL,
-            subscription_id varchar(190) DEFAULT NULL,
-            order_id varchar(190) DEFAULT NULL,
-            response_action varchar(80) DEFAULT NULL,
-            http_code smallint DEFAULT NULL,
-            error_excerpt text DEFAULT NULL,
-            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY  (id),
-            KEY subscription_id (subscription_id)
-        ) $charset_collate;";
-
-        $sql_purge_queue = "CREATE TABLE {$this->table_purge_queue} (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            wp_user_id BIGINT UNSIGNED DEFAULT NULL,
-            customer_email varchar(190) DEFAULT NULL,
-            subscription_id varchar(64) DEFAULT NULL,
-            api_key_id BIGINT UNSIGNED DEFAULT NULL,
-            reason varchar(32) NOT NULL,
-            status varchar(16) NOT NULL DEFAULT 'pending',
-            attempts INT NOT NULL DEFAULT 0,
-            claim_token varchar(64) DEFAULT NULL,
-            locked_until datetime DEFAULT NULL,
-            started_at datetime DEFAULT NULL,
-            finished_at datetime DEFAULT NULL,
-            next_run_at datetime DEFAULT NULL,
-            last_error text DEFAULT NULL,
-            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY  (id),
-            KEY status (status),
-            KEY idx_status_locked_until (status, locked_until),
-            KEY wp_user_id (wp_user_id),
-            KEY customer_email (customer_email),
-            KEY subscription_id (subscription_id),
-            KEY api_key_id (api_key_id),
-            KEY idx_claim_token (claim_token)
-        ) $charset_collate;";
-
-        $sql_provision_queue = "CREATE TABLE {$this->table_provision_queue} (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            event_id varchar(190) NOT NULL,
-            payload longtext NOT NULL,
-            status varchar(16) NOT NULL DEFAULT 'pending',
-            attempts INT NOT NULL DEFAULT 0,
-            next_run_at datetime DEFAULT NULL,
-            locked_until datetime DEFAULT NULL,
-            claim_token varchar(64) DEFAULT NULL,
-            last_error text DEFAULT NULL,
-            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY  (id),
-            UNIQUE KEY event_id (event_id),
-            KEY idx_status_next_run (status, next_run_at),
-            KEY idx_locked_until (locked_until),
-            KEY idx_claim_token (claim_token)
-        ) $charset_collate;";
-
-        $sql_keys = "CREATE TABLE {$this->table_keys} (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            subscription_id varchar(190) NOT NULL,
-            customer_email varchar(190) NOT NULL,
-            wp_user_id BIGINT UNSIGNED DEFAULT NULL,
-            customer_name varchar(255) DEFAULT NULL,
-            subscription_status varchar(50) DEFAULT NULL,
-            plan_slug varchar(190) NOT NULL,
-            status varchar(60) NOT NULL,
-            key_prefix varchar(20) DEFAULT NULL,
-            key_last4 varchar(10) DEFAULT NULL,
-            valid_from datetime DEFAULT NULL,
-            valid_until datetime DEFAULT NULL,
-            node_plan_id varchar(80) DEFAULT NULL,
-            node_api_key_id BIGINT UNSIGNED DEFAULT NULL,
-            last_action varchar(60) DEFAULT NULL,
-            last_http_code smallint DEFAULT NULL,
-            last_error text DEFAULT NULL,
-            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            UNIQUE KEY uniq_wp_user_subscription (wp_user_id, subscription_id),
-            KEY wp_user_id (wp_user_id),
-            KEY subscription_id (subscription_id),
-            UNIQUE KEY node_api_key_id (node_api_key_id),
-            KEY customer_email (customer_email)
-        ) $charset_collate;";
-
-        $sql_user = "CREATE TABLE {$this->table_user} (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            wp_user_id BIGINT UNSIGNED NOT NULL,
-            customer_email VARCHAR(190) DEFAULT NULL,
-            subscription_id VARCHAR(191) DEFAULT NULL,
-            order_id BIGINT UNSIGNED DEFAULT NULL,
-            product_id BIGINT UNSIGNED DEFAULT NULL,
-            plan_slug VARCHAR(190) DEFAULT NULL,
-            status VARCHAR(50) DEFAULT NULL,
-            valid_from DATETIME NULL,
-            valid_until DATETIME NULL,
-            node_api_key_id BIGINT UNSIGNED DEFAULT NULL,
-            source VARCHAR(50) DEFAULT 'wps_rest',
-            last_sync_at DATETIME NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY  (id),
-            UNIQUE KEY uniq_wp_user_subscription (wp_user_id, subscription_id),
-            KEY idx_email (customer_email),
-            KEY idx_sub (subscription_id),
-            KEY idx_status (status),
-            KEY idx_plan (plan_slug),
-            KEY idx_node_api_key_id (node_api_key_id)
-        ) $charset_collate;";
+        $sql_logs = require DSB_PLUGIN_DIR . 'includes/migrations/tables/davix_bridge_logs.php';
+        $sql_purge_queue = require DSB_PLUGIN_DIR . 'includes/migrations/tables/davix_bridge_purge_queue.php';
+        $sql_provision_queue = require DSB_PLUGIN_DIR . 'includes/migrations/tables/davix_bridge_provision_queue.php';
+        $sql_keys = require DSB_PLUGIN_DIR . 'includes/migrations/tables/davix_bridge_keys.php';
+        $sql_user = require DSB_PLUGIN_DIR . 'includes/migrations/tables/davix_bridge_user.php';
 
         dsb_log( 'debug', 'Running dbDelta for davix_bridge_logs', [ 'sql' => $sql_logs ] );
         dbDelta( $sql_logs );
@@ -179,41 +71,13 @@ class DSB_DB {
     public function migrate(): void {
         $stored_version = get_option( self::OPTION_DB_VERSION );
 
-        if ( self::DB_VERSION !== $stored_version ) {
-            $this->create_tables();
-
-            if ( version_compare( (string) $stored_version, '1.4.0', '<' ) ) {
-                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.4.0.php';
-                DSB_Migration_140::run( $this->wpdb, $this->table_purge_queue );
-            }
-
-            if ( version_compare( (string) $stored_version, '1.5.0', '<' ) ) {
-                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.5.0.php';
-                DSB_Migration_150::run( $this->wpdb, $this->table_keys, $this->table_user );
-            }
-
-            if ( version_compare( (string) $stored_version, '1.6.0', '<' ) ) {
-                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.6.0.php';
-                DSB_Migration_160::run( $this->wpdb, $this->table_user );
-            }
-
-            if ( version_compare( (string) $stored_version, '1.6.1', '<' ) ) {
-                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.6.1.php';
-                DSB_Migration_161::run( $this->wpdb, $this->table_keys );
-            }
-
-            if ( version_compare( (string) $stored_version, '1.7.0', '<' ) ) {
-                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.7.0.php';
-                DSB_Migration_170::run( $this->wpdb, $this->table_keys, $this->table_user );
-            }
-
-            if ( version_compare( (string) $stored_version, '1.8.1', '<' ) ) {
-                require_once DSB_PLUGIN_DIR . 'includes/migrations/upgrade-1.8.1.php';
-                DSB_Migration_181::run( $this->wpdb, $this->table_purge_queue );
-            }
-
-            update_option( self::OPTION_DB_VERSION, self::DB_VERSION );
+        if ( self::DB_VERSION === $stored_version ) {
+            return;
         }
+
+        $this->create_tables();
+        update_option( self::OPTION_DB_VERSION, self::DB_VERSION );
+        delete_option( 'dsb_db_version' );
     }
 
     public function drop_tables(): void {

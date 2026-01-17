@@ -48,6 +48,7 @@ class DSB_Plugin {
             wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Node_Poll::CRON_HOOK );
             delete_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL );
             delete_option( DSB_DB::OPTION_DB_VERSION );
+            delete_option( 'dsb_db_version' );
             delete_option( DSB_Client::OPTION_SETTINGS );
             delete_option( DSB_Client::OPTION_PRODUCT_PLANS );
             delete_option( DSB_Client::OPTION_PLAN_PRODUCTS );
