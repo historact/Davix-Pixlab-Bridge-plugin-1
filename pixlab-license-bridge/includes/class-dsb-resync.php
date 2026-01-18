@@ -7,6 +7,7 @@ class DSB_Resync {
     const CRON_HOOK            = 'dsb_daily_resync_event';
     const OPTION_LOCK_UNTIL    = 'dsb_resync_lock_until';
     const OPTION_LAST_RUN_AT   = 'dsb_resync_last_run_at';
+    const OPTION_LAST_RUN_TS   = 'dsb_resync_last_run_ts';
     const OPTION_LAST_RESULT   = 'dsb_resync_last_result';
     const OPTION_LAST_ERROR    = 'dsb_resync_last_error';
     const OPTION_LAST_DURATION = 'dsb_resync_last_duration_ms';
@@ -42,6 +43,7 @@ class DSB_Resync {
         if ( ! $scheduled ) {
             $timestamp = $this->next_run_timestamp( (int) ( $settings['resync_run_hour'] ?? 3 ) );
             wp_schedule_event( $timestamp, 'daily', self::CRON_HOOK );
+            dsb_log( 'info', 'cron.schedule', [ 'event' => 'cron.schedule', 'job' => 'resync', 'timestamp' => $timestamp ] );
         }
     }
 
@@ -64,8 +66,10 @@ class DSB_Resync {
         $started   = microtime( true );
 
         DSB_Cron_Logger::log( 'resync', 'Daily resync started', [ 'manual' => $is_manual ] );
+        DSB_Cron_Logger::log( 'resync', 'Daily resync stage: lock.acquire', [ 'manual' => $is_manual ] );
 
         try {
+            DSB_Cron_Logger::log( 'resync', 'Daily resync stage: membership.fetch', [] );
             $memberships = $this->client->fetch_pmpro_memberships_all();
 
             if ( is_wp_error( $memberships ) ) {
@@ -77,6 +81,7 @@ class DSB_Resync {
             } else {
                 $batch_size      = max( 20, min( 500, (int) ( $settings['resync_batch_size'] ?? 100 ) ) );
                 $active_user_ids = [];
+                DSB_Cron_Logger::log( 'resync', 'Daily resync stage: membership.process', [ 'count' => count( $memberships ), 'batch_size' => $batch_size ] );
                 foreach ( array_chunk( $memberships, $batch_size ) as $chunk ) {
                     foreach ( $chunk as $item ) {
                         $ok = $this->process_membership_item( $item, $settings, $active_user_ids );
@@ -89,6 +94,7 @@ class DSB_Resync {
                 }
 
                 if ( ! empty( $settings['resync_disable_non_active'] ) ) {
+                    DSB_Cron_Logger::log( 'resync', 'Daily resync stage: cleanup', [ 'active_users' => count( $active_user_ids ) ] );
                     $processed += $this->process_missing_memberships( $active_user_ids, $settings );
                 }
             }
@@ -98,6 +104,7 @@ class DSB_Resync {
             dsb_log( 'error', 'Resync failed', [ 'message' => $e->getMessage() ] );
         } finally {
             $this->release_lock();
+            DSB_Cron_Logger::log( 'resync', 'Daily resync stage: lock.release', [] );
             $duration_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
             $status      = $this->record_status( $result, $error, $duration_ms );
             DSB_Cron_Logger::log( 'resync', 'Daily resync finished', [ 'status' => $result, 'duration_ms' => $duration_ms, 'processed' => $processed, 'skipped' => $skipped ] );
@@ -111,6 +118,15 @@ class DSB_Resync {
                     'next_run' => $this->format_next_run( $settings ),
                 ]
             );
+
+            dsb_log( 'info', 'cron.run.finish', [
+                'event' => 'cron.run.finish',
+                'job'   => 'resync',
+                'status' => $status['status'] ?? $result,
+                'processed' => $processed,
+                'skipped' => $skipped,
+                'duration_ms' => $duration_ms,
+            ] );
         }
 
         return [ 'status' => $result, 'processed' => $processed, 'skipped' => $skipped, 'error' => $error ];
@@ -119,6 +135,7 @@ class DSB_Resync {
     public function get_last_status(): array {
         return [
             'last_run_at' => get_option( self::OPTION_LAST_RUN_AT ),
+            'last_run_ts' => (int) get_option( self::OPTION_LAST_RUN_TS, 0 ),
             'last_result' => get_option( self::OPTION_LAST_RESULT ),
             'last_error'  => get_option( self::OPTION_LAST_ERROR ),
             'last_duration_ms' => (int) get_option( self::OPTION_LAST_DURATION, 0 ),
@@ -164,6 +181,19 @@ class DSB_Resync {
         // Only send activation payloads for active + currently valid memberships.
         $plan_slug = $this->client->plan_slug_for_level( $level_id );
         if ( ! $plan_slug ) {
+            if ( ! empty( $settings['alerts_enable_license_validation'] ) ) {
+                DSB_Cron_Alerts::trigger_generic_alert(
+                    'license.plan_mapping_mismatch',
+                    __( 'License Plan Mapping Mismatch', 'pixlab-license-bridge' ),
+                    [
+                        'level_id' => $level_id,
+                        'user_id'  => $user_id,
+                        'observed_plan' => '(missing)',
+                        'expected_plan' => '(missing)',
+                    ],
+                    'error'
+                );
+            }
             dsb_log( 'warning', 'Resync skip send_event: plan missing for PMPro level', [ 'user_id' => $user_id, 'level_id' => $level_id ] );
             return true;
         }
@@ -196,6 +226,18 @@ class DSB_Resync {
 
         $payload['event_id'] = DSB_Util::event_id_from_payload( $payload );
         $this->db->enqueue_provision_job( $payload );
+        if ( ! empty( $settings['alerts_enable_license_validation'] ) ) {
+            DSB_Cron_Alerts::trigger_generic_recovery(
+                'license.plan_mapping_mismatch',
+                __( 'License Plan Mapping Mismatch', 'pixlab-license-bridge' ),
+                [
+                    'level_id' => $level_id,
+                    'user_id'  => $user_id,
+                    'observed_plan' => $plan_slug,
+                    'expected_plan' => $plan_slug,
+                ]
+            );
+        }
         dsb_log(
             'debug',
             'PMPro resync state resolved',
@@ -345,6 +387,7 @@ class DSB_Resync {
 
     protected function record_status( string $status, string $error = '', int $duration_ms = 0 ): array {
         update_option( self::OPTION_LAST_RUN_AT, current_time( 'mysql', true ) );
+        update_option( self::OPTION_LAST_RUN_TS, time() );
         update_option( self::OPTION_LAST_RESULT, $status );
         update_option( self::OPTION_LAST_ERROR, $error );
         update_option( self::OPTION_LAST_DURATION, $duration_ms );

@@ -80,7 +80,10 @@ function dsb_get_log_dir(): string {
     $above_docroot = $doc_root ? trailingslashit( dirname( $doc_root ) ) . 'pixlab-license-bridge-logs/' : '';
 
     if ( $doc_root && $above_docroot && 0 !== strpos( $above_docroot, $doc_root ) ) {
-        return $above_docroot;
+        $parent = dirname( untrailingslashit( $above_docroot ) );
+        if ( is_dir( $above_docroot ) || ( is_dir( $parent ) && is_writable( $parent ) ) ) {
+            return $above_docroot;
+        }
     }
 
     return $content_dir;
@@ -167,11 +170,36 @@ function dsb_mask_string( string $value ): string {
         '/(token=)([^&#\s]+)/i',
         '/(api[_-]?key=)([^&#\s]+)/i',
         '/(authorization=)([^&#\s]+)/i',
+        '/([?&](?:token|api[_-]?key|authorization|auth|signature|key)=)([^&#\s]+)/i',
         '/(bearer\s+)([A-Za-z0-9\-\._]+)/i',
     ];
     foreach ( $patterns as $pattern ) {
         $value = preg_replace( $pattern, '$1***', $value );
     }
+
+    $value = preg_replace_callback(
+        '/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i',
+        static function ( array $matches ): string {
+            return dsb_mask_email( $matches[0] );
+        },
+        $value
+    );
+
+    $value = preg_replace_callback(
+        '/\b\d{8,}\b/',
+        static function ( array $matches ): string {
+            return dsb_mask_identifier( $matches[0] );
+        },
+        $value
+    );
+
+    $value = preg_replace_callback(
+        '/\b(?=[A-Za-z0-9]{10,}\b)(?=.*\d)[A-Za-z0-9]+\b/',
+        static function ( array $matches ): string {
+            return dsb_mask_identifier( $matches[0] );
+        },
+        $value
+    );
 
     // Mask long key-like strings.
     if ( preg_match( '/[A-Za-z0-9\-_]{24,}/', $value ) ) {
@@ -181,8 +209,37 @@ function dsb_mask_string( string $value ): string {
     return $value;
 }
 
+function dsb_mask_email( string $email ): string {
+    $email = sanitize_email( $email );
+    if ( ! $email ) {
+        return '';
+    }
+    $parts = explode( '@', $email, 2 );
+    $local = $parts[0] ?? '';
+    $domain = $parts[1] ?? '';
+    $prefix = substr( $local, 0, 2 );
+    return $prefix . '***' . ( $domain ? '@' . $domain : '' );
+}
+
+function dsb_mask_identifier( string $value, int $keep = 4 ): string {
+    $value = trim( (string) $value );
+    if ( '' === $value ) {
+        return '';
+    }
+    $len = strlen( $value );
+    if ( $len <= $keep ) {
+        return str_repeat( '*', $len );
+    }
+    return '***' . substr( $value, -1 * $keep );
+}
+
+function dsb_mask_chat_id( string $value ): string {
+    $value = preg_replace( '/\s+/', '', (string) $value );
+    return dsb_mask_identifier( $value, 4 );
+}
+
 function dsb_mask_secrets( $context ) {
-    $sensitive_keys = [ 'token', 'api_key', 'apikey', 'authorization', 'bearer', 'secret', 'password', 'bridge_token' ];
+    $sensitive_keys = [ 'token', 'api_key', 'apikey', 'authorization', 'bearer', 'secret', 'password', 'bridge_token', 'cookie' ];
 
     if ( is_array( $context ) ) {
         $sanitized = [];
@@ -196,7 +253,15 @@ function dsb_mask_secrets( $context ) {
             if ( is_array( $value ) || is_object( $value ) ) {
                 $sanitized[ $key ] = dsb_mask_secrets( (array) $value );
             } elseif ( is_string( $value ) ) {
-                $sanitized[ $key ] = dsb_mask_string( $value );
+                if ( false !== strpos( $lower, 'email' ) ) {
+                    $sanitized[ $key ] = dsb_mask_email( $value );
+                } elseif ( false !== strpos( $lower, 'subscription' ) || false !== strpos( $lower, 'order' ) || false !== strpos( $lower, 'api_key' ) || false !== strpos( $lower, 'identifier' ) ) {
+                    $sanitized[ $key ] = dsb_mask_identifier( $value );
+                } elseif ( false !== strpos( $lower, 'telegram' ) || false !== strpos( $lower, 'chat' ) ) {
+                    $sanitized[ $key ] = dsb_mask_chat_id( $value );
+                } else {
+                    $sanitized[ $key ] = dsb_mask_string( $value );
+                }
             } else {
                 $sanitized[ $key ] = $value;
             }
@@ -267,6 +332,7 @@ function dsb_log( $level, $message, array $context = [] ): void {
     ];
 
     $context = dsb_mask_secrets( array_merge( $extra, $context ) );
+    $message = dsb_mask_string( (string) $message );
 
     $timestamp = gmdate( 'c' );
     $line      = sprintf(

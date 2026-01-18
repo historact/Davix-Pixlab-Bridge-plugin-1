@@ -47,8 +47,18 @@ class DSB_Client {
                 'telegram_chat_ids'   => '',
                 'alert_template'      => '',
                 'recovery_template'   => '',
+                'alert_email_subject' => 'PixLab License Bridge Alert: {job_name}',
+                'recovery_email_subject' => 'PixLab License Bridge Recovery: {job_name}',
                 'alert_threshold'     => 3,
                 'alert_cooldown_minutes' => 60,
+                'alerts_enable_cron'  => 1,
+                'alerts_enable_db_connectivity' => 1,
+                'alerts_enable_license_validation' => 1,
+                'alerts_enable_api_error_rate' => 1,
+                'alerts_enable_admin_security' => 1,
+                'alerts_api_error_window_minutes' => 15,
+                'alerts_api_error_threshold' => 10,
+                'alerts_api_error_cooldown_minutes' => 30,
                 'enable_alerts_purge_worker'   => 0,
                 'enable_recovery_purge_worker' => 0,
                 'enable_alerts_provision_worker'   => 0,
@@ -525,6 +535,14 @@ class DSB_Client {
             }
         }
 
+        $telegram_bot_token = $existing['telegram_bot_token'] ?? '';
+        if ( array_key_exists( 'telegram_bot_token', $data ) ) {
+            $incoming_telegram = preg_replace( '/\s+/', '', sanitize_text_field( $data['telegram_bot_token'] ) );
+            if ( '' !== $incoming_telegram ) {
+                $telegram_bot_token = $incoming_telegram;
+            }
+        }
+
         $clean = [
             'node_base_url' => $node_base_url,
             'bridge_token'  => $bridge_token,
@@ -550,12 +568,22 @@ class DSB_Client {
             'purge_lease_minutes' => isset( $data['purge_lease_minutes'] ) ? (int) $data['purge_lease_minutes'] : ( $existing['purge_lease_minutes'] ?? 15 ),
             'purge_batch_size'    => isset( $data['purge_batch_size'] ) ? (int) $data['purge_batch_size'] : ( $existing['purge_batch_size'] ?? 20 ),
             'alert_emails'        => isset( $data['alert_emails'] ) ? sanitize_textarea_field( $data['alert_emails'] ) : ( $existing['alert_emails'] ?? '' ),
-            'telegram_bot_token'  => isset( $data['telegram_bot_token'] ) ? preg_replace( '/\s+/', '', sanitize_text_field( $data['telegram_bot_token'] ) ) : ( $existing['telegram_bot_token'] ?? '' ),
+            'telegram_bot_token'  => $telegram_bot_token,
             'telegram_chat_ids'   => isset( $data['telegram_chat_ids'] ) ? sanitize_textarea_field( $data['telegram_chat_ids'] ) : ( $existing['telegram_chat_ids'] ?? '' ),
             'alert_template'      => isset( $data['alert_template'] ) ? wp_kses_post( $data['alert_template'] ) : ( $existing['alert_template'] ?? '' ),
             'recovery_template'   => isset( $data['recovery_template'] ) ? wp_kses_post( $data['recovery_template'] ) : ( $existing['recovery_template'] ?? '' ),
+            'alert_email_subject' => isset( $data['alert_email_subject'] ) ? sanitize_text_field( $data['alert_email_subject'] ) : ( $existing['alert_email_subject'] ?? 'PixLab License Bridge Alert: {job_name}' ),
+            'recovery_email_subject' => isset( $data['recovery_email_subject'] ) ? sanitize_text_field( $data['recovery_email_subject'] ) : ( $existing['recovery_email_subject'] ?? 'PixLab License Bridge Recovery: {job_name}' ),
             'alert_threshold'     => isset( $data['alert_threshold'] ) ? (int) $data['alert_threshold'] : ( $existing['alert_threshold'] ?? 3 ),
             'alert_cooldown_minutes' => isset( $data['alert_cooldown_minutes'] ) ? (int) $data['alert_cooldown_minutes'] : ( $existing['alert_cooldown_minutes'] ?? 60 ),
+            'alerts_enable_cron'  => $bool_from_post( $data, 'alerts_enable_cron', $existing['alerts_enable_cron'] ?? 1 ),
+            'alerts_enable_db_connectivity' => $bool_from_post( $data, 'alerts_enable_db_connectivity', $existing['alerts_enable_db_connectivity'] ?? 1 ),
+            'alerts_enable_license_validation' => $bool_from_post( $data, 'alerts_enable_license_validation', $existing['alerts_enable_license_validation'] ?? 1 ),
+            'alerts_enable_api_error_rate' => $bool_from_post( $data, 'alerts_enable_api_error_rate', $existing['alerts_enable_api_error_rate'] ?? 1 ),
+            'alerts_enable_admin_security' => $bool_from_post( $data, 'alerts_enable_admin_security', $existing['alerts_enable_admin_security'] ?? 1 ),
+            'alerts_api_error_window_minutes' => isset( $data['alerts_api_error_window_minutes'] ) ? (int) $data['alerts_api_error_window_minutes'] : ( $existing['alerts_api_error_window_minutes'] ?? 15 ),
+            'alerts_api_error_threshold' => isset( $data['alerts_api_error_threshold'] ) ? (int) $data['alerts_api_error_threshold'] : ( $existing['alerts_api_error_threshold'] ?? 10 ),
+            'alerts_api_error_cooldown_minutes' => isset( $data['alerts_api_error_cooldown_minutes'] ) ? (int) $data['alerts_api_error_cooldown_minutes'] : ( $existing['alerts_api_error_cooldown_minutes'] ?? 30 ),
             'enable_alerts_purge_worker'   => $bool_from_post( $data, 'enable_alerts_purge_worker', $existing['enable_alerts_purge_worker'] ?? 0 ),
             'enable_recovery_purge_worker' => $bool_from_post( $data, 'enable_recovery_purge_worker', $existing['enable_recovery_purge_worker'] ?? 0 ),
             'enable_alerts_provision_worker'   => $bool_from_post( $data, 'enable_alerts_provision_worker', $existing['enable_alerts_provision_worker'] ?? 0 ),
@@ -596,6 +624,9 @@ class DSB_Client {
         $clean['purge_batch_size']           = max( 1, min( 100, (int) $clean['purge_batch_size'] ) );
         $clean['alert_threshold']            = max( 1, (int) $clean['alert_threshold'] );
         $clean['alert_cooldown_minutes']     = max( 1, (int) $clean['alert_cooldown_minutes'] );
+        $clean['alerts_api_error_window_minutes'] = max( 1, (int) $clean['alerts_api_error_window_minutes'] );
+        $clean['alerts_api_error_threshold'] = max( 1, (int) $clean['alerts_api_error_threshold'] );
+        $clean['alerts_api_error_cooldown_minutes'] = max( 1, (int) $clean['alerts_api_error_cooldown_minutes'] );
 
         $plan_slug_meta        = isset( $data['dsb_plan_slug_meta'] ) && is_array( $data['dsb_plan_slug_meta'] ) ? $data['dsb_plan_slug_meta'] : [];
         $plan_products         = isset( $data['plan_products'] ) && is_array( $data['plan_products'] ) ? array_values( $data['plan_products'] ) : $this->get_plan_products();
@@ -934,6 +965,7 @@ class DSB_Client {
     protected function request( string $path, string $method = 'GET', ?array $body = [], array $query = [] ) {
         $settings = $this->get_settings();
         $method   = strtoupper( $method );
+        $started  = microtime( true );
 
         if ( empty( $settings['node_base_url'] ) ) {
             return new \WP_Error( 'dsb_missing_base', __( 'Node base URL missing', 'pixlab-license-bridge' ) );
@@ -963,6 +995,13 @@ class DSB_Client {
             $args['headers']['Content-Type'] = 'application/json';
         }
 
+        dsb_log( 'debug', 'API request', [
+            'event'  => 'api.request',
+            'path'   => $path,
+            'method' => $method,
+            'query_keys' => array_keys( $query ),
+        ] );
+
         $response = 'POST' === $method ? wp_remote_post( $url, $args ) : wp_remote_get( $url, $args );
         if ( is_array( $response ) ) {
             $response['__dsb_request_url']    = $url;
@@ -971,6 +1010,81 @@ class DSB_Client {
 
         if ( is_wp_error( $response ) ) {
             $response->add_data( [ 'dsb_url' => $url, 'dsb_method' => $method ] );
+        }
+
+        $duration_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
+        $code = is_wp_error( $response ) ? 0 : (int) wp_remote_retrieve_response_code( $response );
+        $is_error = is_wp_error( $response ) || $code < 200 || $code >= 300;
+        $status_category = is_wp_error( $response ) ? 'transport_error' : floor( $code / 100 ) . 'xx';
+        $error_message = is_wp_error( $response ) ? $response->get_error_message() : '';
+
+        dsb_log( 'debug', 'API response', [
+            'event'        => 'api.response',
+            'path'         => $path,
+            'method'       => $method,
+            'code'         => $code,
+            'duration_ms'  => $duration_ms,
+            'status_category' => $status_category,
+            'error'        => $error_message,
+        ] );
+
+        if ( ! empty( $settings['alerts_enable_api_error_rate'] ) ) {
+            $window_minutes = max( 1, (int) ( $settings['alerts_api_error_window_minutes'] ?? 15 ) );
+            $threshold = max( 1, (int) ( $settings['alerts_api_error_threshold'] ?? 10 ) );
+            $cooldown  = max( 1, (int) ( $settings['alerts_api_error_cooldown_minutes'] ?? 30 ) );
+            $window_seconds = $window_minutes * MINUTE_IN_SECONDS;
+            $window_start = (int) floor( time() / $window_seconds ) * $window_seconds;
+            $count_key = 'dsb_api_err_count_' . $window_start;
+            $count = (int) get_transient( $count_key );
+            if ( $is_error ) {
+                $count++;
+                set_transient( $count_key, $count, $window_seconds + MINUTE_IN_SECONDS );
+                if ( $count >= $threshold ) {
+                    DSB_Cron_Alerts::trigger_generic_alert(
+                        'api.error_rate',
+                        __( 'API Error Rate', 'pixlab-license-bridge' ),
+                        [
+                            'endpoint' => $path,
+                            'method'   => $method,
+                            'status_category' => $status_category,
+                            'count'    => $count,
+                            'window_minutes' => $window_minutes,
+                            'error'    => $error_message ?: $status_category,
+                        ],
+                        'error',
+                        $cooldown
+                    );
+                }
+            } else {
+                if ( $count < $threshold ) {
+                    DSB_Cron_Alerts::trigger_generic_recovery(
+                        'api.error_rate',
+                        __( 'API Error Rate', 'pixlab-license-bridge' ),
+                        [
+                            'endpoint' => $path,
+                            'method'   => $method,
+                            'status_category' => $status_category,
+                            'count'    => $count,
+                            'window_minutes' => $window_minutes,
+                        ],
+                        $window_seconds
+                    );
+                }
+            }
+        }
+
+        if ( ! empty( $settings['alerts_enable_license_validation'] ) && in_array( $code, [ 401, 403 ], true ) ) {
+            DSB_Cron_Alerts::trigger_generic_alert(
+                'license.bridge_token_rejected',
+                __( 'Bridge Token Rejected', 'pixlab-license-bridge' ),
+                [
+                    'endpoint' => $path,
+                    'method'   => $method,
+                    'status_code' => $code,
+                    'error'    => 'auth_rejected',
+                ],
+                'error'
+            );
         }
 
         return $response;
@@ -1439,6 +1553,7 @@ class DSB_Client {
 
     public function fetch_pmpro_memberships_all() {
         global $wpdb;
+        $settings = $this->get_settings();
 
         if ( ! function_exists( 'pmpro_getMembershipLevelForUser' ) && ! class_exists( '\\MemberOrder' ) ) {
             return new \WP_Error( 'dsb_pmpro_missing', __( 'Paid Memberships Pro is not active.', 'pixlab-license-bridge' ) );
@@ -1448,6 +1563,17 @@ class DSB_Client {
         $exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
 
         if ( ! $exists ) {
+            if ( ! empty( $settings['alerts_enable_db_connectivity'] ) ) {
+                DSB_Cron_Alerts::trigger_generic_alert(
+                    'db.connectivity',
+                    __( 'Database Connectivity Failure', 'pixlab-license-bridge' ),
+                    [
+                        'table' => $table,
+                        'error' => 'missing_table',
+                    ],
+                    'error'
+                );
+            }
             return new \WP_Error( 'dsb_pmpro_table_missing', __( 'PMPro membership table missing.', 'pixlab-license-bridge' ) );
         }
 
@@ -1456,6 +1582,20 @@ class DSB_Client {
         $query             = "SELECT * FROM {$table} {$order_sql}";
 
         $rows    = $wpdb->get_results( $query, ARRAY_A );
+        if ( $wpdb->last_error ) {
+            if ( ! empty( $settings['alerts_enable_db_connectivity'] ) ) {
+                DSB_Cron_Alerts::trigger_generic_alert(
+                    'db.connectivity',
+                    __( 'Database Connectivity Failure', 'pixlab-license-bridge' ),
+                    [
+                        'table' => $table,
+                        'error' => $wpdb->last_error,
+                    ],
+                    'error'
+                );
+            }
+            return new \WP_Error( 'dsb_pmpro_db_error', __( 'PMPro membership query failed.', 'pixlab-license-bridge' ) );
+        }
         $members = [];
         $now_ts  = time();
 
@@ -1525,6 +1665,17 @@ class DSB_Client {
                 'enddate'    => $end,
                 'end_ts'     => $end_ts,
             ];
+        }
+
+        if ( ! empty( $settings['alerts_enable_db_connectivity'] ) ) {
+            DSB_Cron_Alerts::trigger_generic_recovery(
+                'db.connectivity',
+                __( 'Database Connectivity Failure', 'pixlab-license-bridge' ),
+                [
+                    'table' => $table,
+                    'rows'  => is_array( $rows ) ? count( $rows ) : 0,
+                ]
+            );
         }
 
         return array_values( $members );
@@ -1666,6 +1817,48 @@ class DSB_Client {
             $error_data = $response->get_error_data();
             $url        = is_array( $error_data ) && isset( $error_data['dsb_url'] ) ? $error_data['dsb_url'] : '';
             $method     = is_array( $error_data ) && isset( $error_data['dsb_method'] ) ? $error_data['dsb_method'] : '';
+        }
+
+        if ( ! empty( $decoded ) && ! is_array( $decoded ) ) {
+            $decoded = null;
+        }
+
+        $settings = $this->get_settings();
+        if ( ! empty( $settings['alerts_enable_license_validation'] ) ) {
+            $error_code = '';
+            if ( is_array( $decoded ) ) {
+                foreach ( [ 'code', 'error', 'status', 'message' ] as $key ) {
+                    if ( ! empty( $decoded[ $key ] ) && is_scalar( $decoded[ $key ] ) ) {
+                        $error_code = strtolower( (string) $decoded[ $key ] );
+                        break;
+                    }
+                }
+            }
+            $invalid_token = $error_code && ( false !== strpos( $error_code, 'token' ) && false !== strpos( $error_code, 'invalid' ) );
+
+            if ( $invalid_token && ! in_array( (int) $code, [ 401, 403 ], true ) ) {
+                DSB_Cron_Alerts::trigger_generic_alert(
+                    'license.bridge_token_rejected',
+                    __( 'Bridge Token Rejected', 'pixlab-license-bridge' ),
+                    [
+                        'endpoint' => $url ? wp_parse_url( $url, PHP_URL_PATH ) : '',
+                        'method'   => $method,
+                        'status_code' => $code,
+                        'error'    => $error_code,
+                    ],
+                    'error'
+                );
+            } elseif ( $code >= 200 && $code < 300 ) {
+                DSB_Cron_Alerts::trigger_generic_recovery(
+                    'license.bridge_token_rejected',
+                    __( 'Bridge Token Rejected', 'pixlab-license-bridge' ),
+                    [
+                        'endpoint' => $url ? wp_parse_url( $url, PHP_URL_PATH ) : '',
+                        'method'   => $method,
+                        'status_code' => $code,
+                    ]
+                );
+            }
         }
 
         return [

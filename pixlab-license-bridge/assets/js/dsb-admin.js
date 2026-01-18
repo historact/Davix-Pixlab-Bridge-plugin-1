@@ -176,6 +176,22 @@
             bindSelects();
             initSettingsAccess();
 
+            $(document).on('click', '.dsb-telegram-toggle', function(){
+                var $btn = $(this);
+                var $wrap = $btn.closest('.dsb-telegram-token-wrap');
+                var $input = $wrap.find('.dsb-telegram-token');
+                if (!$input.length) {
+                    return;
+                }
+                if ($input.attr('type') === 'password') {
+                    $input.attr('type', 'text');
+                    $btn.text($btn.data('label-hide') || 'Hide');
+                } else {
+                    $input.attr('type', 'password');
+                    $btn.text($btn.data('label-show') || 'Show');
+                }
+            });
+
             var hasPicker = typeof $.fn.wpColorPicker === 'function';
             var colorCount = $('.dsb-color-field').length;
             if (config && config.tab === 'style' && (hasPicker || colorCount)) {

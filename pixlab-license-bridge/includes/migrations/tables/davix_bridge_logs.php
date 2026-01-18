@@ -12,6 +12,7 @@ return "CREATE TABLE {$this->table_logs} (
             response_action varchar(80) DEFAULT NULL,
             http_code smallint DEFAULT NULL,
             error_excerpt text DEFAULT NULL,
+            context_json LONGTEXT DEFAULT NULL,
             created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
             KEY subscription_id (subscription_id)

@@ -88,6 +88,9 @@ class DSB_Cron_Logger {
         } else {
             $context = self::mask_secrets_fallback( $context );
         }
+        if ( function_exists( 'dsb_mask_string' ) ) {
+            $message = dsb_mask_string( $message );
+        }
         $line    = sprintf(
             '[%s] %s %s',
             gmdate( 'c' ),

@@ -12,6 +12,7 @@ class DSB_Provision_Worker {
     const BATCH_SIZE    = 20;
     const OPTION_LOCK_UNTIL   = 'dsb_provision_lock_until';
     const OPTION_LAST_RUN_AT  = 'dsb_provision_last_run_at';
+    const OPTION_LAST_RUN_TS  = 'dsb_provision_last_run_ts';
     const OPTION_LAST_RESULT  = 'dsb_provision_last_result';
     const OPTION_LAST_ERROR   = 'dsb_provision_last_error';
     const OPTION_LAST_DURATION_MS = 'dsb_provision_last_duration_ms';
@@ -47,6 +48,7 @@ class DSB_Provision_Worker {
     public function maybe_schedule(): void {
         if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
             wp_schedule_event( time() + MINUTE_IN_SECONDS, self::SCHEDULE_KEY, self::CRON_HOOK );
+            dsb_log( 'info', 'cron.schedule', [ 'event' => 'cron.schedule', 'job' => 'provision_worker' ] );
         }
     }
 
@@ -55,6 +57,7 @@ class DSB_Provision_Worker {
     }
 
     public function run( bool $manual = false, ?int $limit = null ): array {
+        DSB_Cron_Logger::log( 'provision_worker', 'Provision worker stage: lock.acquire', [ 'manual' => $manual ] );
         if ( ! $this->acquire_lock( self::LOCK_MINUTES ) ) {
             return $this->record_status( 'skipped_locked', __( 'Provision worker locked', 'pixlab-license-bridge' ), 0, 0 );
         }
@@ -69,8 +72,11 @@ class DSB_Provision_Worker {
         DSB_Cron_Logger::log( 'provision_worker', 'Provision worker started', [ 'manual' => $manual, 'batch_size' => $batch_size ] );
 
         try {
+            DSB_Cron_Logger::log( 'provision_worker', 'Provision worker stage: queue.fetch', [ 'batch_size' => $batch_size ] );
             $jobs = $this->db->claim_pending_provision_jobs( $batch_size, $claim_token, self::LEASE_SECONDS );
+            DSB_Cron_Logger::log( 'provision_worker', 'Provision worker stage: queue.fetch.result', [ 'count' => count( $jobs ) ] );
             foreach ( $jobs as $job ) {
+                DSB_Cron_Logger::log( 'provision_worker', 'Provision worker stage: item.process', [ 'job_id' => $job['id'] ?? 0 ] );
                 $job_ok = $this->process_job( $job );
                 $processed ++;
                 if ( ! $job_ok ) {
@@ -85,6 +91,7 @@ class DSB_Provision_Worker {
         } finally {
             $duration_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
             $this->release_lock();
+            DSB_Cron_Logger::log( 'provision_worker', 'Provision worker stage: lock.release', [] );
             $status = $this->record_status( $result, $error_msg, $duration_ms, $processed );
             DSB_Cron_Logger::log( 'provision_worker', 'Provision worker finished', [ 'status' => $result, 'duration_ms' => $duration_ms, 'processed' => $processed ] );
 
@@ -99,6 +106,14 @@ class DSB_Provision_Worker {
                     'next_run' => $this->format_next_run(),
                 ]
             );
+
+            dsb_log( 'info', 'cron.run.finish', [
+                'event' => 'cron.run.finish',
+                'job'   => 'provision_worker',
+                'status' => $status['status'] ?? $result,
+                'processed' => $processed,
+                'duration_ms' => $duration_ms,
+            ] );
 
             return $status;
         }
@@ -121,11 +136,15 @@ class DSB_Provision_Worker {
             return false;
         }
 
+        $this->validate_plan_mapping_for_payload( $payload );
+
+        DSB_Cron_Logger::log( 'provision_worker', 'Provision worker stage: pixlab.call', [ 'job_id' => $job_id, 'event' => $payload['event'] ?? '' ] );
         $result  = $this->client->send_event( $payload );
         $success = ! empty( $result['success'] );
         $error   = $this->resolve_error_message( $result );
 
         if ( $success ) {
+            DSB_Cron_Logger::log( 'provision_worker', 'Provision worker stage: db.update', [ 'job_id' => $job_id, 'status' => 'done' ] );
             $this->db->mark_provision_job_done( $job_id );
             dsb_log( 'info', 'Provision job completed', [ 'job_id' => $job_id, 'event' => $payload['event'] ?? '' ] );
             return true;
@@ -133,6 +152,7 @@ class DSB_Provision_Worker {
 
         $attempts = (int) ( $job['attempts'] ?? 0 );
         $delay    = $this->get_retry_delay_seconds( $attempts + 1 );
+        DSB_Cron_Logger::log( 'provision_worker', 'Provision worker stage: db.update', [ 'job_id' => $job_id, 'status' => 'error', 'attempt' => $attempts + 1 ] );
         $this->db->mark_provision_job_error( $job, $error, self::MAX_ATTEMPTS, $delay );
         dsb_log( 'error', 'Provision job failed', [ 'job_id' => $job_id, 'attempt' => $attempts + 1, 'error' => $error ] );
 
@@ -171,6 +191,7 @@ class DSB_Provision_Worker {
     public function get_last_status(): array {
         return [
             'last_run_at'      => get_option( self::OPTION_LAST_RUN_AT, '' ),
+            'last_run_ts'      => (int) get_option( self::OPTION_LAST_RUN_TS, 0 ),
             'last_result'      => get_option( self::OPTION_LAST_RESULT, '' ),
             'last_error'       => get_option( self::OPTION_LAST_ERROR, '' ),
             'last_duration_ms' => (int) get_option( self::OPTION_LAST_DURATION_MS, 0 ),
@@ -194,6 +215,7 @@ class DSB_Provision_Worker {
 
     protected function record_status( string $result, string $error, int $duration_ms, int $processed ): array {
         update_option( self::OPTION_LAST_RUN_AT, current_time( 'mysql', true ) );
+        update_option( self::OPTION_LAST_RUN_TS, time() );
         update_option( self::OPTION_LAST_RESULT, $result );
         update_option( self::OPTION_LAST_ERROR, wp_strip_all_tags( $error ) );
         update_option( self::OPTION_LAST_DURATION_MS, $duration_ms );
@@ -210,6 +232,51 @@ class DSB_Provision_Worker {
     protected function format_next_run(): string {
         $next = wp_next_scheduled( self::CRON_HOOK );
         return $next ? gmdate( 'Y-m-d H:i:s', (int) $next ) : '';
+    }
+
+    protected function validate_plan_mapping_for_payload( array $payload ): void {
+        $settings = $this->client->get_settings();
+        if ( empty( $settings['alerts_enable_license_validation'] ) ) {
+            return;
+        }
+
+        $subscription_id = isset( $payload['subscription_id'] ) ? sanitize_text_field( (string) $payload['subscription_id'] ) : '';
+        if ( 0 !== strpos( $subscription_id, 'pmpro-' ) ) {
+            return;
+        }
+
+        $level_id = isset( $payload['product_id'] ) ? absint( $payload['product_id'] ) : 0;
+        if ( $level_id <= 0 ) {
+            return;
+        }
+
+        $expected_plan = $this->client->plan_slug_for_level( $level_id );
+        $observed_plan = isset( $payload['plan_slug'] ) ? dsb_normalize_plan_slug( $payload['plan_slug'] ) : '';
+
+        if ( ! $expected_plan || $expected_plan !== $observed_plan ) {
+            DSB_Cron_Alerts::trigger_generic_alert(
+                'license.plan_mapping_mismatch',
+                __( 'License Plan Mapping Mismatch', 'pixlab-license-bridge' ),
+                [
+                    'level_id'     => $level_id,
+                    'subscription' => $subscription_id,
+                    'expected_plan' => $expected_plan ?: '(missing)',
+                    'observed_plan' => $observed_plan ?: '(missing)',
+                ],
+                'error'
+            );
+        } else {
+            DSB_Cron_Alerts::trigger_generic_recovery(
+                'license.plan_mapping_mismatch',
+                __( 'License Plan Mapping Mismatch', 'pixlab-license-bridge' ),
+                [
+                    'level_id'     => $level_id,
+                    'subscription' => $subscription_id,
+                    'expected_plan' => $expected_plan,
+                    'observed_plan' => $observed_plan,
+                ]
+            );
+        }
     }
 }
 
