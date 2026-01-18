@@ -1299,19 +1299,23 @@ class DSB_Admin {
         ];
         $logo_path = DSB_PLUGIN_DIR . 'assets/logo/logo-64.png';
         $logo_url  = DSB_PLUGIN_URL . 'assets/logo/logo-64.png';
-        echo '<div class="dsb-admin-header">';
-        echo '<div class="dsb-admin-brand">';
+        echo '<div class="dsb-shell">';
+        echo '<div class="dsb-hero-header">';
+        echo '<div class="dsb-hero-top">';
+        echo '<div class="dsb-hero-left">';
         if ( file_exists( $logo_path ) ) {
-            printf( '<img src="%s" alt="%s" class="dsb-admin-logo" />', esc_url( $logo_url ), esc_attr__( 'PixLab', 'pixlab-license-bridge' ) );
+            printf( '<img src="%s" alt="%s" class="dsb-hero-logo" />', esc_url( $logo_url ), esc_attr__( 'PixLab', 'pixlab-license-bridge' ) );
         }
-        echo '<span class="dsb-admin-title">' . esc_html__( 'PixLab License Bridge', 'pixlab-license-bridge' ) . '</span>';
+        echo '<span class="dsb-hero-badge">' . esc_html__( 'PixLab License Bridge', 'pixlab-license-bridge' ) . '</span>';
         echo '</div>';
-        echo '<nav class="dsb-admin-tabs" aria-label="' . esc_attr__( 'PixLab License Bridge tabs', 'pixlab-license-bridge' ) . '">';
+        echo '</div>';
+        echo '<nav class="dsb-hero-tabs" aria-label="' . esc_attr__( 'PixLab License Bridge tabs', 'pixlab-license-bridge' ) . '">';
         foreach ( $tabs as $key => $label ) {
-            $class = $tab === $key ? 'dsb-admin-tab is-active' : 'dsb-admin-tab';
+            $class = $tab === $key ? 'dsb-hero-tab is-active' : 'dsb-hero-tab';
             printf( '<a href="%s" class="%s">%s</a>', esc_url( add_query_arg( [ 'page' => 'davix-bridge', 'tab' => $key ], admin_url( 'admin.php' ) ) ), esc_attr( $class ), esc_html( $label ) );
         }
         echo '</nav>';
+        echo '</div>';
         echo '</div>';
 
         $settings = $this->client->get_settings();
