@@ -6,7 +6,7 @@ defined( 'ABSPATH' ) || exit;
 class DSB_DB {
     const OPTION_DELETE_ON_UNINSTALL = 'dsb_delete_on_uninstall';
     const OPTION_DB_VERSION          = 'pixlab_license_db_version';
-    const DB_VERSION                 = '1.0.0';
+    const DB_VERSION                 = '1.1.0';
     const OPTION_TRIGGERS_STATUS     = 'dsb_triggers_status';
 
     /** @var \wpdb */
@@ -907,6 +907,7 @@ class DSB_DB {
     }
 
     public function log_event( array $data ): void {
+        $context = isset( $data['context'] ) && is_array( $data['context'] ) ? $data['context'] : null;
         $record = [
             'event'           => sanitize_text_field( $data['event'] ?? '' ),
             'customer_email'  => isset( $data['customer_email'] ) ? sanitize_email( $data['customer_email'] ) : null,
@@ -916,10 +917,14 @@ class DSB_DB {
             'response_action' => sanitize_text_field( $data['response_action'] ?? '' ),
             'http_code'       => isset( $data['http_code'] ) ? absint( $data['http_code'] ) : null,
             'error_excerpt'   => isset( $data['error_excerpt'] ) ? wp_strip_all_tags( $data['error_excerpt'] ) : null,
+            'context_json'    => null,
         ];
 
         if ( function_exists( 'dsb_mask_secrets' ) ) {
             $record = dsb_mask_secrets( $record );
+            if ( $context ) {
+                $context = dsb_mask_secrets( $context );
+            }
         } elseif ( function_exists( 'dsb_mask_string' ) ) {
             if ( isset( $record['response_action'] ) && is_string( $record['response_action'] ) ) {
                 $record['response_action'] = dsb_mask_string( $record['response_action'] );
@@ -927,6 +932,17 @@ class DSB_DB {
             if ( isset( $record['error_excerpt'] ) && is_string( $record['error_excerpt'] ) ) {
                 $record['error_excerpt'] = dsb_mask_string( $record['error_excerpt'] );
             }
+            if ( $context && is_array( $context ) ) {
+                foreach ( $context as $key => $value ) {
+                    if ( is_string( $value ) ) {
+                        $context[ $key ] = dsb_mask_string( $value );
+                    }
+                }
+            }
+        }
+
+        if ( $context ) {
+            $record['context_json'] = wp_json_encode( $context );
         }
 
         $this->wpdb->insert( $this->table_logs, $record );

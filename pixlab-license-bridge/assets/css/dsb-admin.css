@@ -191,3 +191,81 @@ body.dsb-modal-open {
 .settings_page_davix-bridge .dsb-settings-access-chip__remove:hover {
     color: #38bdf8;
 }
+
+.dsb-admin-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px;
+    margin: -20px -20px 20px;
+    background: #0b0d10;
+    border-radius: 8px;
+}
+
+.dsb-admin-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.dsb-admin-logo {
+    width: 32px;
+    height: 32px;
+}
+
+.dsb-admin-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #f8fafc;
+}
+
+.dsb-admin-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.dsb-admin-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 999px;
+    text-decoration: none;
+    font-size: 13px;
+    color: #cbd5e1;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.dsb-admin-tab.is-active {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.dsb-status-card {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.dsb-status-card.is-active {
+    background: #22c55e;
+}
+
+.dsb-status-card.is-disabled {
+    background: #ef4444;
+}
+
+.dsb-status-card.is-unknown {
+    background: #64748b;
+}
+
+.dsb-telegram-token-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}

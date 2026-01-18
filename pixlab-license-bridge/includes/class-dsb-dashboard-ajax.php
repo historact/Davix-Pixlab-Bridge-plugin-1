@@ -295,10 +295,42 @@ class DSB_Dashboard_Ajax {
 
         $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
         if ( ! wp_verify_nonce( $nonce, 'dsb_dashboard_nonce' ) ) {
+            $window_seconds = 5 * MINUTE_IN_SECONDS;
+            $bucket         = (int) floor( time() / $window_seconds ) * $window_seconds;
+            $key            = 'dsb_admin_nonce_fail_' . $bucket;
+            $count          = (int) get_transient( $key );
+            $count ++;
+            set_transient( $key, $count, $window_seconds + MINUTE_IN_SECONDS );
+            $threshold = 3;
+            if ( $count >= $threshold ) {
+                DSB_Cron_Alerts::trigger_generic_alert(
+                    'admin.security.anomaly',
+                    __( 'Admin Security Anomaly', 'pixlab-license-bridge' ),
+                    [
+                        'user_id' => get_current_user_id(),
+                        'action'  => isset( $_POST['action'] ) ? sanitize_key( wp_unslash( $_POST['action'] ) ) : '',
+                        'ip'      => isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '',
+                        'count'   => $count,
+                        'threshold' => $threshold,
+                        'window_minutes' => (int) ( $window_seconds / MINUTE_IN_SECONDS ),
+                        'error'   => 'invalid_nonce',
+                    ],
+                    'error'
+                );
+            }
             wp_send_json_error( [ 'status' => 'error', 'code' => 'bad_nonce', 'message' => __( 'Security check failed.', 'pixlab-license-bridge' ) ], 403 );
         }
 
         $identity = dsb_pixlab_get_identity();
+        DSB_Cron_Alerts::trigger_generic_recovery(
+            'admin.security.anomaly',
+            __( 'Admin Security Anomaly', 'pixlab-license-bridge' ),
+            [
+                'user_id' => get_current_user_id(),
+                'action'  => isset( $_POST['action'] ) ? sanitize_key( wp_unslash( $_POST['action'] ) ) : '',
+                'ip'      => isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '',
+            ]
+        );
         return $identity;
     }
 

@@ -9,6 +9,7 @@ class DSB_Purge_Worker {
     const MAX_ATTEMPTS  = 10;
     const OPTION_LOCK_UNTIL   = 'dsb_purge_lock_until';
     const OPTION_LAST_RUN_AT  = 'dsb_purge_last_run_at';
+    const OPTION_LAST_RUN_TS  = 'dsb_purge_last_run_ts';
     const OPTION_LAST_RESULT  = 'dsb_purge_last_result';
     const OPTION_LAST_ERROR   = 'dsb_purge_last_error';
     const OPTION_LAST_DURATION_MS = 'dsb_purge_last_duration_ms';
@@ -46,11 +47,13 @@ class DSB_Purge_Worker {
 
         if ( empty( $settings['enable_purge_worker'] ) ) {
             $this->unschedule();
+            dsb_log( 'info', 'cron.unschedule', [ 'event' => 'cron.unschedule', 'job' => 'purge_worker' ] );
             return;
         }
 
         if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
             wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, self::SCHEDULE_KEY, self::CRON_HOOK );
+            dsb_log( 'info', 'cron.schedule', [ 'event' => 'cron.schedule', 'job' => 'purge_worker' ] );
         }
     }
 
@@ -67,6 +70,7 @@ class DSB_Purge_Worker {
         }
 
         $lock_minutes = max( 1, min( 120, (int) ( $settings['purge_lock_minutes'] ?? 10 ) ) );
+        DSB_Cron_Logger::log( 'purge_worker', 'Purge worker stage: lock.acquire', [ 'manual' => $manual ] );
         if ( ! $this->acquire_lock( $lock_minutes ) ) {
             return $this->record_status( 'skipped_locked', __( 'Purge worker locked', 'pixlab-license-bridge' ), 0, 0 );
         }
@@ -82,8 +86,11 @@ class DSB_Purge_Worker {
         DSB_Cron_Logger::log( 'purge_worker', 'Purge worker started', [ 'manual' => $manual, 'batch_size' => $batch_size ] );
 
         try {
+            DSB_Cron_Logger::log( 'purge_worker', 'Purge worker stage: queue.fetch', [ 'batch_size' => $batch_size ] );
             $jobs = $this->db->claim_pending_purge_jobs( $batch_size, $claim_token, $lease_minutes * MINUTE_IN_SECONDS );
+            DSB_Cron_Logger::log( 'purge_worker', 'Purge worker stage: queue.fetch.result', [ 'count' => count( $jobs ) ] );
             foreach ( $jobs as $job ) {
+                DSB_Cron_Logger::log( 'purge_worker', 'Purge worker stage: item.process', [ 'job_id' => $job['id'] ?? 0 ] );
                 $this->process_job( $job );
                 $processed ++;
             }
@@ -94,6 +101,7 @@ class DSB_Purge_Worker {
         } finally {
             $duration_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
             $this->release_lock();
+            DSB_Cron_Logger::log( 'purge_worker', 'Purge worker stage: lock.release', [] );
             $status = $this->record_status( $result, $error_message, $duration_ms, $processed );
             DSB_Cron_Logger::log( 'purge_worker', 'Purge worker finished', [ 'status' => $result, 'duration_ms' => $duration_ms, 'processed' => $processed ] );
             DSB_Cron_Alerts::handle_job_result(
@@ -106,6 +114,14 @@ class DSB_Purge_Worker {
                     'next_run' => $this->format_next_run(),
                 ]
             );
+
+            dsb_log( 'info', 'cron.run.finish', [
+                'event' => 'cron.run.finish',
+                'job'   => 'purge_worker',
+                'status' => $status['status'] ?? $result,
+                'processed' => $processed,
+                'duration_ms' => $duration_ms,
+            ] );
 
             return $status;
         }
@@ -242,6 +258,7 @@ class DSB_Purge_Worker {
 
         $payload['api_key_id'] = $api_key_id;
 
+        DSB_Cron_Logger::log( 'purge_worker', 'Purge worker stage: pixlab.call', [ 'job_id' => $job_id, 'api_key_id' => $api_key_id ] );
         $response     = $this->client->purge_user_on_node( $payload );
         $response_obj = $response['response'] ?? null;
         $code         = (int) ( $response['code'] ?? 0 );
@@ -272,10 +289,12 @@ class DSB_Purge_Worker {
         $this->db->log_event( $log_data );
 
         if ( $status_ok ) {
+            DSB_Cron_Logger::log( 'purge_worker', 'Purge worker stage: db.update', [ 'job_id' => $job_id, 'status' => 'done' ] );
             $this->db->delete_user_rows_local( $wp_user_id, $emails, $subs );
             $this->db->mark_job_done( $job_id );
             dsb_log( 'info', 'Purge job completed', [ 'job_id' => $job_id, 'code' => $code, 'wp_user_id' => $wp_user_id ?: null ] );
         } else {
+            DSB_Cron_Logger::log( 'purge_worker', 'Purge worker stage: db.update', [ 'job_id' => $job_id, 'status' => 'error', 'attempt' => $attempt ] );
             $this->db->mark_job_error( $job, $error, self::MAX_ATTEMPTS );
             dsb_log(
                 'error',
@@ -301,6 +320,7 @@ class DSB_Purge_Worker {
     public function get_last_status(): array {
         return [
             'last_run_at'      => get_option( self::OPTION_LAST_RUN_AT, '' ),
+            'last_run_ts'      => (int) get_option( self::OPTION_LAST_RUN_TS, 0 ),
             'last_result'      => get_option( self::OPTION_LAST_RESULT, '' ),
             'last_error'       => get_option( self::OPTION_LAST_ERROR, '' ),
             'last_duration_ms' => (int) get_option( self::OPTION_LAST_DURATION_MS, 0 ),
@@ -324,6 +344,7 @@ class DSB_Purge_Worker {
 
     protected function record_status( string $result, string $error, int $duration_ms, int $processed ): array {
         update_option( self::OPTION_LAST_RUN_AT, current_time( 'mysql', true ) );
+        update_option( self::OPTION_LAST_RUN_TS, time() );
         update_option( self::OPTION_LAST_RESULT, $result );
         update_option( self::OPTION_LAST_ERROR, wp_strip_all_tags( $error ) );
         update_option( self::OPTION_LAST_DURATION_MS, $duration_ms );

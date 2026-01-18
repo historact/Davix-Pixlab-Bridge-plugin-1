@@ -41,6 +41,7 @@ class DSB_Admin {
         add_action( 'admin_post_dsb_download_log', [ $this, 'handle_download_log' ] );
         add_action( 'admin_post_dsb_clear_log', [ $this, 'handle_clear_log' ] );
         add_action( 'admin_post_dsb_clear_db_logs', [ $this, 'handle_clear_db_logs' ] );
+        add_action( 'admin_post_dsb_test_alert_routing', [ $this, 'handle_test_alert_routing' ] );
         add_action( 'admin_post_dsb_run_resync_now', [ $this, 'handle_run_resync_now' ] );
         add_action( 'admin_post_dsb_run_node_poll_now', [ $this, 'handle_run_node_poll_now' ] );
         add_action( 'wp_ajax_dsb_search_users', [ $this, 'ajax_search_users' ] );
@@ -772,6 +773,15 @@ class DSB_Admin {
             }
         }
 
+        if ( isset( $_GET['dsb_alert_test'] ) ) {
+            $status = sanitize_key( wp_unslash( $_GET['dsb_alert_test'] ) );
+            if ( 'success' === $status ) {
+                $this->add_notice( __( 'Test alert sent.', 'pixlab-license-bridge' ) );
+            } else {
+                $this->add_notice( __( 'Test alert failed to send.', 'pixlab-license-bridge' ), 'error' );
+            }
+        }
+
         if ( $settings_nonce_valid ) {
             if ( 'style' === $tab ) {
                 $style_keys = array_keys( $this->client->get_style_defaults() );
@@ -803,42 +813,21 @@ class DSB_Admin {
                 $updated_settings = $this->client->get_settings();
 
                 if ( ! empty( $previous_settings['debug_enabled'] ) && empty( $updated_settings['debug_enabled'] ) ) {
-                    dsb_delete_all_logs();
-                    $this->add_notice( __( 'Debug disabled. Logs deleted.', 'pixlab-license-bridge' ) );
+                    $this->add_notice( __( 'Debug disabled. Logging stopped.', 'pixlab-license-bridge' ) );
                 } elseif ( empty( $previous_settings['debug_enabled'] ) && ! empty( $updated_settings['debug_enabled'] ) ) {
                     dsb_ensure_log_dir();
                     dsb_log( 'info', 'Debug enabled' );
                 }
 
-                $cron_debug_keys = [
-                    'purge_worker' => __( 'Purge worker', 'pixlab-license-bridge' ),
-                    'node_poll'    => __( 'Node poll', 'pixlab-license-bridge' ),
-                    'resync'       => __( 'Daily resync', 'pixlab-license-bridge' ),
-                ];
-
-                foreach ( $cron_debug_keys as $key => $label ) {
-                    $setting_key = 'enable_cron_debug_' . $key;
-                    if ( ! empty( $previous_settings[ $setting_key ] ) && empty( $updated_settings[ $setting_key ] ) ) {
-                        DSB_Cron_Logger::clear( $key );
-                        $this->add_notice( sprintf( __( '%s cron debug log cleared.', 'pixlab-license-bridge' ), $label ) );
-                    }
-                }
-
                 if ( 'cron' === $tab ) {
                     $cron_keys = [
                         'enable_purge_worker',
-                        'enable_alerts_purge_worker',
-                        'enable_recovery_purge_worker',
                         'enable_cron_debug_purge_worker',
                         'enable_node_poll_sync',
                         'node_poll_delete_stale',
-                        'enable_alerts_node_poll',
-                        'enable_recovery_node_poll',
                         'enable_cron_debug_node_poll',
                         'enable_daily_resync',
                         'resync_disable_non_active',
-                        'enable_alerts_resync',
-                        'enable_recovery_resync',
                         'enable_cron_debug_resync',
                     ];
 
@@ -1297,8 +1286,7 @@ class DSB_Admin {
 
         $tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'settings';
 
-        echo '<div class="wrap"><h1>PixLab License Bridge</h1>';
-        echo '<h2 class="nav-tab-wrapper">';
+        echo '<div class="wrap dsb-admin-page">';
         $tabs = [
             'settings'     => __( 'Settings', 'pixlab-license-bridge' ),
             'plan-mapping' => __( 'Plan Mapping', 'pixlab-license-bridge' ),
@@ -1307,12 +1295,24 @@ class DSB_Admin {
             'style'        => __( 'Style', 'pixlab-license-bridge' ),
             'debug'        => __( 'Debug', 'pixlab-license-bridge' ),
             'cron'         => __( 'Cron Jobs', 'pixlab-license-bridge' ),
+            'alerts'       => __( 'Alert System', 'pixlab-license-bridge' ),
         ];
+        $logo_path = DSB_PLUGIN_DIR . 'assets/logo/logo-64.png';
+        $logo_url  = DSB_PLUGIN_URL . 'assets/logo/logo-64.png';
+        echo '<div class="dsb-admin-header">';
+        echo '<div class="dsb-admin-brand">';
+        if ( file_exists( $logo_path ) ) {
+            printf( '<img src="%s" alt="%s" class="dsb-admin-logo" />', esc_url( $logo_url ), esc_attr__( 'PixLab', 'pixlab-license-bridge' ) );
+        }
+        echo '<span class="dsb-admin-title">' . esc_html__( 'PixLab License Bridge', 'pixlab-license-bridge' ) . '</span>';
+        echo '</div>';
+        echo '<nav class="dsb-admin-tabs" aria-label="' . esc_attr__( 'PixLab License Bridge tabs', 'pixlab-license-bridge' ) . '">';
         foreach ( $tabs as $key => $label ) {
-            $class = $tab === $key ? 'nav-tab nav-tab-active' : 'nav-tab';
+            $class = $tab === $key ? 'dsb-admin-tab is-active' : 'dsb-admin-tab';
             printf( '<a href="%s" class="%s">%s</a>', esc_url( add_query_arg( [ 'page' => 'davix-bridge', 'tab' => $key ], admin_url( 'admin.php' ) ) ), esc_attr( $class ), esc_html( $label ) );
         }
-        echo '</h2>';
+        echo '</nav>';
+        echo '</div>';
 
         $settings = $this->client->get_settings();
         $server_software = isset( $_SERVER['SERVER_SOFTWARE'] ) ? (string) $_SERVER['SERVER_SOFTWARE'] : '';
@@ -1341,6 +1341,8 @@ class DSB_Admin {
             $this->render_debug_tab();
         } elseif ( 'cron' === $tab ) {
             $this->render_cron_tab();
+        } elseif ( 'alerts' === $tab ) {
+            $this->render_alerts_tab();
         } else {
             $this->render_settings_tab();
         }
@@ -2188,13 +2190,21 @@ class DSB_Admin {
                     } elseif ( isset( $item['id'] ) ) {
                         $api_key_id = absint( $item['id'] );
                     }
+                    $status_value = strtolower( (string) ( $item['status'] ?? '' ) );
+                    if ( in_array( $status_value, [ 'active', 'enabled', 'ok' ], true ) ) {
+                        $status_class = 'is-active';
+                    } elseif ( in_array( $status_value, [ 'disabled', 'inactive', 'revoked' ], true ) ) {
+                        $status_class = 'is-disabled';
+                    } else {
+                        $status_class = 'is-unknown';
+                    }
                     ?>
                     <?php $purge_disabled = ! $api_key_id; ?>
                     <tr>
                         <td><?php echo esc_html( $item['subscription_id'] ?? '' ); ?></td>
                         <td><?php echo esc_html( $item['customer_email'] ?? '' ); ?></td>
                         <td><?php echo esc_html( $item['plan_slug'] ?? '' ); ?></td>
-                        <td><?php echo esc_html( $item['status'] ?? '' ); ?></td>
+                        <td><span class="dsb-status-card <?php echo esc_attr( $status_class ); ?>"><?php echo esc_html( $item['status'] ?? '' ); ?></span></td>
                         <td><?php echo esc_html( $item['key_prefix'] ?? '' ); ?></td>
                         <td><?php echo esc_html( $item['key_last4'] ?? '' ); ?></td>
                         <td><?php echo esc_html( $this->format_admin_datetime( $item['valid_from'] ?? '' ) ); ?></td>
@@ -2342,9 +2352,18 @@ class DSB_Admin {
             <?php submit_button( __( 'Clear all logs', 'pixlab-license-bridge' ), 'delete', 'submit', false, [ 'onclick' => "return confirm('" . esc_js( __( 'Are you sure you want to clear all bridge logs?', 'pixlab-license-bridge' ) ) . "');" ] ); ?>
         </form>
         <table class="widefat">
-            <thead><tr><th><?php esc_html_e( 'Time', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Event', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Subscription', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Order', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Email', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Response', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'HTTP', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Error', 'pixlab-license-bridge' ); ?></th></tr></thead>
+            <thead><tr><th><?php esc_html_e( 'Time', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Event', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Subscription', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Order', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Email', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Response', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'HTTP', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Error', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Details', 'pixlab-license-bridge' ); ?></th></tr></thead>
             <tbody>
             <?php foreach ( $logs as $log ) : ?>
+                <?php
+                $context_json = '';
+                if ( ! empty( $log['context_json'] ) ) {
+                    $decoded_context = json_decode( (string) $log['context_json'], true );
+                    $context_json = is_array( $decoded_context )
+                        ? wp_json_encode( $decoded_context, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES )
+                        : (string) $log['context_json'];
+                }
+                ?>
                 <tr>
                     <td><?php echo esc_html( $log['created_at'] ); ?></td>
                     <td><?php echo esc_html( $log['event'] ); ?></td>
@@ -2354,13 +2373,166 @@ class DSB_Admin {
                     <td><?php echo esc_html( $log['response_action'] ); ?></td>
                     <td><?php echo esc_html( $log['http_code'] ); ?></td>
                     <td><?php echo esc_html( $log['error_excerpt'] ); ?></td>
+                    <td>
+                        <?php if ( $context_json ) : ?>
+                            <details>
+                                <summary><?php esc_html_e( 'View', 'pixlab-license-bridge' ); ?></summary>
+                                <pre><?php echo esc_html( $context_json ); ?></pre>
+                            </details>
+                        <?php else : ?>
+                            <?php esc_html_e( '—', 'pixlab-license-bridge' ); ?>
+                        <?php endif; ?>
+                    </td>
                 </tr>
             <?php endforeach; ?>
             <?php if ( empty( $logs ) ) : ?>
-                <tr><td colspan="8"><?php esc_html_e( 'No logs yet.', 'pixlab-license-bridge' ); ?></td></tr>
+                <tr><td colspan="9"><?php esc_html_e( 'No logs yet.', 'pixlab-license-bridge' ); ?></td></tr>
             <?php endif; ?>
             </tbody>
         </table>
+        <?php
+    }
+
+    protected function render_alerts_tab(): void {
+        $settings = $this->client->get_settings();
+        $masked_telegram = '';
+        if ( ! empty( $settings['telegram_bot_token'] ) && function_exists( 'dsb_mask_string' ) ) {
+            $masked_telegram = dsb_mask_string( (string) $settings['telegram_bot_token'] );
+        }
+        ?>
+        <h2><?php esc_html_e( 'Alert System', 'pixlab-license-bridge' ); ?></h2>
+        <form method="post">
+            <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
+            <h3><?php esc_html_e( 'Global Alert Routing', 'pixlab-license-bridge' ); ?></h3>
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Alert emails', 'pixlab-license-bridge' ); ?></th>
+                    <td><textarea name="alert_emails" rows="3" class="large-text" placeholder="admin@example.com&#10;ops@example.com"><?php echo esc_textarea( $settings['alert_emails'] ?? '' ); ?></textarea><p class="description"><?php esc_html_e( 'Comma or newline separated.', 'pixlab-license-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Telegram bot token', 'pixlab-license-bridge' ); ?></th>
+                    <td>
+                        <div class="dsb-telegram-token-wrap">
+                            <input type="password" name="telegram_bot_token" class="regular-text dsb-telegram-token" value="" autocomplete="off" />
+                            <button type="button" class="button dsb-telegram-toggle" data-label-show="<?php esc_attr_e( 'Show', 'pixlab-license-bridge' ); ?>" data-label-hide="<?php esc_attr_e( 'Hide', 'pixlab-license-bridge' ); ?>"><?php esc_html_e( 'Show', 'pixlab-license-bridge' ); ?></button>
+                        </div>
+                        <?php if ( $masked_telegram ) : ?>
+                            <p class="description"><?php echo esc_html( sprintf( __( 'Stored token: %s', 'pixlab-license-bridge' ), $masked_telegram ) ); ?></p>
+                        <?php endif; ?>
+                        <p class="description"><?php esc_html_e( 'Leave blank to keep existing token.', 'pixlab-license-bridge' ); ?></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Telegram chat IDs', 'pixlab-license-bridge' ); ?></th>
+                    <td><textarea name="telegram_chat_ids" rows="3" class="large-text" placeholder="123456789&#10;-100123456789"><?php echo esc_textarea( $settings['telegram_chat_ids'] ?? '' ); ?></textarea><p class="description"><?php esc_html_e( 'Comma or newline separated chat IDs or @channel handles.', 'pixlab-license-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Alert email subject', 'pixlab-license-bridge' ); ?></th>
+                    <td><input type="text" name="alert_email_subject" class="regular-text" value="<?php echo esc_attr( $settings['alert_email_subject'] ?? '' ); ?>" /><p class="description"><?php esc_html_e( 'Supports placeholders like {job_name}, {site}, {time}.', 'pixlab-license-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Recovery email subject', 'pixlab-license-bridge' ); ?></th>
+                    <td><input type="text" name="recovery_email_subject" class="regular-text" value="<?php echo esc_attr( $settings['recovery_email_subject'] ?? '' ); ?>" /><p class="description"><?php esc_html_e( 'Supports placeholders like {job_name}, {site}, {time}.', 'pixlab-license-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Alert template', 'pixlab-license-bridge' ); ?></th>
+                    <td><textarea name="alert_template" rows="3" class="large-text" placeholder="{job_name} failed on {site} with {error_excerpt}"><?php echo esc_textarea( $settings['alert_template'] ?? '' ); ?></textarea></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Recovery template', 'pixlab-license-bridge' ); ?></th>
+                    <td><textarea name="recovery_template" rows="3" class="large-text" placeholder="{job_name} recovered on {site} at {time}"><?php echo esc_textarea( $settings['recovery_template'] ?? '' ); ?></textarea></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Alert threshold', 'pixlab-license-bridge' ); ?></th>
+                    <td><input type="number" name="alert_threshold" min="1" value="<?php echo esc_attr( (int) ( $settings['alert_threshold'] ?? 3 ) ); ?>" /> <p class="description"><?php esc_html_e( 'Consecutive failures before alerting.', 'pixlab-license-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Alert cooldown (minutes)', 'pixlab-license-bridge' ); ?></th>
+                    <td><input type="number" name="alert_cooldown_minutes" min="1" value="<?php echo esc_attr( (int) ( $settings['alert_cooldown_minutes'] ?? 60 ) ); ?>" /> <p class="description"><?php esc_html_e( 'Minimum minutes between alerts for the same job or trigger.', 'pixlab-license-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Test alert routing', 'pixlab-license-bridge' ); ?></th>
+                    <td>
+                        <button type="submit" class="button" form="dsb-test-alert-form"><?php esc_html_e( 'Test Alert Routing', 'pixlab-license-bridge' ); ?></button>
+                        <p class="description"><?php esc_html_e( 'Send a test alert to verify email and Telegram routing.', 'pixlab-license-bridge' ); ?></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Alert triggers', 'pixlab-license-bridge' ); ?></th>
+                    <td>
+                        <input type="hidden" name="alerts_enable_cron" value="0" />
+                        <label><input type="checkbox" name="alerts_enable_cron" value="1" <?php checked( ! empty( $settings['alerts_enable_cron'] ) ); ?> /> <?php esc_html_e( 'Enable cron job alerts', 'pixlab-license-bridge' ); ?></label><br />
+                        <input type="hidden" name="alerts_enable_db_connectivity" value="0" />
+                        <label><input type="checkbox" name="alerts_enable_db_connectivity" value="1" <?php checked( ! empty( $settings['alerts_enable_db_connectivity'] ) ); ?> /> <?php esc_html_e( 'Enable DB connectivity alerts', 'pixlab-license-bridge' ); ?></label><br />
+                        <input type="hidden" name="alerts_enable_license_validation" value="0" />
+                        <label><input type="checkbox" name="alerts_enable_license_validation" value="1" <?php checked( ! empty( $settings['alerts_enable_license_validation'] ) ); ?> /> <?php esc_html_e( 'Enable license validation alerts', 'pixlab-license-bridge' ); ?></label><br />
+                        <input type="hidden" name="alerts_enable_api_error_rate" value="0" />
+                        <label><input type="checkbox" name="alerts_enable_api_error_rate" value="1" <?php checked( ! empty( $settings['alerts_enable_api_error_rate'] ) ); ?> /> <?php esc_html_e( 'Enable API error rate alerts', 'pixlab-license-bridge' ); ?></label><br />
+                        <input type="hidden" name="alerts_enable_admin_security" value="0" />
+                        <label><input type="checkbox" name="alerts_enable_admin_security" value="1" <?php checked( ! empty( $settings['alerts_enable_admin_security'] ) ); ?> /> <?php esc_html_e( 'Enable admin security alerts', 'pixlab-license-bridge' ); ?></label>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'API error rate window (minutes)', 'pixlab-license-bridge' ); ?></th>
+                    <td><input type="number" name="alerts_api_error_window_minutes" min="1" value="<?php echo esc_attr( (int) ( $settings['alerts_api_error_window_minutes'] ?? 15 ) ); ?>" /></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'API error rate threshold', 'pixlab-license-bridge' ); ?></th>
+                    <td><input type="number" name="alerts_api_error_threshold" min="1" value="<?php echo esc_attr( (int) ( $settings['alerts_api_error_threshold'] ?? 10 ) ); ?>" /></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'API error rate cooldown (minutes)', 'pixlab-license-bridge' ); ?></th>
+                    <td><input type="number" name="alerts_api_error_cooldown_minutes" min="1" value="<?php echo esc_attr( (int) ( $settings['alerts_api_error_cooldown_minutes'] ?? 30 ) ); ?>" /></td>
+                </tr>
+            </table>
+
+            <h3><?php esc_html_e( 'Cron Job Alerts', 'pixlab-license-bridge' ); ?></h3>
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Purge Worker', 'pixlab-license-bridge' ); ?></th>
+                    <td>
+                        <input type="hidden" name="enable_alerts_purge_worker" value="0" />
+                        <label><input type="checkbox" name="enable_alerts_purge_worker" value="1" <?php checked( ! empty( $settings['enable_alerts_purge_worker'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'pixlab-license-bridge' ); ?></label><br />
+                        <input type="hidden" name="enable_recovery_purge_worker" value="0" />
+                        <label><input type="checkbox" name="enable_recovery_purge_worker" value="1" <?php checked( ! empty( $settings['enable_recovery_purge_worker'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'pixlab-license-bridge' ); ?></label>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Provision Worker', 'pixlab-license-bridge' ); ?></th>
+                    <td>
+                        <input type="hidden" name="enable_alerts_provision_worker" value="0" />
+                        <label><input type="checkbox" name="enable_alerts_provision_worker" value="1" <?php checked( ! empty( $settings['enable_alerts_provision_worker'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'pixlab-license-bridge' ); ?></label><br />
+                        <input type="hidden" name="enable_recovery_provision_worker" value="0" />
+                        <label><input type="checkbox" name="enable_recovery_provision_worker" value="1" <?php checked( ! empty( $settings['enable_recovery_provision_worker'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'pixlab-license-bridge' ); ?></label>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Node Poll Sync', 'pixlab-license-bridge' ); ?></th>
+                    <td>
+                        <input type="hidden" name="enable_alerts_node_poll" value="0" />
+                        <label><input type="checkbox" name="enable_alerts_node_poll" value="1" <?php checked( ! empty( $settings['enable_alerts_node_poll'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'pixlab-license-bridge' ); ?></label><br />
+                        <input type="hidden" name="enable_recovery_node_poll" value="0" />
+                        <label><input type="checkbox" name="enable_recovery_node_poll" value="1" <?php checked( ! empty( $settings['enable_recovery_node_poll'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'pixlab-license-bridge' ); ?></label>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Daily Resync', 'pixlab-license-bridge' ); ?></th>
+                    <td>
+                        <input type="hidden" name="enable_alerts_resync" value="0" />
+                        <label><input type="checkbox" name="enable_alerts_resync" value="1" <?php checked( ! empty( $settings['enable_alerts_resync'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'pixlab-license-bridge' ); ?></label><br />
+                        <input type="hidden" name="enable_recovery_resync" value="0" />
+                        <label><input type="checkbox" name="enable_recovery_resync" value="1" <?php checked( ! empty( $settings['enable_recovery_resync'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'pixlab-license-bridge' ); ?></label>
+                    </td>
+                </tr>
+            </table>
+
+            <?php submit_button( __( 'Save alert settings', 'pixlab-license-bridge' ) ); ?>
+        </form>
+
+        <form id="dsb-test-alert-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <?php wp_nonce_field( 'dsb_test_alert_routing', 'dsb_test_alert_nonce' ); ?>
+            <input type="hidden" name="action" value="dsb_test_alert_routing" />
+        </form>
         <?php
     }
 
@@ -2532,6 +2704,37 @@ class DSB_Admin {
         exit;
     }
 
+    public function handle_test_alert_routing(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'pixlab-license-bridge' ) );
+        }
+
+        if ( ! isset( $_POST['dsb_test_alert_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_test_alert_nonce'] ) ), 'dsb_test_alert_routing' ) ) {
+            wp_die( esc_html__( 'Invalid nonce.', 'pixlab-license-bridge' ) );
+        }
+
+        $result = DSB_Cron_Alerts::send_test_routing();
+        $sent   = ! empty( $result['sent'] );
+
+        dsb_log( 'info', 'Test alert routing invoked', [
+            'sent' => $sent,
+            'telegram_send_attempted' => ! empty( $result['telegram_attempted'] ),
+            'email_send_attempted' => ! empty( $result['email_attempted'] ),
+        ] );
+
+        wp_safe_redirect(
+            add_query_arg(
+                [
+                    'page' => 'davix-bridge',
+                    'tab'  => 'alerts',
+                    'dsb_alert_test' => $sent ? 'success' : 'error',
+                ],
+                admin_url( 'admin.php' )
+            )
+        );
+        exit;
+    }
+
     protected function mask_sensitive_fields( $data ) {
         if ( is_array( $data ) ) {
             $clean = [];
@@ -2690,7 +2893,7 @@ class DSB_Admin {
         $provision_status = $this->provision_worker->get_last_status();
         $node_status   = $this->node_poll->get_last_status();
         $resync_status = $this->resync->get_last_status();
-        $now_ts        = time();
+        $now_ts        = (int) current_time( 'timestamp', true );
         $warnings      = [];
 
         if ( defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON ) {
@@ -2706,11 +2909,20 @@ class DSB_Admin {
             if ( ! $enabled ) {
                 return;
             }
-            $last_run = $status['last_run_at'] ?? '';
-            if ( ! $last_run ) {
+            $last_run_ts = isset( $status['last_run_ts'] ) ? (int) $status['last_run_ts'] : 0;
+            if ( ! $last_run_ts ) {
+                $last_run = $status['last_run_at'] ?? '';
+                if ( ! $last_run ) {
+                    return;
+                }
+                $last_run_ts = strtotime( $last_run . ' UTC' );
+                if ( ! $last_run_ts ) {
+                    $last_run_ts = strtotime( (string) $last_run );
+                }
+            }
+            if ( ! $last_run_ts ) {
                 return;
             }
-            $last_run_ts = strtotime( (string) $last_run );
             if ( $last_run_ts && ( $now_ts - $last_run_ts ) > ( 2 * $interval_seconds ) ) {
                 $overdue_jobs[] = $job;
             }
@@ -2770,15 +2982,6 @@ class DSB_Admin {
                         <td><input type="number" min="1" max="100" name="purge_batch_size" value="<?php echo esc_attr( (int) ( $settings['purge_batch_size'] ?? 20 ) ); ?>" /> <p class="description"><?php esc_html_e( 'Maximum purge jobs processed per run.', 'pixlab-license-bridge' ); ?></p></td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php esc_html_e( 'Alerts', 'pixlab-license-bridge' ); ?></th>
-                        <td>
-                            <input type="hidden" name="enable_alerts_purge_worker" value="0" />
-                            <label><input type="checkbox" name="enable_alerts_purge_worker" value="1" <?php checked( ! empty( $settings['enable_alerts_purge_worker'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'pixlab-license-bridge' ); ?></label><br />
-                            <input type="hidden" name="enable_recovery_purge_worker" value="0" />
-                            <label><input type="checkbox" name="enable_recovery_purge_worker" value="1" <?php checked( ! empty( $settings['enable_recovery_purge_worker'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'pixlab-license-bridge' ); ?></label>
-                        </td>
-                    </tr>
-                    <tr>
                         <th scope="row"><?php esc_html_e( 'Cron debug log', 'pixlab-license-bridge' ); ?></th>
                         <td>
                             <input type="hidden" name="enable_cron_debug_purge_worker" value="0" />
@@ -2789,15 +2992,6 @@ class DSB_Admin {
 
                 <h3 class="dsb-cron-h2"><?php esc_html_e( 'Provision Worker', 'pixlab-license-bridge' ); ?></h3>
                 <table class="form-table" role="presentation">
-                    <tr>
-                        <th scope="row"><?php esc_html_e( 'Alerts', 'pixlab-license-bridge' ); ?></th>
-                        <td>
-                            <input type="hidden" name="enable_alerts_provision_worker" value="0" />
-                            <label><input type="checkbox" name="enable_alerts_provision_worker" value="1" <?php checked( ! empty( $settings['enable_alerts_provision_worker'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'pixlab-license-bridge' ); ?></label><br />
-                            <input type="hidden" name="enable_recovery_provision_worker" value="0" />
-                            <label><input type="checkbox" name="enable_recovery_provision_worker" value="1" <?php checked( ! empty( $settings['enable_recovery_provision_worker'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'pixlab-license-bridge' ); ?></label>
-                        </td>
-                    </tr>
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Cron debug log', 'pixlab-license-bridge' ); ?></th>
                         <td>
@@ -2834,15 +3028,6 @@ class DSB_Admin {
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Node poll lock window (minutes)', 'pixlab-license-bridge' ); ?></th>
                         <td><input type="number" name="node_poll_lock_minutes" min="1" value="<?php echo esc_attr( (int) $settings['node_poll_lock_minutes'] ); ?>" /> <p class="description"><?php esc_html_e( 'Prevents overlapping poll runs.', 'pixlab-license-bridge' ); ?></p></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><?php esc_html_e( 'Alerts', 'pixlab-license-bridge' ); ?></th>
-                        <td>
-                            <input type="hidden" name="enable_alerts_node_poll" value="0" />
-                            <label><input type="checkbox" name="enable_alerts_node_poll" value="1" <?php checked( ! empty( $settings['enable_alerts_node_poll'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'pixlab-license-bridge' ); ?></label><br />
-                            <input type="hidden" name="enable_recovery_node_poll" value="0" />
-                            <label><input type="checkbox" name="enable_recovery_node_poll" value="1" <?php checked( ! empty( $settings['enable_recovery_node_poll'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'pixlab-license-bridge' ); ?></label>
-                        </td>
                     </tr>
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Cron debug log', 'pixlab-license-bridge' ); ?></th>
@@ -2882,52 +3067,11 @@ class DSB_Admin {
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php esc_html_e( 'Alerts', 'pixlab-license-bridge' ); ?></th>
-                        <td>
-                            <input type="hidden" name="enable_alerts_resync" value="0" />
-                            <label><input type="checkbox" name="enable_alerts_resync" value="1" <?php checked( ! empty( $settings['enable_alerts_resync'] ) ); ?> /> <?php esc_html_e( 'Enable alerts', 'pixlab-license-bridge' ); ?></label><br />
-                            <input type="hidden" name="enable_recovery_resync" value="0" />
-                            <label><input type="checkbox" name="enable_recovery_resync" value="1" <?php checked( ! empty( $settings['enable_recovery_resync'] ) ); ?> /> <?php esc_html_e( 'Send recovery notice', 'pixlab-license-bridge' ); ?></label>
-                        </td>
-                    </tr>
-                    <tr>
                         <th scope="row"><?php esc_html_e( 'Cron debug log', 'pixlab-license-bridge' ); ?></th>
                         <td>
                             <input type="hidden" name="enable_cron_debug_resync" value="0" />
                             <label><input type="checkbox" name="enable_cron_debug_resync" value="1" <?php checked( ! empty( $settings['enable_cron_debug_resync'] ) ); ?> /> <?php esc_html_e( 'Enable resync cron debug log', 'pixlab-license-bridge' ); ?></label>
                         </td>
-                    </tr>
-                </table>
-
-                <h3 class="dsb-cron-h2"><?php esc_html_e( 'Global Alert Routing', 'pixlab-license-bridge' ); ?></h3>
-                <table class="form-table" role="presentation">
-                    <tr>
-                        <th scope="row"><?php esc_html_e( 'Alert emails', 'pixlab-license-bridge' ); ?></th>
-                        <td><textarea name="alert_emails" rows="3" class="large-text" placeholder="admin@example.com&#10;ops@example.com"><?php echo esc_textarea( $settings['alert_emails'] ?? '' ); ?></textarea><p class="description"><?php esc_html_e( 'Comma or newline separated.', 'pixlab-license-bridge' ); ?></p></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><?php esc_html_e( 'Telegram bot token', 'pixlab-license-bridge' ); ?></th>
-                        <td><input type="text" name="telegram_bot_token" class="regular-text" value="<?php echo esc_attr( $settings['telegram_bot_token'] ?? '' ); ?>" /></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><?php esc_html_e( 'Telegram chat IDs', 'pixlab-license-bridge' ); ?></th>
-                        <td><textarea name="telegram_chat_ids" rows="3" class="large-text" placeholder="123456789&#10;-100123456789"><?php echo esc_textarea( $settings['telegram_chat_ids'] ?? '' ); ?></textarea><p class="description"><?php esc_html_e( 'Comma or newline separated chat IDs or @channel handles.', 'pixlab-license-bridge' ); ?></p></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><?php esc_html_e( 'Alert template', 'pixlab-license-bridge' ); ?></th>
-                        <td><textarea name="alert_template" rows="3" class="large-text" placeholder="{job_name} failed on {site} with {error_excerpt}"><?php echo esc_textarea( $settings['alert_template'] ?? '' ); ?></textarea></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><?php esc_html_e( 'Recovery template', 'pixlab-license-bridge' ); ?></th>
-                        <td><textarea name="recovery_template" rows="3" class="large-text" placeholder="{job_name} recovered on {site} at {time}"><?php echo esc_textarea( $settings['recovery_template'] ?? '' ); ?></textarea></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><?php esc_html_e( 'Alert threshold', 'pixlab-license-bridge' ); ?></th>
-                        <td><input type="number" name="alert_threshold" min="1" value="<?php echo esc_attr( (int) ( $settings['alert_threshold'] ?? 3 ) ); ?>" /> <p class="description"><?php esc_html_e( 'Consecutive failures before alerting.', 'pixlab-license-bridge' ); ?></p></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><?php esc_html_e( 'Alert cooldown (minutes)', 'pixlab-license-bridge' ); ?></th>
-                        <td><input type="number" name="alert_cooldown_minutes" min="1" value="<?php echo esc_attr( (int) ( $settings['alert_cooldown_minutes'] ?? 60 ) ); ?>" /> <p class="description"><?php esc_html_e( 'Minimum minutes between alerts for the same job.', 'pixlab-license-bridge' ); ?></p></td>
                     </tr>
                 </table>
 
