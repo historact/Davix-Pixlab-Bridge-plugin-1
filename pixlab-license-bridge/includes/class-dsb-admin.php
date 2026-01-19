@@ -1303,8 +1303,9 @@ class DSB_Admin {
             'logs'         => __( 'Logs', 'pixlab-license-bridge' ),
             'debug'        => __( 'Debug', 'pixlab-license-bridge' ),
         ];
-        $logo_path = DSB_PLUGIN_DIR . 'assets/logo/logo-64.png';
-        $logo_url  = DSB_PLUGIN_URL . 'assets/logo/logo-64.png';
+        $logo_rel  = 'assets/logo/logo-256.png';
+        $logo_path = defined( 'DSB_PLUGIN_DIR' ) ? DSB_PLUGIN_DIR . $logo_rel : plugin_dir_path( __DIR__ ) . $logo_rel;
+        $logo_url  = defined( 'DSB_PLUGIN_URL' ) ? DSB_PLUGIN_URL . $logo_rel : plugins_url( $logo_rel, defined( 'DSB_PLUGIN_FILE' ) ? DSB_PLUGIN_FILE : __FILE__ );
         echo '<div class="dsb-shell">';
         echo '<div class="dsb-hero-header">';
         echo '<div class="dsb-hero-top">';
@@ -1318,7 +1319,13 @@ class DSB_Admin {
         echo '<nav class="dsb-hero-tabs" aria-label="' . esc_attr__( 'PixLab License Bridge tabs', 'pixlab-license-bridge' ) . '">';
         foreach ( $tabs as $key => $label ) {
             $class = $tab === $key ? 'dsb-hero-tab is-active' : 'dsb-hero-tab';
-            printf( '<a href="%s" class="%s">%s</a>', esc_url( add_query_arg( [ 'page' => 'davix-bridge', 'tab' => $key ], admin_url( 'admin.php' ) ) ), esc_attr( $class ), esc_html( $label ) );
+            printf(
+                '<a href="%s" class="%s" data-dsb-tab="%s">%s</a>',
+                esc_url( add_query_arg( [ 'page' => 'davix-bridge', 'tab' => $key ], admin_url( 'admin.php' ) ) ),
+                esc_attr( $class ),
+                esc_attr( $key ),
+                esc_html( $label )
+            );
         }
         echo '</nav>';
         echo '</div>';
@@ -2489,7 +2496,34 @@ class DSB_Admin {
                 </tr>
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Recovery template', 'pixlab-license-bridge' ); ?></th>
-                    <td><textarea name="recovery_template" rows="3" class="large-text" placeholder="{job_name} recovered on {site} at {time}"><?php echo esc_textarea( $settings['recovery_template'] ?? '' ); ?></textarea></td>
+                    <td>
+                        <textarea name="recovery_template" rows="3" class="large-text" placeholder="{job_name} recovered on {site} at {time}"><?php echo esc_textarea( $settings['recovery_template'] ?? '' ); ?></textarea>
+                        <div class="dsb-alert-tokens">
+                            <strong><?php esc_html_e( 'Available Tokens', 'pixlab-license-bridge' ); ?></strong>
+                            <ul>
+                                <li><code>{plugin_name}</code> — <?php esc_html_e( 'Plugin name.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{plugin_version}</code> — <?php esc_html_e( 'Plugin version.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{job_name}</code> — <?php esc_html_e( 'Job or alert name.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{status}</code> — <?php esc_html_e( 'Status value.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{error_excerpt}</code> — <?php esc_html_e( 'Error excerpt (masked).', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{failures}</code> — <?php esc_html_e( 'Failure count.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{last_run}</code> — <?php esc_html_e( 'Last run time.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{next_run}</code> — <?php esc_html_e( 'Next run time.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{site}</code> — <?php esc_html_e( 'Site name (legacy).', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{site_name}</code> — <?php esc_html_e( 'Site name.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{site_url}</code> — <?php esc_html_e( 'Site URL.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{admin_url}</code> — <?php esc_html_e( 'Admin URL.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{date}</code> — <?php esc_html_e( 'Current date.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{time}</code> — <?php esc_html_e( 'Current time.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{datetime}</code> — <?php esc_html_e( 'Current date and time.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{alert_title}</code> — <?php esc_html_e( 'Alert title.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{alert_code}</code> — <?php esc_html_e( 'Alert code.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{severity}</code> — <?php esc_html_e( 'Alert severity.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{message}</code> — <?php esc_html_e( 'Alert message (masked).', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{context}</code> — <?php esc_html_e( 'Alert context (masked).', 'pixlab-license-bridge' ); ?></li>
+                            </ul>
+                        </div>
+                    </td>
                 </tr>
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Alert threshold', 'pixlab-license-bridge' ); ?></th>

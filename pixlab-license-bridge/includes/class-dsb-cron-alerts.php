@@ -166,6 +166,22 @@ class DSB_Cron_Alerts {
         $sent    = false;
         $alert_code = 'cron.' . $job;
         $severity = 'error';
+        $token_context = [
+            'alert_title' => $job_label,
+            'alert_code'  => $alert_code,
+            'severity'    => $severity,
+            'job_name'    => $job_label,
+            'status'      => 'error',
+            'error_excerpt' => $job_state['last_error'] ?? '',
+            'failures'    => $job_state['failures'] ?? '',
+            'last_run'    => $context['last_run'] ?? '',
+            'next_run'    => $context['next_run'] ?? '',
+            'message'     => $message,
+            'context'     => $context,
+        ];
+        if ( function_exists( 'dsb_apply_tokens' ) ) {
+            $message = dsb_apply_tokens( $message, $token_context );
+        }
 
         if ( $emails ) {
             $subject_template = trim( (string) ( $settings['alert_email_subject'] ?? '' ) );
@@ -173,6 +189,10 @@ class DSB_Cron_Alerts {
                 ? self::render_subject( $subject_template, $job_label, 'error', $job_state, $context )
                 : sprintf( '%s alert: %s', $job_label, get_bloginfo( 'name' ) );
             $from_name = isset( $settings['alert_email_from_name'] ) ? trim( (string) $settings['alert_email_from_name'] ) : '';
+            if ( function_exists( 'dsb_apply_tokens' ) ) {
+                $subject = dsb_apply_tokens( $subject, $token_context );
+                $from_name = dsb_apply_tokens( $from_name, $token_context );
+            }
             $filter = null;
             if ( $from_name ) {
                 $filter = static function () use ( $from_name ): string {
@@ -236,6 +256,22 @@ class DSB_Cron_Alerts {
         $message = self::render_template( $template, $job_label, 'recovered', [ 'failures' => 0, 'last_error' => '' ], $context );
         $alert_code = 'cron.' . $job;
         $severity = 'info';
+        $token_context = [
+            'alert_title' => $job_label,
+            'alert_code'  => $alert_code,
+            'severity'    => $severity,
+            'job_name'    => $job_label,
+            'status'      => 'recovered',
+            'error_excerpt' => '',
+            'failures'    => '0',
+            'last_run'    => $context['last_run'] ?? '',
+            'next_run'    => $context['next_run'] ?? '',
+            'message'     => $message,
+            'context'     => $context,
+        ];
+        if ( function_exists( 'dsb_apply_tokens' ) ) {
+            $message = dsb_apply_tokens( $message, $token_context );
+        }
 
         if ( $emails ) {
             $subject_template = trim( (string) ( $settings['recovery_email_subject'] ?? '' ) );
@@ -243,6 +279,10 @@ class DSB_Cron_Alerts {
                 ? self::render_subject( $subject_template, $job_label, 'recovered', [ 'failures' => 0, 'last_error' => '' ], $context )
                 : sprintf( '%s recovered: %s', $job_label, get_bloginfo( 'name' ) );
             $from_name = isset( $settings['alert_email_from_name'] ) ? trim( (string) $settings['alert_email_from_name'] ) : '';
+            if ( function_exists( 'dsb_apply_tokens' ) ) {
+                $subject = dsb_apply_tokens( $subject, $token_context );
+                $from_name = dsb_apply_tokens( $from_name, $token_context );
+            }
             $filter = null;
             if ( $from_name ) {
                 $filter = static function () use ( $from_name ): string {
@@ -401,6 +441,13 @@ class DSB_Cron_Alerts {
             $message,
             [
                 'alert_code' => $type,
+                'alert_title' => $title,
+                'job_name'   => $title,
+                'status'     => $severity,
+                'error_excerpt' => $job_state['last_error'] ?? '',
+                'failures'   => $job_state['failures'] ?? '',
+                'last_run'   => $context['last_run'] ?? '',
+                'next_run'   => $context['next_run'] ?? '',
                 'severity'   => $severity,
                 'context'    => $context,
             ]
@@ -457,6 +504,13 @@ class DSB_Cron_Alerts {
             $message,
             [
                 'alert_code' => $type,
+                'alert_title' => $title,
+                'job_name'   => $title,
+                'status'     => 'recovered',
+                'error_excerpt' => '',
+                'failures'   => '0',
+                'last_run'   => $context['last_run'] ?? '',
+                'next_run'   => $context['next_run'] ?? '',
                 'severity'   => 'info',
                 'context'    => $context,
             ]
@@ -492,6 +546,11 @@ class DSB_Cron_Alerts {
             $message,
             [
                 'alert_code' => 'test.alert',
+                'alert_title' => $job_label,
+                'job_name'   => $job_label,
+                'status'     => 'test',
+                'error_excerpt' => '',
+                'failures'   => $job_state['failures'] ?? '',
                 'severity'   => 'test',
                 'context'    => [],
             ]
@@ -516,10 +575,30 @@ class DSB_Cron_Alerts {
         $alert_code = isset( $meta['alert_code'] ) ? sanitize_text_field( (string) $meta['alert_code'] ) : 'generic.alert';
         $severity = isset( $meta['severity'] ) ? sanitize_key( (string) $meta['severity'] ) : 'error';
         $context = isset( $meta['context'] ) && is_array( $meta['context'] ) ? $meta['context'] : [];
+        $token_context = [
+            'alert_title'   => isset( $meta['alert_title'] ) ? (string) $meta['alert_title'] : '',
+            'alert_code'    => $alert_code,
+            'severity'      => $severity,
+            'job_name'      => isset( $meta['job_name'] ) ? (string) $meta['job_name'] : ( isset( $meta['alert_title'] ) ? (string) $meta['alert_title'] : '' ),
+            'status'        => isset( $meta['status'] ) ? (string) $meta['status'] : '',
+            'error_excerpt' => isset( $meta['error_excerpt'] ) ? (string) $meta['error_excerpt'] : (string) ( $context['error_excerpt'] ?? $context['error'] ?? '' ),
+            'failures'      => isset( $meta['failures'] ) ? (string) $meta['failures'] : (string) ( $context['failures'] ?? '' ),
+            'last_run'      => isset( $meta['last_run'] ) ? (string) $meta['last_run'] : (string) ( $context['last_run'] ?? '' ),
+            'next_run'      => isset( $meta['next_run'] ) ? (string) $meta['next_run'] : (string) ( $context['next_run'] ?? '' ),
+            'message'       => $message,
+            'context'       => $context,
+        ];
+        if ( function_exists( 'dsb_apply_tokens' ) ) {
+            $subject = dsb_apply_tokens( $subject, $token_context );
+            $message = dsb_apply_tokens( $message, $token_context );
+        }
 
         $sent = false;
         if ( $emails ) {
             $from_name = isset( $settings['alert_email_from_name'] ) ? trim( (string) $settings['alert_email_from_name'] ) : '';
+            if ( function_exists( 'dsb_apply_tokens' ) ) {
+                $from_name = dsb_apply_tokens( $from_name, $token_context );
+            }
             $filter = null;
             if ( $from_name ) {
                 $filter = static function () use ( $from_name ): string {
