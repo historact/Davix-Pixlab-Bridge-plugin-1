@@ -2503,6 +2503,13 @@ class DSB_Admin {
                             <ul>
                                 <li><code>{plugin_name}</code> — <?php esc_html_e( 'Plugin name.', 'pixlab-license-bridge' ); ?></li>
                                 <li><code>{plugin_version}</code> — <?php esc_html_e( 'Plugin version.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{job_name}</code> — <?php esc_html_e( 'Job or alert name.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{status}</code> — <?php esc_html_e( 'Status value.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{error_excerpt}</code> — <?php esc_html_e( 'Error excerpt (masked).', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{failures}</code> — <?php esc_html_e( 'Failure count.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{last_run}</code> — <?php esc_html_e( 'Last run time.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{next_run}</code> — <?php esc_html_e( 'Next run time.', 'pixlab-license-bridge' ); ?></li>
+                                <li><code>{site}</code> — <?php esc_html_e( 'Site name (legacy).', 'pixlab-license-bridge' ); ?></li>
                                 <li><code>{site_name}</code> — <?php esc_html_e( 'Site name.', 'pixlab-license-bridge' ); ?></li>
                                 <li><code>{site_url}</code> — <?php esc_html_e( 'Site URL.', 'pixlab-license-bridge' ); ?></li>
                                 <li><code>{admin_url}</code> — <?php esc_html_e( 'Admin URL.', 'pixlab-license-bridge' ); ?></li>

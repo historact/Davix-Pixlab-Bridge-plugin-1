@@ -170,6 +170,12 @@ class DSB_Cron_Alerts {
             'alert_title' => $job_label,
             'alert_code'  => $alert_code,
             'severity'    => $severity,
+            'job_name'    => $job_label,
+            'status'      => 'error',
+            'error_excerpt' => $job_state['last_error'] ?? '',
+            'failures'    => $job_state['failures'] ?? '',
+            'last_run'    => $context['last_run'] ?? '',
+            'next_run'    => $context['next_run'] ?? '',
             'message'     => $message,
             'context'     => $context,
         ];
@@ -254,6 +260,12 @@ class DSB_Cron_Alerts {
             'alert_title' => $job_label,
             'alert_code'  => $alert_code,
             'severity'    => $severity,
+            'job_name'    => $job_label,
+            'status'      => 'recovered',
+            'error_excerpt' => '',
+            'failures'    => '0',
+            'last_run'    => $context['last_run'] ?? '',
+            'next_run'    => $context['next_run'] ?? '',
             'message'     => $message,
             'context'     => $context,
         ];
@@ -430,6 +442,12 @@ class DSB_Cron_Alerts {
             [
                 'alert_code' => $type,
                 'alert_title' => $title,
+                'job_name'   => $title,
+                'status'     => $severity,
+                'error_excerpt' => $job_state['last_error'] ?? '',
+                'failures'   => $job_state['failures'] ?? '',
+                'last_run'   => $context['last_run'] ?? '',
+                'next_run'   => $context['next_run'] ?? '',
                 'severity'   => $severity,
                 'context'    => $context,
             ]
@@ -487,6 +505,12 @@ class DSB_Cron_Alerts {
             [
                 'alert_code' => $type,
                 'alert_title' => $title,
+                'job_name'   => $title,
+                'status'     => 'recovered',
+                'error_excerpt' => '',
+                'failures'   => '0',
+                'last_run'   => $context['last_run'] ?? '',
+                'next_run'   => $context['next_run'] ?? '',
                 'severity'   => 'info',
                 'context'    => $context,
             ]
@@ -523,6 +547,10 @@ class DSB_Cron_Alerts {
             [
                 'alert_code' => 'test.alert',
                 'alert_title' => $job_label,
+                'job_name'   => $job_label,
+                'status'     => 'test',
+                'error_excerpt' => '',
+                'failures'   => $job_state['failures'] ?? '',
                 'severity'   => 'test',
                 'context'    => [],
             ]
@@ -548,11 +576,17 @@ class DSB_Cron_Alerts {
         $severity = isset( $meta['severity'] ) ? sanitize_key( (string) $meta['severity'] ) : 'error';
         $context = isset( $meta['context'] ) && is_array( $meta['context'] ) ? $meta['context'] : [];
         $token_context = [
-            'alert_title' => isset( $meta['alert_title'] ) ? (string) $meta['alert_title'] : '',
-            'alert_code'  => $alert_code,
-            'severity'    => $severity,
-            'message'     => $message,
-            'context'     => $context,
+            'alert_title'   => isset( $meta['alert_title'] ) ? (string) $meta['alert_title'] : '',
+            'alert_code'    => $alert_code,
+            'severity'      => $severity,
+            'job_name'      => isset( $meta['job_name'] ) ? (string) $meta['job_name'] : ( isset( $meta['alert_title'] ) ? (string) $meta['alert_title'] : '' ),
+            'status'        => isset( $meta['status'] ) ? (string) $meta['status'] : '',
+            'error_excerpt' => isset( $meta['error_excerpt'] ) ? (string) $meta['error_excerpt'] : (string) ( $context['error_excerpt'] ?? $context['error'] ?? '' ),
+            'failures'      => isset( $meta['failures'] ) ? (string) $meta['failures'] : (string) ( $context['failures'] ?? '' ),
+            'last_run'      => isset( $meta['last_run'] ) ? (string) $meta['last_run'] : (string) ( $context['last_run'] ?? '' ),
+            'next_run'      => isset( $meta['next_run'] ) ? (string) $meta['next_run'] : (string) ( $context['next_run'] ?? '' ),
+            'message'       => $message,
+            'context'       => $context,
         ];
         if ( function_exists( 'dsb_apply_tokens' ) ) {
             $subject = dsb_apply_tokens( $subject, $token_context );

@@ -465,6 +465,11 @@ function dsb_apply_tokens( string $text, array $ctx = [] ): string {
         $message = dsb_mask_string( $message );
     }
 
+    $error_excerpt = isset( $ctx['error_excerpt'] ) ? (string) $ctx['error_excerpt'] : '';
+    if ( function_exists( 'dsb_mask_string' ) ) {
+        $error_excerpt = dsb_mask_string( $error_excerpt );
+    }
+
     $context_value = $ctx['context'] ?? '';
     if ( is_array( $context_value ) || is_object( $context_value ) ) {
         if ( function_exists( 'dsb_mask_secrets' ) ) {
@@ -481,6 +486,13 @@ function dsb_apply_tokens( string $text, array $ctx = [] ): string {
     $replacements = [
         '{plugin_name}'    => $plugin_name,
         '{plugin_version}' => $plugin_version,
+        '{job_name}'       => isset( $ctx['job_name'] ) ? (string) $ctx['job_name'] : '',
+        '{status}'         => isset( $ctx['status'] ) ? (string) $ctx['status'] : '',
+        '{error_excerpt}'  => $error_excerpt,
+        '{failures}'       => isset( $ctx['failures'] ) ? (string) $ctx['failures'] : '',
+        '{last_run}'       => isset( $ctx['last_run'] ) ? (string) $ctx['last_run'] : '',
+        '{next_run}'       => isset( $ctx['next_run'] ) ? (string) $ctx['next_run'] : '',
+        '{site}'           => get_bloginfo( 'name' ),
         '{site_name}'      => get_bloginfo( 'name' ),
         '{site_url}'       => home_url(),
         '{admin_url}'      => admin_url(),
