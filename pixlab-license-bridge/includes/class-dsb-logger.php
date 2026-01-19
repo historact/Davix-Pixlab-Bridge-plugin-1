@@ -148,6 +148,161 @@ function dsb_get_log_file_path(): string {
     return $dir . 'dsb-' . $date . '.log';
 }
 
+function dsb_get_alert_log_dir(): string {
+    $base = dsb_get_log_dir();
+    return trailingslashit( $base ) . 'alerts/';
+}
+
+function dsb_ensure_alert_log_dir(): bool {
+    $dir = dsb_get_alert_log_dir();
+    if ( dsb_is_production_env() && dsb_is_log_path_public( $dir ) ) {
+        return false;
+    }
+
+    if ( ! dsb_ensure_log_dir() ) {
+        return false;
+    }
+
+    if ( ! wp_mkdir_p( $dir ) ) {
+        return false;
+    }
+
+    $index_file = trailingslashit( $dir ) . 'index.php';
+    if ( ! file_exists( $index_file ) ) {
+        @file_put_contents( $index_file, "<?php\n// Silence is golden.\n" );
+    }
+
+    $htaccess = trailingslashit( $dir ) . '.htaccess';
+    if ( ! file_exists( $htaccess ) ) {
+        @file_put_contents( $htaccess, "Deny from all\n" );
+    }
+
+    $web_config = trailingslashit( $dir ) . 'web.config';
+    if ( ! file_exists( $web_config ) ) {
+        @file_put_contents(
+            $web_config,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<configuration>\n  <system.webServer>\n    <authorization>\n      <deny users=\"*\" />\n    </authorization>\n  </system.webServer>\n</configuration>\n"
+        );
+    }
+
+    return is_dir( $dir );
+}
+
+function dsb_get_alert_log_file(): string {
+    return dsb_get_alert_log_dir() . 'alerts.log';
+}
+
+function dsb_alert_log_write( array $record ): void {
+    if ( ! dsb_ensure_alert_log_dir() ) {
+        return;
+    }
+
+    $payload = [
+        'ts'       => isset( $record['ts'] ) ? (string) $record['ts'] : gmdate( 'c' ),
+        'channel'  => isset( $record['channel'] ) ? sanitize_key( (string) $record['channel'] ) : '',
+        'severity' => isset( $record['severity'] ) ? sanitize_key( (string) $record['severity'] ) : 'info',
+        'code'     => isset( $record['code'] ) ? sanitize_text_field( (string) $record['code'] ) : '',
+        'message'  => isset( $record['message'] ) ? wp_strip_all_tags( (string) $record['message'] ) : '',
+        'status'   => isset( $record['status'] ) ? sanitize_key( (string) $record['status'] ) : '',
+        'error'    => isset( $record['error'] ) ? wp_strip_all_tags( (string) $record['error'] ) : '',
+    ];
+
+    $context = isset( $record['context'] ) && is_array( $record['context'] ) ? $record['context'] : [];
+    if ( $context ) {
+        $payload['context'] = $context;
+    }
+
+    if ( function_exists( 'dsb_mask_secrets' ) ) {
+        $payload = dsb_mask_secrets( $payload );
+        if ( isset( $payload['context'] ) && is_array( $payload['context'] ) ) {
+            $payload['context'] = dsb_mask_secrets( $payload['context'] );
+        }
+    }
+
+    if ( function_exists( 'dsb_mask_string' ) ) {
+        if ( isset( $payload['message'] ) && is_string( $payload['message'] ) ) {
+            $payload['message'] = dsb_mask_string( $payload['message'] );
+        }
+        if ( isset( $payload['error'] ) && is_string( $payload['error'] ) ) {
+            $payload['error'] = dsb_mask_string( $payload['error'] );
+        }
+    }
+
+    $file = dsb_get_alert_log_file();
+    try {
+        file_put_contents( $file, wp_json_encode( $payload, JSON_UNESCAPED_SLASHES ) . PHP_EOL, FILE_APPEND | LOCK_EX );
+    } catch ( \Throwable $e ) {
+        return;
+    }
+}
+
+function dsb_alert_log_tail( int $max_lines = 50 ): array {
+    $file = dsb_get_alert_log_file();
+    if ( ! file_exists( $file ) || ! is_readable( $file ) ) {
+        return [];
+    }
+
+    $max_lines = max( 1, $max_lines );
+    $records = [];
+
+    try {
+        $fh = new \SplFileObject( $file, 'r' );
+        $fh->seek( PHP_INT_MAX );
+        $last_line = $fh->key();
+        $start     = max( 0, $last_line - $max_lines + 1 );
+        $fh->seek( $start );
+        while ( ! $fh->eof() ) {
+            $line = trim( (string) $fh->current() );
+            $fh->next();
+            if ( '' === $line ) {
+                continue;
+            }
+            $decoded = json_decode( $line, true );
+            if ( is_array( $decoded ) ) {
+                $records[] = $decoded;
+            }
+        }
+    } catch ( \Throwable $e ) {
+        return [];
+    }
+
+    return array_reverse( $records );
+}
+
+function dsb_alert_log_clear(): void {
+    $file = dsb_get_alert_log_file();
+    if ( file_exists( $file ) ) {
+        if ( ! @unlink( $file ) ) {
+            @file_put_contents( $file, '' );
+        }
+    }
+}
+
+function dsb_alert_log_download(): void {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( esc_html__( 'Unauthorized', 'pixlab-license-bridge' ) );
+    }
+
+    if ( ! isset( $_POST['dsb_download_alerts_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dsb_download_alerts_nonce'] ) ), 'dsb_download_alerts' ) ) {
+        wp_die( esc_html__( 'Invalid nonce.', 'pixlab-license-bridge' ) );
+    }
+
+    $file = dsb_get_alert_log_file();
+    if ( ! file_exists( $file ) ) {
+        nocache_headers();
+        header( 'Content-Type: text/plain' );
+        header( 'Content-Disposition: attachment; filename="pixlab-alerts.log"' );
+        echo '';
+        exit;
+    }
+
+    nocache_headers();
+    header( 'Content-Type: text/plain' );
+    header( 'Content-Disposition: attachment; filename="pixlab-alerts.log"' );
+    readfile( $file );
+    exit;
+}
+
 function dsb_get_latest_log_file(): ?string {
     $dir = dsb_get_log_dir();
     if ( ! is_dir( $dir ) ) {
@@ -238,6 +393,7 @@ function dsb_mask_chat_id( string $value ): string {
     return dsb_mask_identifier( $value, 4 );
 }
 
+// Masks tokens, auth headers, secrets, emails, chat IDs, and long identifiers before logging.
 function dsb_mask_secrets( $context ) {
     $sensitive_keys = [ 'token', 'api_key', 'apikey', 'authorization', 'bearer', 'secret', 'password', 'bridge_token', 'cookie' ];
 
@@ -407,6 +563,74 @@ function dsb_delete_all_logs(): void {
     }
     if ( file_exists( $htaccess ) && is_file( $htaccess ) ) {
         @unlink( $htaccess );
+    }
+
+    $remaining = glob( $dir . '*', GLOB_NOSORT );
+    if ( empty( $remaining ) ) {
+        @rmdir( $dir );
+    }
+}
+
+function dsb_delete_cron_logs(): void {
+    if ( class_exists( __NAMESPACE__ . '\\DSB_Cron_Logger' ) ) {
+        $dir = DSB_Cron_Logger::get_dir();
+    } else {
+        $dir = trailingslashit( dsb_get_log_dir() ) . 'cron/';
+    }
+
+    if ( ! is_dir( $dir ) ) {
+        return;
+    }
+
+    foreach ( glob( $dir . '*', GLOB_NOSORT ) as $file ) {
+        if ( is_file( $file ) ) {
+            @unlink( $file );
+        }
+    }
+
+    $index    = trailingslashit( $dir ) . 'index.php';
+    $htaccess = trailingslashit( $dir ) . '.htaccess';
+    $web_config = trailingslashit( $dir ) . 'web.config';
+
+    if ( file_exists( $index ) ) {
+        @unlink( $index );
+    }
+    if ( file_exists( $htaccess ) ) {
+        @unlink( $htaccess );
+    }
+    if ( file_exists( $web_config ) ) {
+        @unlink( $web_config );
+    }
+
+    $remaining = glob( $dir . '*', GLOB_NOSORT );
+    if ( empty( $remaining ) ) {
+        @rmdir( $dir );
+    }
+}
+
+function dsb_delete_alert_logs(): void {
+    $dir = dsb_get_alert_log_dir();
+    if ( ! is_dir( $dir ) ) {
+        return;
+    }
+
+    $file = dsb_get_alert_log_file();
+    if ( file_exists( $file ) ) {
+        @unlink( $file );
+    }
+
+    $index      = trailingslashit( $dir ) . 'index.php';
+    $htaccess   = trailingslashit( $dir ) . '.htaccess';
+    $web_config = trailingslashit( $dir ) . 'web.config';
+
+    if ( file_exists( $index ) ) {
+        @unlink( $index );
+    }
+    if ( file_exists( $htaccess ) ) {
+        @unlink( $htaccess );
+    }
+    if ( file_exists( $web_config ) ) {
+        @unlink( $web_config );
     }
 
     $remaining = glob( $dir . '*', GLOB_NOSORT );

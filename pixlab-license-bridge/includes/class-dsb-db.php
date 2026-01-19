@@ -88,6 +88,14 @@ class DSB_DB {
         $this->wpdb->query( "DROP TABLE IF EXISTS {$this->table_provision_queue}" );
     }
 
+    public function drop_triggers(): void {
+        $trigger_keys = $this->wpdb->prefix . 'dsb_keys_after_delete';
+        $trigger_user = $this->wpdb->prefix . 'dsb_user_after_delete';
+
+        $this->wpdb->query( "DROP TRIGGER IF EXISTS {$trigger_keys}" );
+        $this->wpdb->query( "DROP TRIGGER IF EXISTS {$trigger_user}" );
+    }
+
     protected function maybe_create_triggers(): void {
         $db_name = $this->wpdb->dbname ?? DB_NAME;
         $trigger_keys = $this->wpdb->prefix . 'dsb_keys_after_delete';
@@ -945,7 +953,14 @@ class DSB_DB {
             $record['context_json'] = wp_json_encode( $context );
         }
 
-        $this->wpdb->insert( $this->table_logs, $record );
+        $inserted = $this->wpdb->insert( $this->table_logs, $record );
+        if ( false === $inserted ) {
+            $error = $this->wpdb->last_error ? $this->wpdb->last_error : 'db_insert_failed';
+            $masked = function_exists( 'dsb_mask_string' ) ? dsb_mask_string( $error ) : $error;
+            dsb_log( 'error', 'Bridge log insert failed', [ 'error' => $masked ] );
+            $this->maybe_alert_db_failure( 'bridge_logs', $masked );
+            return;
+        }
 
         $count = (int) $this->wpdb->get_var( $this->wpdb->prepare( "SELECT COUNT(*) FROM {$this->table_logs}" ) );
         if ( $count > 200 ) {
@@ -956,6 +971,34 @@ class DSB_DB {
                 $this->wpdb->query( $this->wpdb->prepare( "DELETE FROM {$this->table_logs} WHERE id IN ($placeholders)", ...$ids ) );
             }
         }
+    }
+
+    protected function maybe_alert_db_failure( string $scope, string $error ): void {
+        $window_minutes = 5;
+        $threshold = 3;
+        $window_seconds = $window_minutes * MINUTE_IN_SECONDS;
+        $window_start = (int) floor( time() / $window_seconds ) * $window_seconds;
+        $key = 'dsb_db_err_count_' . $scope . '_' . $window_start;
+        $count = (int) get_transient( $key );
+        $count++;
+        set_transient( $key, $count, $window_seconds + MINUTE_IN_SECONDS );
+
+        if ( $count < $threshold ) {
+            return;
+        }
+
+        DSB_Cron_Alerts::trigger_generic_alert(
+            'db.logging_failure',
+            __( 'Database Logging Failure', 'pixlab-license-bridge' ),
+            [
+                'scope' => $scope,
+                'error' => $error,
+                'count' => $count,
+                'window_minutes' => $window_minutes,
+            ],
+            'error',
+            60
+        );
     }
 
     public function get_logs( int $limit = 200 ): array {

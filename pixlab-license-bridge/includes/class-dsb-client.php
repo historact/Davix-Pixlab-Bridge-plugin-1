@@ -43,6 +43,7 @@ class DSB_Client {
                 'purge_lease_minutes' => 15,
                 'purge_batch_size'    => 20,
                 'alert_emails'        => '',
+                'alert_email_from_name' => '',
                 'telegram_bot_token'  => '',
                 'telegram_chat_ids'   => '',
                 'alert_template'      => '',
@@ -568,6 +569,7 @@ class DSB_Client {
             'purge_lease_minutes' => isset( $data['purge_lease_minutes'] ) ? (int) $data['purge_lease_minutes'] : ( $existing['purge_lease_minutes'] ?? 15 ),
             'purge_batch_size'    => isset( $data['purge_batch_size'] ) ? (int) $data['purge_batch_size'] : ( $existing['purge_batch_size'] ?? 20 ),
             'alert_emails'        => isset( $data['alert_emails'] ) ? sanitize_textarea_field( $data['alert_emails'] ) : ( $existing['alert_emails'] ?? '' ),
+            'alert_email_from_name' => isset( $data['alert_email_from_name'] ) ? sanitize_text_field( $data['alert_email_from_name'] ) : ( $existing['alert_email_from_name'] ?? '' ),
             'telegram_bot_token'  => $telegram_bot_token,
             'telegram_chat_ids'   => isset( $data['telegram_chat_ids'] ) ? sanitize_textarea_field( $data['telegram_chat_ids'] ) : ( $existing['telegram_chat_ids'] ?? '' ),
             'alert_template'      => isset( $data['alert_template'] ) ? wp_kses_post( $data['alert_template'] ) : ( $existing['alert_template'] ?? '' ),
@@ -597,6 +599,11 @@ class DSB_Client {
             'enable_cron_debug_node_poll'    => $bool_from_post( $data, 'enable_cron_debug_node_poll', $existing['enable_cron_debug_node_poll'] ?? 0 ),
             'enable_cron_debug_resync'       => $bool_from_post( $data, 'enable_cron_debug_resync', $existing['enable_cron_debug_resync'] ?? 0 ),
         ];
+
+        if ( isset( $clean['alert_email_from_name'] ) ) {
+            $from_name = trim( (string) $clean['alert_email_from_name'] );
+            $clean['alert_email_from_name'] = substr( $from_name, 0, 80 );
+        }
 
         $settings_access_data = isset( $data['settings_access'] ) && is_array( $data['settings_access'] ) ? $data['settings_access'] : [];
         $settings_access_existing = isset( $existing['settings_access'] ) && is_array( $existing['settings_access'] ) ? $existing['settings_access'] : [];

@@ -169,12 +169,131 @@
             });
         }
 
+        function initColorPicker(){
+            var hasPicker = typeof $.fn.wpColorPicker === 'function';
+            var colorCount = $('.dsb-color-field').length;
+            if (config && config.tab === 'style' && (hasPicker || colorCount)) {
+                console.log('[DSB] wpColorPicker exists?', hasPicker, 'fields', colorCount);
+                dsbSendLog('info', 'STYLE_INIT', { hasPicker: hasPicker, fieldCount: colorCount });
+                if (hasPicker && colorCount) {
+                    $('.dsb-color-field').wpColorPicker();
+                    dsbSendLog('info', 'WPCOLORPICKER_INIT_DONE', {});
+                }
+            }
+        }
+
+        function initTabContent(){
+            bindSelects();
+            initSettingsAccess();
+            initColorPicker();
+        }
+
+        function getTabFromUrl(url){
+            try {
+                var parsed = new URL(url, window.location.href);
+                return parsed.searchParams.get('tab') || 'settings';
+            } catch (e) {
+                return 'settings';
+            }
+        }
+
+        function setLoadingState(){
+            var $container = $('#dsb-tab-content');
+            if (!$container.length) {
+                return;
+            }
+            $container.html('<div class="dsb-tab-loading"><span class="spinner is-active"></span> Loading...</div>');
+        }
+
+        function loadTabViaAjax(tab, url, pushState){
+            if (!config || !config.ajaxUrl || !config.ajax_nonce) {
+                window.location.href = url;
+                return;
+            }
+
+            setLoadingState();
+            var data = new FormData();
+            data.append('action', 'dsb_render_tab');
+            data.append('nonce', config.ajax_nonce);
+            data.append('tab', tab);
+
+            fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: data })
+                .then(function(response){ return response.json(); })
+                .then(function(payload){
+                    if (!payload || !payload.success || !payload.data || !payload.data.html) {
+                        window.location.href = url;
+                        return;
+                    }
+                    $('#dsb-tab-content').html(payload.data.html);
+                    config.tab = tab;
+                    if (pushState) {
+                        window.history.pushState({ tab: tab }, '', url);
+                    }
+                    initTabContent();
+                })
+                .catch(function(){
+                    window.location.href = url;
+                });
+        }
+
+        function refreshRecentAlerts(action){
+            if (!config || !config.ajaxUrl || !config.ajax_nonce) {
+                return;
+            }
+            var data = new FormData();
+            data.append('action', action);
+            data.append('nonce', config.ajax_nonce);
+            $('#dsb-recent-alerts').html('<div class="dsb-tab-loading"><span class="spinner is-active"></span> Loading...</div>');
+            fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: data })
+                .then(function(response){ return response.json(); })
+                .then(function(payload){
+                    if (!payload || !payload.success || !payload.data || !payload.data.html) {
+                        return;
+                    }
+                    $('#dsb-recent-alerts').html(payload.data.html);
+                });
+        }
+
+        function refreshDebugLog(){
+            if (!config || !config.ajaxUrl || !config.ajax_nonce) {
+                return;
+            }
+            var data = new FormData();
+            data.append('action', 'dsb_get_debug_log_tail');
+            data.append('nonce', config.ajax_nonce);
+            fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: data })
+                .then(function(response){ return response.json(); })
+                .then(function(payload){
+                    if (!payload || !payload.success || !payload.data) {
+                        return;
+                    }
+                    $('#dsb-debug-log-preview').val(payload.data.tail || '');
+                });
+        }
+
+        function refreshLogsTable(){
+            if (!config || !config.ajaxUrl || !config.ajax_nonce) {
+                return;
+            }
+            var data = new FormData();
+            data.append('action', 'dsb_get_logs_table');
+            data.append('nonce', config.ajax_nonce);
+            $('#dsb-logs-table').html('<div class="dsb-tab-loading"><span class="spinner is-active"></span> Loading...</div>');
+            fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: data })
+                .then(function(response){ return response.json(); })
+                .then(function(payload){
+                    if (!payload || !payload.success || !payload.data || !payload.data.html) {
+                        return;
+                    }
+                    $('#dsb-logs-table').html(payload.data.html);
+                });
+        }
+
         $(function(){
             window.DSB_ADMIN_LOADED = true;
             console.log('[DSB] admin JS loaded', location.href);
 
-            bindSelects();
-            initSettingsAccess();
+            initTabContent();
 
             $(document).on('click', '.dsb-telegram-toggle', function(){
                 var $btn = $(this);
@@ -191,17 +310,6 @@
                     $btn.text($btn.data('label-show') || 'Show');
                 }
             });
-
-            var hasPicker = typeof $.fn.wpColorPicker === 'function';
-            var colorCount = $('.dsb-color-field').length;
-            if (config && config.tab === 'style' && (hasPicker || colorCount)) {
-                console.log('[DSB] wpColorPicker exists?', hasPicker, 'fields', colorCount);
-                dsbSendLog('info', 'STYLE_INIT', { hasPicker: hasPicker, fieldCount: colorCount });
-                if (hasPicker && colorCount) {
-                    $('.dsb-color-field').wpColorPicker();
-                    dsbSendLog('info', 'WPCOLORPICKER_INIT_DONE', {});
-                }
-            }
 
             function getModal(){
                 return $('[data-dsb-modal]').first();
@@ -243,6 +351,50 @@
                 if ($(e.target).is('[data-dsb-modal]')) {
                     dsbCloseModal();
                 }
+            });
+
+            $(document).on('click', '.dsb-hero-tabs a', function(e){
+                if (!config || config.page !== 'davix-bridge') {
+                    return;
+                }
+                var url = $(this).attr('href');
+                var tab = getTabFromUrl(url);
+                if (!tab) {
+                    return;
+                }
+                e.preventDefault();
+                loadTabViaAjax(tab, url, true);
+            });
+
+            window.addEventListener('popstate', function(){
+                if (!config || config.page !== 'davix-bridge') {
+                    return;
+                }
+                var tab = getTabFromUrl(window.location.href);
+                loadTabViaAjax(tab, window.location.href, false);
+            });
+
+            $(document).on('click', '#dsb-alerts-refresh', function(e){
+                e.preventDefault();
+                refreshRecentAlerts('dsb_get_recent_alerts');
+            });
+
+            $(document).on('click', '#dsb-alerts-clear', function(e){
+                e.preventDefault();
+                if (!window.confirm('Clear recent alerts?')) {
+                    return;
+                }
+                refreshRecentAlerts('dsb_clear_alerts');
+            });
+
+            $(document).on('click', '#dsb-debug-refresh', function(e){
+                e.preventDefault();
+                refreshDebugLog();
+            });
+
+            $(document).on('click', '#dsb-logs-refresh', function(e){
+                e.preventDefault();
+                refreshLogsTable();
             });
         });
     } catch (err) {

@@ -308,6 +308,32 @@ class DSB_Events {
 
                 dsb_log( 'warning', 'Provisioning request failed', $context + [ 'error_excerpt' => $error_excerpt ] );
                 $this->schedule_retry_if_needed( $order, $event_label ?: 'activated', 'dispatch_failed' );
+
+                $window_minutes = 15;
+                $threshold = 5;
+                $window_seconds = $window_minutes * MINUTE_IN_SECONDS;
+                $bucket = (int) floor( time() / $window_seconds ) * $window_seconds;
+                $key = 'dsb_provision_fail_count_' . $bucket;
+                $count = (int) get_transient( $key );
+                $count++;
+                set_transient( $key, $count, $window_seconds + MINUTE_IN_SECONDS );
+                if ( $count >= $threshold ) {
+                    DSB_Cron_Alerts::trigger_generic_alert(
+                        'provisioning.failure_rate',
+                        __( 'Provisioning Failure Rate', 'pixlab-license-bridge' ),
+                        [
+                            'order_id'        => $order->get_id(),
+                            'event'           => $event_label,
+                            'subscription_id' => $payload['subscription_id'] ?? '',
+                            'plan_slug'       => $payload['plan_slug'] ?? '',
+                            'error'           => $error_excerpt,
+                            'count'           => $count,
+                            'window_minutes'  => $window_minutes,
+                        ],
+                        'error',
+                        60
+                    );
+                }
             }
         }
 

@@ -75,6 +75,15 @@ body.dsb-modal-open {
     .dsb-style-save-bar {
         top: 46px;
     }
+
+    .settings_page_davix-bridge .dsb-table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .settings_page_davix-bridge .dsb-table-wrap table {
+        min-width: 700px;
+    }
 }
 
 .dsb-number-field {
