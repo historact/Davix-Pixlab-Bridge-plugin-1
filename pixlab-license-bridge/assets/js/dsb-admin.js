@@ -197,6 +197,15 @@
             }
         }
 
+        function setActiveTab(tab){
+            var $tabs = $('.dsb-hero-tabs .dsb-hero-tab');
+            if (!$tabs.length) {
+                return;
+            }
+            $tabs.removeClass('is-active');
+            $tabs.filter('[data-dsb-tab="' + tab + '"]').addClass('is-active');
+        }
+
         function setLoadingState(){
             var $container = $('#dsb-tab-content');
             if (!$container.length) {
@@ -226,6 +235,7 @@
                     }
                     $('#dsb-tab-content').html(payload.data.html);
                     config.tab = tab;
+                    setActiveTab(tab);
                     if (pushState) {
                         window.history.pushState({ tab: tab }, '', url);
                     }
@@ -363,6 +373,7 @@
                     return;
                 }
                 e.preventDefault();
+                setActiveTab(tab);
                 loadTabViaAjax(tab, url, true);
             });
 
@@ -371,6 +382,7 @@
                     return;
                 }
                 var tab = getTabFromUrl(window.location.href);
+                setActiveTab(tab);
                 loadTabViaAjax(tab, window.location.href, false);
             });
 

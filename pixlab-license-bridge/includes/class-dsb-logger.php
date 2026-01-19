@@ -432,6 +432,71 @@ function dsb_mask_secrets( $context ) {
     return $context;
 }
 
+function dsb_apply_tokens( string $text, array $ctx = [] ): string {
+    $text = (string) $text;
+    if ( '' === $text ) {
+        return '';
+    }
+
+    static $plugin_name = null;
+    static $plugin_version = null;
+    if ( null === $plugin_name || null === $plugin_version ) {
+        $plugin_name = 'PixLab License Bridge';
+        $plugin_version = defined( 'DSB_VERSION' ) ? DSB_VERSION : '';
+        if ( function_exists( 'get_file_data' ) && defined( 'DSB_PLUGIN_FILE' ) ) {
+            $data = get_file_data(
+                DSB_PLUGIN_FILE,
+                [
+                    'Name'    => 'Plugin Name',
+                    'Version' => 'Version',
+                ]
+            );
+            if ( ! empty( $data['Name'] ) ) {
+                $plugin_name = (string) $data['Name'];
+            }
+            if ( ! $plugin_version && ! empty( $data['Version'] ) ) {
+                $plugin_version = (string) $data['Version'];
+            }
+        }
+    }
+
+    $message = isset( $ctx['message'] ) ? (string) $ctx['message'] : '';
+    if ( function_exists( 'dsb_mask_string' ) ) {
+        $message = dsb_mask_string( $message );
+    }
+
+    $context_value = $ctx['context'] ?? '';
+    if ( is_array( $context_value ) || is_object( $context_value ) ) {
+        if ( function_exists( 'dsb_mask_secrets' ) ) {
+            $context_value = dsb_mask_secrets( (array) $context_value );
+        }
+        $context_value = wp_json_encode( $context_value );
+    } else {
+        $context_value = (string) $context_value;
+    }
+    if ( function_exists( 'dsb_mask_string' ) ) {
+        $context_value = dsb_mask_string( $context_value );
+    }
+
+    $replacements = [
+        '{plugin_name}'    => $plugin_name,
+        '{plugin_version}' => $plugin_version,
+        '{site_name}'      => get_bloginfo( 'name' ),
+        '{site_url}'       => home_url(),
+        '{admin_url}'      => admin_url(),
+        '{date}'           => current_time( 'Y-m-d' ),
+        '{time}'           => current_time( 'H:i:s' ),
+        '{datetime}'       => current_time( 'Y-m-d H:i:s' ),
+        '{alert_title}'    => isset( $ctx['alert_title'] ) ? (string) $ctx['alert_title'] : '',
+        '{alert_code}'     => isset( $ctx['alert_code'] ) ? (string) $ctx['alert_code'] : '',
+        '{severity}'       => isset( $ctx['severity'] ) ? (string) $ctx['severity'] : '',
+        '{message}'        => $message,
+        '{context}'        => $context_value,
+    ];
+
+    return strtr( $text, $replacements );
+}
+
 function dsb_should_log( string $level ): bool {
     if ( ! dsb_debug_is_enabled() ) {
         return false;
