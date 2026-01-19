@@ -40,54 +40,85 @@ class DSB_Plugin {
     }
 
     public static function uninstall(): void {
-        if ( get_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL ) ) {
-            $db = new DSB_DB( $GLOBALS['wpdb'] );
-            $db->drop_tables();
-            wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Purge_Worker::CRON_HOOK );
-            wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Provision_Worker::CRON_HOOK );
-            wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Node_Poll::CRON_HOOK );
-            delete_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL );
-            delete_option( DSB_DB::OPTION_DB_VERSION );
-            delete_option( 'dsb_db_version' );
-            delete_option( DSB_Client::OPTION_SETTINGS );
-            delete_option( DSB_Client::OPTION_PRODUCT_PLANS );
-            delete_option( DSB_Client::OPTION_PLAN_PRODUCTS );
-            delete_option( DSB_Client::OPTION_LEVEL_PLANS );
-            delete_option( DSB_Client::OPTION_PLAN_SYNC );
-            delete_option( DSB_Resync::OPTION_LOCK_UNTIL );
-            delete_option( DSB_Resync::OPTION_LAST_RUN_AT );
-            delete_option( DSB_Resync::OPTION_LAST_RUN_TS );
-            delete_option( DSB_Resync::OPTION_LAST_RESULT );
-            delete_option( DSB_Resync::OPTION_LAST_ERROR );
-            delete_option( DSB_Node_Poll::OPTION_LOCK_UNTIL );
-            delete_option( DSB_Node_Poll::OPTION_LAST_RUN_AT );
-            delete_option( DSB_Node_Poll::OPTION_LAST_RUN_TS );
-            delete_option( DSB_Node_Poll::OPTION_LAST_RESULT );
-            delete_option( DSB_Node_Poll::OPTION_LAST_ERROR );
-            delete_option( DSB_Node_Poll::OPTION_LAST_DURATION_MS );
-            delete_option( DSB_Node_Poll::OPTION_LAST_UNSTABLE );
-            delete_option( DSB_Node_Poll::OPTION_STABLE_STREAK );
-            delete_option( DSB_Purge_Worker::OPTION_LOCK_UNTIL );
-            delete_option( DSB_Purge_Worker::OPTION_LAST_RUN_AT );
-            delete_option( DSB_Purge_Worker::OPTION_LAST_RUN_TS );
-            delete_option( DSB_Purge_Worker::OPTION_LAST_RESULT );
-            delete_option( DSB_Purge_Worker::OPTION_LAST_ERROR );
-            delete_option( DSB_Purge_Worker::OPTION_LAST_DURATION_MS );
-            delete_option( DSB_Purge_Worker::OPTION_LAST_PROCESSED );
-            delete_option( DSB_Provision_Worker::OPTION_LOCK_UNTIL );
-            delete_option( DSB_Provision_Worker::OPTION_LAST_RUN_AT );
-            delete_option( DSB_Provision_Worker::OPTION_LAST_RUN_TS );
-            delete_option( DSB_Provision_Worker::OPTION_LAST_RESULT );
-            delete_option( DSB_Provision_Worker::OPTION_LAST_ERROR );
-            delete_option( DSB_Provision_Worker::OPTION_LAST_DURATION_MS );
-            delete_option( DSB_Provision_Worker::OPTION_LAST_PROCESSED );
-            delete_option( DSB_Resync::OPTION_LAST_DURATION );
-            delete_option( DSB_Cron_Alerts::OPTION_STATE );
-            delete_option( DSB_Cron_Alerts::OPTION_GENERIC_STATE );
-            delete_option( DSB_DB::OPTION_TRIGGERS_STATUS );
-            delete_option( 'dsb_log_dir_path' );
-            delete_option( 'dsb_log_upload_token' );
+        self::full_uninstall_cleanup();
+    }
+
+    public static function full_uninstall_cleanup(): void {
+        if ( ! get_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL ) ) {
+            return;
         }
+
+        $db = new DSB_DB( $GLOBALS['wpdb'] );
+        $db->drop_triggers();
+        $db->drop_tables();
+
+        wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Purge_Worker::CRON_HOOK );
+        wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Provision_Worker::CRON_HOOK );
+        wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Node_Poll::CRON_HOOK );
+        wp_clear_scheduled_hook( \Davix\SubscriptionBridge\DSB_Resync::CRON_HOOK );
+
+        if ( function_exists( __NAMESPACE__ . '\\dsb_delete_cron_logs' ) ) {
+            dsb_delete_cron_logs();
+        }
+        if ( function_exists( __NAMESPACE__ . '\\dsb_delete_alert_logs' ) ) {
+            dsb_delete_alert_logs();
+        }
+        if ( function_exists( __NAMESPACE__ . '\\dsb_delete_all_logs' ) ) {
+            dsb_delete_all_logs();
+        }
+
+        delete_option( DSB_DB::OPTION_DELETE_ON_UNINSTALL );
+        delete_option( DSB_DB::OPTION_DB_VERSION );
+        delete_option( 'dsb_db_version' );
+        delete_option( DSB_Client::OPTION_SETTINGS );
+        delete_option( DSB_Client::OPTION_PRODUCT_PLANS );
+        delete_option( DSB_Client::OPTION_PLAN_PRODUCTS );
+        delete_option( DSB_Client::OPTION_LEVEL_PLANS );
+        delete_option( DSB_Client::OPTION_PLAN_SYNC );
+        delete_option( DSB_Resync::OPTION_LOCK_UNTIL );
+        delete_option( DSB_Resync::OPTION_LAST_RUN_AT );
+        delete_option( DSB_Resync::OPTION_LAST_RUN_TS );
+        delete_option( DSB_Resync::OPTION_LAST_RESULT );
+        delete_option( DSB_Resync::OPTION_LAST_ERROR );
+        delete_option( DSB_Resync::OPTION_LAST_DURATION );
+        delete_option( DSB_Node_Poll::OPTION_LOCK_UNTIL );
+        delete_option( DSB_Node_Poll::OPTION_LAST_RUN_AT );
+        delete_option( DSB_Node_Poll::OPTION_LAST_RUN_TS );
+        delete_option( DSB_Node_Poll::OPTION_LAST_RESULT );
+        delete_option( DSB_Node_Poll::OPTION_LAST_ERROR );
+        delete_option( DSB_Node_Poll::OPTION_LAST_DURATION_MS );
+        delete_option( DSB_Node_Poll::OPTION_LAST_UNSTABLE );
+        delete_option( DSB_Node_Poll::OPTION_STABLE_STREAK );
+        delete_option( DSB_Purge_Worker::OPTION_LOCK_UNTIL );
+        delete_option( DSB_Purge_Worker::OPTION_LAST_RUN_AT );
+        delete_option( DSB_Purge_Worker::OPTION_LAST_RUN_TS );
+        delete_option( DSB_Purge_Worker::OPTION_LAST_RESULT );
+        delete_option( DSB_Purge_Worker::OPTION_LAST_ERROR );
+        delete_option( DSB_Purge_Worker::OPTION_LAST_DURATION_MS );
+        delete_option( DSB_Purge_Worker::OPTION_LAST_PROCESSED );
+        delete_option( DSB_Provision_Worker::OPTION_LOCK_UNTIL );
+        delete_option( DSB_Provision_Worker::OPTION_LAST_RUN_AT );
+        delete_option( DSB_Provision_Worker::OPTION_LAST_RUN_TS );
+        delete_option( DSB_Provision_Worker::OPTION_LAST_RESULT );
+        delete_option( DSB_Provision_Worker::OPTION_LAST_ERROR );
+        delete_option( DSB_Provision_Worker::OPTION_LAST_DURATION_MS );
+        delete_option( DSB_Provision_Worker::OPTION_LAST_PROCESSED );
+        delete_option( DSB_Cron_Alerts::OPTION_STATE );
+        delete_option( DSB_Cron_Alerts::OPTION_GENERIC_STATE );
+        delete_option( DSB_DB::OPTION_TRIGGERS_STATUS );
+        delete_option( 'dsb_log_dir_path' );
+        delete_option( 'dsb_log_upload_token' );
+
+        global $wpdb;
+        $like_transient = $wpdb->esc_like( '_transient_dsb_' ) . '%';
+        $like_timeout = $wpdb->esc_like( '_transient_timeout_dsb_' ) . '%';
+        $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+                $like_transient,
+                $like_timeout
+            )
+        );
     }
 
     protected static function dependencies_met(): bool {

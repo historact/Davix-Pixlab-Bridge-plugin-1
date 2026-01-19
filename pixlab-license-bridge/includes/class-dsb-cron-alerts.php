@@ -75,6 +75,7 @@ class DSB_Cron_Alerts {
     protected static function get_settings(): array {
         $defaults = [
             'alert_emails'        => '',
+            'alert_email_from_name' => '',
             'telegram_bot_token'  => '',
             'telegram_chat_ids'   => '',
             'alert_template'      => '',
@@ -105,6 +106,45 @@ class DSB_Cron_Alerts {
         return array_values( array_unique( $parts ) );
     }
 
+    protected static function log_alert_entry( string $channel, string $severity, string $alert_code, string $status, string $message, array $context = [], string $error_excerpt = '' ): void {
+        $record = [
+            'channel'  => $channel,
+            'severity' => $severity,
+            'code'     => $alert_code,
+            'status'   => $status,
+            'message'  => $message,
+        ];
+        if ( $error_excerpt ) {
+            $record['error'] = $error_excerpt;
+        }
+        if ( $context ) {
+            $record['context'] = $context;
+        }
+
+        if ( function_exists( __NAMESPACE__ . '\\dsb_alert_log_write' ) ) {
+            dsb_alert_log_write( $record );
+        }
+
+        if ( empty( $GLOBALS['wpdb'] ) ) {
+            return;
+        }
+
+        $db = new DSB_DB( $GLOBALS['wpdb'] );
+        $db->log_event(
+            [
+                'event'         => 'alert_send',
+                'response_action' => $alert_code,
+                'http_code'     => 'sent' === $status ? 200 : 500,
+                'error_excerpt' => $error_excerpt ?: $status,
+                'context'       => [
+                    'channel'  => $channel,
+                    'severity' => $severity,
+                    'status'   => $status,
+                ],
+            ]
+        );
+    }
+
     protected static function send_alert( string $job, array $settings, array $job_state, array $context ): bool {
         $emails = self::parse_list( (string) ( $settings['alert_emails'] ?? '' ) );
         $emails = array_values( array_filter( $emails, 'is_email' ) );
@@ -124,17 +164,34 @@ class DSB_Cron_Alerts {
 
         $message = self::render_template( $template, $job_label, 'error', $job_state, $context );
         $sent    = false;
+        $alert_code = 'cron.' . $job;
+        $severity = 'error';
 
         if ( $emails ) {
             $subject_template = trim( (string) ( $settings['alert_email_subject'] ?? '' ) );
             $subject = $subject_template
                 ? self::render_subject( $subject_template, $job_label, 'error', $job_state, $context )
                 : sprintf( '%s alert: %s', $job_label, get_bloginfo( 'name' ) );
-            $sent    = wp_mail( $emails, $subject, $message ) || $sent;
+            $from_name = isset( $settings['alert_email_from_name'] ) ? trim( (string) $settings['alert_email_from_name'] ) : '';
+            $filter = null;
+            if ( $from_name ) {
+                $filter = static function () use ( $from_name ): string {
+                    return $from_name;
+                };
+                add_filter( 'wp_mail_from_name', $filter );
+            }
+            self::log_alert_entry( 'email', $severity, $alert_code, 'attempt', $message, $context );
+            $email_sent = wp_mail( $emails, $subject, $message );
+            if ( $filter ) {
+                remove_filter( 'wp_mail_from_name', $filter );
+            }
+            $sent = $email_sent || $sent;
+            self::log_alert_entry( 'email', $severity, $alert_code, $email_sent ? 'sent' : 'failed', $message, $context );
         }
 
         if ( $bot_token && $chat_ids ) {
             foreach ( $chat_ids as $chat_id ) {
+                self::log_alert_entry( 'telegram', $severity, $alert_code, 'attempt', $message, $context );
                 $response = wp_remote_post(
                     'https://api.telegram.org/bot' . $bot_token . '/sendMessage',
                     [
@@ -149,6 +206,10 @@ class DSB_Cron_Alerts {
 
                 if ( ! is_wp_error( $response ) && (int) wp_remote_retrieve_response_code( $response ) < 300 ) {
                     $sent = true;
+                    self::log_alert_entry( 'telegram', $severity, $alert_code, 'sent', $message, $context );
+                } else {
+                    $error_excerpt = is_wp_error( $response ) ? $response->get_error_message() : (string) wp_remote_retrieve_response_code( $response );
+                    self::log_alert_entry( 'telegram', $severity, $alert_code, 'failed', $message, $context, $error_excerpt );
                 }
             }
         }
@@ -173,18 +234,34 @@ class DSB_Cron_Alerts {
         }
 
         $message = self::render_template( $template, $job_label, 'recovered', [ 'failures' => 0, 'last_error' => '' ], $context );
+        $alert_code = 'cron.' . $job;
+        $severity = 'info';
 
         if ( $emails ) {
             $subject_template = trim( (string) ( $settings['recovery_email_subject'] ?? '' ) );
             $subject = $subject_template
                 ? self::render_subject( $subject_template, $job_label, 'recovered', [ 'failures' => 0, 'last_error' => '' ], $context )
                 : sprintf( '%s recovered: %s', $job_label, get_bloginfo( 'name' ) );
-            wp_mail( $emails, $subject, $message );
+            $from_name = isset( $settings['alert_email_from_name'] ) ? trim( (string) $settings['alert_email_from_name'] ) : '';
+            $filter = null;
+            if ( $from_name ) {
+                $filter = static function () use ( $from_name ): string {
+                    return $from_name;
+                };
+                add_filter( 'wp_mail_from_name', $filter );
+            }
+            self::log_alert_entry( 'email', $severity, $alert_code, 'attempt', $message, $context );
+            $email_sent = wp_mail( $emails, $subject, $message );
+            if ( $filter ) {
+                remove_filter( 'wp_mail_from_name', $filter );
+            }
+            self::log_alert_entry( 'email', $severity, $alert_code, $email_sent ? 'sent' : 'failed', $message, $context );
         }
 
         if ( $bot_token && $chat_ids ) {
             foreach ( $chat_ids as $chat_id ) {
-                wp_remote_post(
+                self::log_alert_entry( 'telegram', $severity, $alert_code, 'attempt', $message, $context );
+                $response = wp_remote_post(
                     'https://api.telegram.org/bot' . $bot_token . '/sendMessage',
                     [
                         'timeout' => 10,
@@ -195,6 +272,12 @@ class DSB_Cron_Alerts {
                         ],
                     ]
                 );
+                if ( ! is_wp_error( $response ) && (int) wp_remote_retrieve_response_code( $response ) < 300 ) {
+                    self::log_alert_entry( 'telegram', $severity, $alert_code, 'sent', $message, $context );
+                } else {
+                    $error_excerpt = is_wp_error( $response ) ? $response->get_error_message() : (string) wp_remote_retrieve_response_code( $response );
+                    self::log_alert_entry( 'telegram', $severity, $alert_code, 'failed', $message, $context, $error_excerpt );
+                }
             }
         }
     }
@@ -312,7 +395,16 @@ class DSB_Cron_Alerts {
             ? self::render_subject( $subject_template, $title, $severity, $job_state, $context )
             : sprintf( '%s alert: %s', $title, get_bloginfo( 'name' ) );
 
-        $sent = self::send_message( $settings, $subject, $message );
+        $sent = self::send_message(
+            $settings,
+            $subject,
+            $message,
+            [
+                'alert_code' => $type,
+                'severity'   => $severity,
+                'context'    => $context,
+            ]
+        );
         if ( $sent ) {
             $entry['is_alerting']   = true;
             $entry['last_alert_at'] = time();
@@ -359,7 +451,16 @@ class DSB_Cron_Alerts {
             ? self::render_subject( $subject_template, $title, 'recovered', $job_state, $context )
             : sprintf( '%s recovered: %s', $title, get_bloginfo( 'name' ) );
 
-        $sent = self::send_message( $settings, $subject, $message );
+        $sent = self::send_message(
+            $settings,
+            $subject,
+            $message,
+            [
+                'alert_code' => $type,
+                'severity'   => 'info',
+                'context'    => $context,
+            ]
+        );
         if ( $sent ) {
             $entry['is_alerting']   = false;
             $entry['last_alert_at'] = 0;
@@ -385,7 +486,16 @@ class DSB_Cron_Alerts {
             ? self::render_subject( $subject_template, $job_label, 'test', $job_state, [] )
             : sprintf( '%s alert: %s', $job_label, get_bloginfo( 'name' ) );
 
-        $sent = self::send_message( $settings, $subject, $message );
+        $sent = self::send_message(
+            $settings,
+            $subject,
+            $message,
+            [
+                'alert_code' => 'test.alert',
+                'severity'   => 'test',
+                'context'    => [],
+            ]
+        );
         $emails = self::parse_list( (string) ( $settings['alert_emails'] ?? '' ) );
         $emails = array_values( array_filter( $emails, 'is_email' ) );
         $chat_ids = self::parse_list( (string) ( $settings['telegram_chat_ids'] ?? '' ) );
@@ -398,19 +508,37 @@ class DSB_Cron_Alerts {
         ];
     }
 
-    protected static function send_message( array $settings, string $subject, string $message ): bool {
+    protected static function send_message( array $settings, string $subject, string $message, array $meta = [] ): bool {
         $emails = self::parse_list( (string) ( $settings['alert_emails'] ?? '' ) );
         $emails = array_values( array_filter( $emails, 'is_email' ) );
         $chat_ids = self::parse_list( (string) ( $settings['telegram_chat_ids'] ?? '' ) );
         $bot_token = preg_replace( '/\s+/', '', trim( (string) ( $settings['telegram_bot_token'] ?? '' ) ) );
+        $alert_code = isset( $meta['alert_code'] ) ? sanitize_text_field( (string) $meta['alert_code'] ) : 'generic.alert';
+        $severity = isset( $meta['severity'] ) ? sanitize_key( (string) $meta['severity'] ) : 'error';
+        $context = isset( $meta['context'] ) && is_array( $meta['context'] ) ? $meta['context'] : [];
 
         $sent = false;
         if ( $emails ) {
-            $sent = wp_mail( $emails, $subject, $message ) || $sent;
+            $from_name = isset( $settings['alert_email_from_name'] ) ? trim( (string) $settings['alert_email_from_name'] ) : '';
+            $filter = null;
+            if ( $from_name ) {
+                $filter = static function () use ( $from_name ): string {
+                    return $from_name;
+                };
+                add_filter( 'wp_mail_from_name', $filter );
+            }
+            self::log_alert_entry( 'email', $severity, $alert_code, 'attempt', $message, $context );
+            $email_sent = wp_mail( $emails, $subject, $message );
+            if ( $filter ) {
+                remove_filter( 'wp_mail_from_name', $filter );
+            }
+            $sent = $email_sent || $sent;
+            self::log_alert_entry( 'email', $severity, $alert_code, $email_sent ? 'sent' : 'failed', $message, $context );
         }
 
         if ( $bot_token && $chat_ids ) {
             foreach ( $chat_ids as $chat_id ) {
+                self::log_alert_entry( 'telegram', $severity, $alert_code, 'attempt', $message, $context );
                 $response = wp_remote_post(
                     'https://api.telegram.org/bot' . $bot_token . '/sendMessage',
                     [
@@ -425,6 +553,10 @@ class DSB_Cron_Alerts {
 
                 if ( ! is_wp_error( $response ) && (int) wp_remote_retrieve_response_code( $response ) < 300 ) {
                     $sent = true;
+                    self::log_alert_entry( 'telegram', $severity, $alert_code, 'sent', $message, $context );
+                } else {
+                    $error_excerpt = is_wp_error( $response ) ? $response->get_error_message() : (string) wp_remote_retrieve_response_code( $response );
+                    self::log_alert_entry( 'telegram', $severity, $alert_code, 'failed', $message, $context, $error_excerpt );
                 }
             }
         }

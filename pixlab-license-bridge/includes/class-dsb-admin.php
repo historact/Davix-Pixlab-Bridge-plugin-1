@@ -42,10 +42,16 @@ class DSB_Admin {
         add_action( 'admin_post_dsb_clear_log', [ $this, 'handle_clear_log' ] );
         add_action( 'admin_post_dsb_clear_db_logs', [ $this, 'handle_clear_db_logs' ] );
         add_action( 'admin_post_dsb_test_alert_routing', [ $this, 'handle_test_alert_routing' ] );
+        add_action( 'admin_post_dsb_download_alerts', [ $this, 'handle_download_alerts' ] );
         add_action( 'admin_post_dsb_run_resync_now', [ $this, 'handle_run_resync_now' ] );
         add_action( 'admin_post_dsb_run_node_poll_now', [ $this, 'handle_run_node_poll_now' ] );
         add_action( 'wp_ajax_dsb_search_users', [ $this, 'ajax_search_users' ] );
         add_action( 'wp_ajax_dsb_js_log', __NAMESPACE__ . '\\dsb_handle_js_log' );
+        add_action( 'wp_ajax_dsb_render_tab', [ $this, 'ajax_render_tab' ] );
+        add_action( 'wp_ajax_dsb_get_recent_alerts', [ $this, 'ajax_get_recent_alerts' ] );
+        add_action( 'wp_ajax_dsb_clear_alerts', [ $this, 'ajax_clear_alerts' ] );
+        add_action( 'wp_ajax_dsb_get_debug_log_tail', [ $this, 'ajax_get_debug_log_tail' ] );
+        add_action( 'wp_ajax_dsb_get_logs_table', [ $this, 'ajax_get_logs_table' ] );
         if ( function_exists( 'pmpro_getLevel' ) ) {
             add_action( 'pmpro_membership_level_after_other_settings', [ $this, 'render_level_plan_fields' ], 10, 1 );
             add_action( 'pmpro_save_membership_level', [ $this, 'save_level_plan_meta' ], 10, 1 );
@@ -1288,14 +1294,14 @@ class DSB_Admin {
 
         echo '<div class="wrap dsb-admin-page">';
         $tabs = [
-            'settings'     => __( 'Settings', 'pixlab-license-bridge' ),
-            'plan-mapping' => __( 'Plan Mapping', 'pixlab-license-bridge' ),
-            'keys'         => __( 'Keys', 'pixlab-license-bridge' ),
-            'logs'         => __( 'Logs', 'pixlab-license-bridge' ),
+            'settings'     => __( 'General', 'pixlab-license-bridge' ),
             'style'        => __( 'Style', 'pixlab-license-bridge' ),
-            'debug'        => __( 'Debug', 'pixlab-license-bridge' ),
+            'plan-mapping' => __( 'Plan', 'pixlab-license-bridge' ),
+            'keys'         => __( 'Keys', 'pixlab-license-bridge' ),
             'cron'         => __( 'Cron Jobs', 'pixlab-license-bridge' ),
-            'alerts'       => __( 'Alert System', 'pixlab-license-bridge' ),
+            'alerts'       => __( 'Alert', 'pixlab-license-bridge' ),
+            'logs'         => __( 'Logs', 'pixlab-license-bridge' ),
+            'debug'        => __( 'Debug', 'pixlab-license-bridge' ),
         ];
         $logo_path = DSB_PLUGIN_DIR . 'assets/logo/logo-64.png';
         $logo_url  = DSB_PLUGIN_URL . 'assets/logo/logo-64.png';
@@ -1333,6 +1339,14 @@ class DSB_Admin {
             printf( '<div class="notice notice-%1$s"><p>%2$s</p></div>', esc_attr( 'error' === $notice['type'] ? 'error' : 'success' ), esc_html( $notice['message'] ) );
         }
 
+        echo '<div id="dsb-tab-content">';
+        $this->render_tab_content( $tab );
+        echo '</div>';
+
+        echo '</div>';
+    }
+
+    protected function render_tab_content( string $tab ): void {
         if ( 'plan-mapping' === $tab ) {
             $this->render_plan_tab();
         } elseif ( 'keys' === $tab ) {
@@ -1350,8 +1364,21 @@ class DSB_Admin {
         } else {
             $this->render_settings_tab();
         }
+    }
 
-        echo '</div>';
+    public function ajax_render_tab(): void {
+        check_ajax_referer( 'dsb_admin_ajax', 'nonce' );
+        if ( ! $this->current_user_can_manage_settings() ) {
+            wp_send_json_error( [ 'message' => __( 'Unauthorized', 'pixlab-license-bridge' ) ], 403 );
+        }
+
+        $tab = isset( $_POST['tab'] ) ? sanitize_key( wp_unslash( $_POST['tab'] ) ) : 'settings';
+
+        ob_start();
+        $this->render_tab_content( $tab );
+        $html = ob_get_clean();
+
+        wp_send_json_success( [ 'html' => $html ] );
     }
 
     protected function render_settings_tab(): void {
@@ -2078,6 +2105,7 @@ class DSB_Admin {
             <?php wp_nonce_field( 'dsb_save_plans', 'dsb_plans_nonce' ); ?>
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
             <p><?php esc_html_e( 'Map Paid Memberships Pro levels to Davix plan slugs.', 'pixlab-license-bridge' ); ?></p>
+            <div class="dsb-table-wrap">
             <table class="widefat" id="dsb-plan-table">
                 <thead><tr><th><?php esc_html_e( 'Level', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Plan Slug', 'pixlab-license-bridge' ); ?></th></tr></thead>
                 <tbody>
@@ -2094,6 +2122,7 @@ class DSB_Admin {
                 <?php endif; ?>
                 </tbody>
             </table>
+            </div>
             <?php submit_button( __( 'Save Changes', 'pixlab-license-bridge' ) ); ?>
         </form>
 
@@ -2180,6 +2209,7 @@ class DSB_Admin {
             <?php submit_button( __( 'Re-provision API key', 'pixlab-license-bridge' ), 'secondary', 'dsb_reprovision_submit', false ); ?>
             <p class="description"><?php esc_html_e( 'Leave blank to re-provision for the currently logged-in user.', 'pixlab-license-bridge' ); ?></p>
         </form>
+        <div class="dsb-table-wrap">
         <table class="widefat">
             <thead><tr><th><?php esc_html_e( 'Subscription ID', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Email', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Plan', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Status', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Key Prefix', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Key Last4', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Valid From', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Valid Until', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Updated', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Actions', 'pixlab-license-bridge' ); ?></th></tr></thead>
             <tbody>
@@ -2255,6 +2285,7 @@ class DSB_Admin {
             <?php endif; ?>
             </tbody>
         </table>
+        </div>
         <?php
         $total_pages = $per_page > 0 ? ceil( $total / $per_page ) : 1;
         if ( $total_pages > 1 ) {
@@ -2341,7 +2372,6 @@ class DSB_Admin {
 
     protected function render_logs_tab(): void {
         $settings = $this->client->get_settings();
-        $logs = $this->db->get_logs();
         ?>
         <h2><?php esc_html_e( 'Bridge Logs', 'pixlab-license-bridge' ); ?></h2>
         <form method="post" style="margin-bottom:10px;display:flex;gap:10px;align-items:center;">
@@ -2355,6 +2385,17 @@ class DSB_Admin {
             <input type="hidden" name="action" value="dsb_clear_db_logs" />
             <?php submit_button( __( 'Clear all logs', 'pixlab-license-bridge' ), 'delete', 'submit', false, [ 'onclick' => "return confirm('" . esc_js( __( 'Are you sure you want to clear all bridge logs?', 'pixlab-license-bridge' ) ) . "');" ] ); ?>
         </form>
+        <button type="button" class="button" id="dsb-logs-refresh" style="margin-bottom:15px;"><?php esc_html_e( 'Refresh', 'pixlab-license-bridge' ); ?></button>
+        <div id="dsb-logs-table">
+            <?php $this->render_logs_table(); ?>
+        </div>
+        <?php
+    }
+
+    protected function render_logs_table(): void {
+        $logs = $this->db->get_logs();
+        ?>
+        <div class="dsb-table-wrap">
         <table class="widefat">
             <thead><tr><th><?php esc_html_e( 'Time', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Event', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Subscription', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Order', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Email', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Response', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'HTTP', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Error', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Details', 'pixlab-license-bridge' ); ?></th></tr></thead>
             <tbody>
@@ -2394,6 +2435,7 @@ class DSB_Admin {
             <?php endif; ?>
             </tbody>
         </table>
+        </div>
         <?php
     }
 
@@ -2407,11 +2449,14 @@ class DSB_Admin {
         <h2><?php esc_html_e( 'Alert System', 'pixlab-license-bridge' ); ?></h2>
         <form method="post">
             <?php wp_nonce_field( 'dsb_save_settings', 'dsb_settings_nonce' ); ?>
-            <h3><?php esc_html_e( 'Global Alert Routing', 'pixlab-license-bridge' ); ?></h3>
             <table class="form-table" role="presentation">
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Alert emails', 'pixlab-license-bridge' ); ?></th>
                     <td><textarea name="alert_emails" rows="3" class="large-text" placeholder="admin@example.com&#10;ops@example.com"><?php echo esc_textarea( $settings['alert_emails'] ?? '' ); ?></textarea><p class="description"><?php esc_html_e( 'Comma or newline separated.', 'pixlab-license-bridge' ); ?></p></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Email From Name', 'pixlab-license-bridge' ); ?></th>
+                    <td><input type="text" name="alert_email_from_name" class="regular-text" value="<?php echo esc_attr( $settings['alert_email_from_name'] ?? '' ); ?>" /></td>
                 </tr>
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Telegram bot token', 'pixlab-license-bridge' ); ?></th>
@@ -2453,13 +2498,6 @@ class DSB_Admin {
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Alert cooldown (minutes)', 'pixlab-license-bridge' ); ?></th>
                     <td><input type="number" name="alert_cooldown_minutes" min="1" value="<?php echo esc_attr( (int) ( $settings['alert_cooldown_minutes'] ?? 60 ) ); ?>" /> <p class="description"><?php esc_html_e( 'Minimum minutes between alerts for the same job or trigger.', 'pixlab-license-bridge' ); ?></p></td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php esc_html_e( 'Test alert routing', 'pixlab-license-bridge' ); ?></th>
-                    <td>
-                        <button type="submit" class="button" form="dsb-test-alert-form"><?php esc_html_e( 'Test Alert Routing', 'pixlab-license-bridge' ); ?></button>
-                        <p class="description"><?php esc_html_e( 'Send a test alert to verify email and Telegram routing.', 'pixlab-license-bridge' ); ?></p>
-                    </td>
                 </tr>
                 <tr>
                     <th scope="row"><?php esc_html_e( 'Alert triggers', 'pixlab-license-bridge' ); ?></th>
@@ -2533,10 +2571,78 @@ class DSB_Admin {
             <?php submit_button( __( 'Save alert settings', 'pixlab-license-bridge' ) ); ?>
         </form>
 
+        <div class="dsb-alert-test" style="margin-top:10px;">
+            <button type="submit" class="button" form="dsb-test-alert-form"><?php esc_html_e( 'Test Alert Routing', 'pixlab-license-bridge' ); ?></button>
+            <p class="description"><?php esc_html_e( 'Send a test alert to verify email and Telegram routing.', 'pixlab-license-bridge' ); ?></p>
+        </div>
+
         <form id="dsb-test-alert-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
             <?php wp_nonce_field( 'dsb_test_alert_routing', 'dsb_test_alert_nonce' ); ?>
             <input type="hidden" name="action" value="dsb_test_alert_routing" />
         </form>
+
+        <h3><?php esc_html_e( 'Recent Alerts', 'pixlab-license-bridge' ); ?></h3>
+        <div class="dsb-alerts-actions" style="margin-bottom:10px;display:flex;gap:10px;align-items:center;">
+            <button type="button" class="button" id="dsb-alerts-refresh"><?php esc_html_e( 'Refresh', 'pixlab-license-bridge' ); ?></button>
+            <button type="button" class="button" id="dsb-alerts-clear"><?php esc_html_e( 'Clear', 'pixlab-license-bridge' ); ?></button>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <?php wp_nonce_field( 'dsb_download_alerts', 'dsb_download_alerts_nonce' ); ?>
+                <input type="hidden" name="action" value="dsb_download_alerts" />
+                <?php submit_button( __( 'Download', 'pixlab-license-bridge' ), 'secondary', 'submit', false ); ?>
+            </form>
+        </div>
+        <div id="dsb-recent-alerts">
+            <?php $this->render_recent_alerts_table(); ?>
+        </div>
+        <?php
+    }
+
+    protected function render_recent_alerts_table(): void {
+        $alerts = function_exists( __NAMESPACE__ . '\\dsb_alert_log_tail' ) ? dsb_alert_log_tail( 50 ) : [];
+        ?>
+        <div class="dsb-table-wrap">
+        <table class="widefat">
+            <thead><tr><th><?php esc_html_e( 'Time', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Channel', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Severity', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Code', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Status', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Message', 'pixlab-license-bridge' ); ?></th><th><?php esc_html_e( 'Details', 'pixlab-license-bridge' ); ?></th></tr></thead>
+            <tbody>
+            <?php foreach ( $alerts as $alert ) : ?>
+                <?php
+                $context_json = '';
+                if ( ! empty( $alert['context'] ) && is_array( $alert['context'] ) ) {
+                    $context_json = wp_json_encode( $alert['context'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+                }
+                $details = [];
+                if ( ! empty( $alert['error'] ) ) {
+                    $details[] = sprintf( 'Error: %s', (string) $alert['error'] );
+                }
+                if ( $context_json ) {
+                    $details[] = "Context:\n" . $context_json;
+                }
+                ?>
+                <tr>
+                    <td><?php echo esc_html( $alert['ts'] ?? '' ); ?></td>
+                    <td><?php echo esc_html( $alert['channel'] ?? '' ); ?></td>
+                    <td><?php echo esc_html( $alert['severity'] ?? '' ); ?></td>
+                    <td><?php echo esc_html( $alert['code'] ?? '' ); ?></td>
+                    <td><?php echo esc_html( $alert['status'] ?? '' ); ?></td>
+                    <td><?php echo esc_html( $alert['message'] ?? '' ); ?></td>
+                    <td>
+                        <?php if ( ! empty( $details ) ) : ?>
+                            <details>
+                                <summary><?php esc_html_e( 'View', 'pixlab-license-bridge' ); ?></summary>
+                                <pre><?php echo esc_html( implode( "\n\n", $details ) ); ?></pre>
+                            </details>
+                        <?php else : ?>
+                            <?php esc_html_e( '—', 'pixlab-license-bridge' ); ?>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if ( empty( $alerts ) ) : ?>
+                <tr><td colspan="7"><?php esc_html_e( 'No alerts yet.', 'pixlab-license-bridge' ); ?></td></tr>
+            <?php endif; ?>
+            </tbody>
+        </table>
+        </div>
         <?php
     }
 
@@ -2588,9 +2694,10 @@ class DSB_Admin {
 
         <h3><?php esc_html_e( 'Log preview (last 200 lines)', 'pixlab-license-bridge' ); ?></h3>
         <p class="description"><?php esc_html_e( 'Sensitive values are masked. Use download for the complete file.', 'pixlab-license-bridge' ); ?></p>
-        <textarea class="large-text code" rows="12" readonly><?php echo esc_textarea( $tail ); ?></textarea>
+        <textarea class="large-text code" rows="12" readonly id="dsb-debug-log-preview"><?php echo esc_textarea( $tail ); ?></textarea>
         <p class="description"><?php echo esc_html( $log_path ? sprintf( __( 'Current file: %s', 'pixlab-license-bridge' ), $log_path ) : __( 'No log file yet.', 'pixlab-license-bridge' ) ); ?></p>
 
+        <button type="button" class="button" id="dsb-debug-refresh" style="margin-right:8px;"><?php esc_html_e( 'Refresh', 'pixlab-license-bridge' ); ?></button>
         <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:8px;">
             <?php wp_nonce_field( 'dsb_download_log', 'dsb_download_log_nonce' ); ?>
             <input type="hidden" name="action" value="dsb_download_log" />
@@ -2708,6 +2815,13 @@ class DSB_Admin {
         exit;
     }
 
+    public function handle_download_alerts(): void {
+        if ( function_exists( __NAMESPACE__ . '\\dsb_alert_log_download' ) ) {
+            dsb_alert_log_download();
+        }
+        wp_die( esc_html__( 'Alert log unavailable.', 'pixlab-license-bridge' ) );
+    }
+
     public function handle_test_alert_routing(): void {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'Unauthorized', 'pixlab-license-bridge' ) );
@@ -2737,6 +2851,59 @@ class DSB_Admin {
             )
         );
         exit;
+    }
+
+    public function ajax_get_recent_alerts(): void {
+        check_ajax_referer( 'dsb_admin_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => __( 'Unauthorized', 'pixlab-license-bridge' ) ], 403 );
+        }
+
+        ob_start();
+        $this->render_recent_alerts_table();
+        $html = ob_get_clean();
+
+        wp_send_json_success( [ 'html' => $html ] );
+    }
+
+    public function ajax_clear_alerts(): void {
+        check_ajax_referer( 'dsb_admin_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => __( 'Unauthorized', 'pixlab-license-bridge' ) ], 403 );
+        }
+
+        if ( function_exists( __NAMESPACE__ . '\\dsb_alert_log_clear' ) ) {
+            dsb_alert_log_clear();
+        }
+
+        ob_start();
+        $this->render_recent_alerts_table();
+        $html = ob_get_clean();
+
+        wp_send_json_success( [ 'html' => $html ] );
+    }
+
+    public function ajax_get_debug_log_tail(): void {
+        check_ajax_referer( 'dsb_admin_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => __( 'Unauthorized', 'pixlab-license-bridge' ) ], 403 );
+        }
+
+        $tail = dsb_get_log_tail( 200 );
+        wp_send_json_success( [ 'tail' => $tail ] );
+    }
+
+    public function ajax_get_logs_table(): void {
+        check_ajax_referer( 'dsb_admin_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => __( 'Unauthorized', 'pixlab-license-bridge' ) ], 403 );
+        }
+
+        ob_start();
+        $this->render_logs_table();
+        $html = ob_get_clean();
+
+        wp_send_json_success( [ 'html' => $html ] );
     }
 
     protected function mask_sensitive_fields( $data ) {

@@ -5,22 +5,18 @@
 
 defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
+defined( 'DSB_PLUGIN_FILE' ) || define( 'DSB_PLUGIN_FILE', __FILE__ );
+defined( 'DSB_PLUGIN_DIR' ) || define( 'DSB_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
+
 require_once __DIR__ . '/includes/class-dsb-db.php';
 require_once __DIR__ . '/includes/class-dsb-client.php';
+require_once __DIR__ . '/includes/class-dsb-logger.php';
+require_once __DIR__ . '/includes/class-dsb-cron-logger.php';
+require_once __DIR__ . '/includes/class-dsb-cron-alerts.php';
 require_once __DIR__ . '/includes/class-dsb-resync.php';
+require_once __DIR__ . '/includes/class-dsb-node-poll.php';
+require_once __DIR__ . '/includes/class-dsb-purge-worker.php';
+require_once __DIR__ . '/includes/class-dsb-provision-worker.php';
+require_once __DIR__ . '/includes/class-dsb-plugin.php';
 
-if ( get_option( \Davix\SubscriptionBridge\DSB_DB::OPTION_DELETE_ON_UNINSTALL ) ) {
-    $db = new \Davix\SubscriptionBridge\DSB_DB( $GLOBALS['wpdb'] );
-    $db->drop_tables();
-    delete_option( \Davix\SubscriptionBridge\DSB_DB::OPTION_DELETE_ON_UNINSTALL );
-    delete_option( \Davix\SubscriptionBridge\DSB_DB::OPTION_DB_VERSION );
-    delete_option( 'dsb_db_version' );
-    delete_option( \Davix\SubscriptionBridge\DSB_Client::OPTION_SETTINGS );
-    delete_option( \Davix\SubscriptionBridge\DSB_Client::OPTION_PRODUCT_PLANS );
-    delete_option( \Davix\SubscriptionBridge\DSB_Client::OPTION_PLAN_PRODUCTS );
-    delete_option( \Davix\SubscriptionBridge\DSB_Client::OPTION_PLAN_SYNC );
-    delete_option( \Davix\SubscriptionBridge\DSB_Resync::OPTION_LOCK_UNTIL );
-    delete_option( \Davix\SubscriptionBridge\DSB_Resync::OPTION_LAST_RUN_AT );
-    delete_option( \Davix\SubscriptionBridge\DSB_Resync::OPTION_LAST_RESULT );
-    delete_option( \Davix\SubscriptionBridge\DSB_Resync::OPTION_LAST_ERROR );
-}
+\Davix\SubscriptionBridge\DSB_Plugin::full_uninstall_cleanup();
