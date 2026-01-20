@@ -321,6 +321,8 @@ class DSB_Dashboard_Ajax {
             wp_send_json_error( [ 'status' => 'error', 'code' => 'bad_nonce', 'message' => __( 'Security check failed.', 'pixlab-license-bridge' ) ], 403 );
         }
 
+        $this->enforce_rate_limits();
+
         $identity = dsb_pixlab_get_identity();
         DSB_Cron_Alerts::trigger_generic_recovery(
             'admin.security.anomaly',
@@ -332,6 +334,51 @@ class DSB_Dashboard_Ajax {
             ]
         );
         return $identity;
+    }
+
+    protected function enforce_rate_limits(): void {
+        $window = MINUTE_IN_SECONDS;
+        $user_id = get_current_user_id();
+        $ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : 'unknown';
+        if ( ! $ip ) {
+            $ip = 'unknown';
+        }
+
+        $user_ok = true;
+        if ( $user_id > 0 ) {
+            $user_ok = $this->check_rate_limit( 'dsb_rl_user_' . absint( $user_id ), 30, $window );
+        }
+
+        $ip_ok = $this->check_rate_limit( 'dsb_rl_ip_' . md5( $ip ), 60, $window );
+
+        if ( ! $user_ok || ! $ip_ok ) {
+            wp_send_json_error( [ 'message' => __( 'Too many requests. Please slow down.', 'pixlab-license-bridge' ) ], 429 );
+        }
+    }
+
+    protected function check_rate_limit( string $key, int $limit, int $window ): bool {
+        $key = sanitize_key( $key );
+        $now = time();
+        $bucket = get_transient( $key );
+
+        if ( ! is_array( $bucket ) || ! isset( $bucket['count'], $bucket['reset_at'] ) ) {
+            $bucket = [
+                'count'    => 0,
+                'reset_at' => $now + $window,
+            ];
+        }
+
+        if ( $now >= (int) $bucket['reset_at'] ) {
+            $bucket = [
+                'count'    => 0,
+                'reset_at' => $now + $window,
+            ];
+        }
+
+        $bucket['count'] = (int) $bucket['count'] + 1;
+        set_transient( $key, $bucket, $window + MINUTE_IN_SECONDS );
+
+        return (int) $bucket['count'] <= $limit;
     }
 
     protected function respond_from_result( array $result, string $default_message, string $action = '' ): void {
