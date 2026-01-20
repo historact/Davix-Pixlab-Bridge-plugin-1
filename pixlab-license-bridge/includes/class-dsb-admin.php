@@ -1136,8 +1136,9 @@ class DSB_Admin {
 
             if ( ! is_wp_error( $response ) && $code >= 200 && $code < 300 && in_array( $status_value, $success_statuses, true ) ) {
                 $message = __( 'PMPro level updated and API key provisioned.', 'pixlab-license-bridge' );
-                if ( ! empty( $decoded['key'] ) ) {
-                    $message .= ' ' . __( 'Copy now:', 'pixlab-license-bridge' ) . ' ' . sanitize_text_field( $decoded['key'] );
+                $masked_key = $this->format_key_for_notice( is_array( $decoded ) ? $decoded : [] );
+                if ( $masked_key ) {
+                    $message .= ' ' . __( 'Key:', 'pixlab-license-bridge' ) . ' ' . $masked_key;
                 }
                 $this->add_notice( $message );
             } else {
@@ -1145,7 +1146,7 @@ class DSB_Admin {
                 if ( is_wp_error( $response ) ) {
                     $error_message .= ' ' . $response->get_error_message();
                 } elseif ( is_array( $decoded ) ) {
-                    $error_message .= ' ' . wp_json_encode( $decoded );
+                    $error_message .= ' ' . wp_json_encode( $this->mask_sensitive_fields( $decoded ) );
                 }
                 $this->add_notice( $error_message, 'error' );
                 dsb_log(
@@ -1272,12 +1273,14 @@ class DSB_Admin {
 
         if ( $code >= 200 && $code < 300 && is_array( $decoded ) && in_array( $status_value, [ 'ok', 'active', 'disabled' ], true ) ) {
             $message = $success_message;
-            if ( ! empty( $decoded['key'] ) ) {
-                $message .= ' ' . __( 'Copy now:', 'pixlab-license-bridge' ) . ' ' . sanitize_text_field( $decoded['key'] );
+            $masked_key = $this->format_key_for_notice( $decoded );
+            if ( $masked_key ) {
+                $message .= ' ' . __( 'Key:', 'pixlab-license-bridge' ) . ' ' . $masked_key;
             }
             $this->add_notice( $message );
         } else {
-            $this->add_notice( __( 'Request failed', 'pixlab-license-bridge' ) . ' ' . wp_json_encode( $decoded ), 'error' );
+            $safe_decoded = is_array( $decoded ) ? wp_json_encode( $this->mask_sensitive_fields( $decoded ) ) : '';
+            $this->add_notice( __( 'Request failed', 'pixlab-license-bridge' ) . ' ' . $safe_decoded, 'error' );
         }
     }
 
@@ -2976,6 +2979,29 @@ class DSB_Admin {
         }
 
         return $value;
+    }
+
+    protected function format_key_for_notice( array $decoded ): string {
+        $key = isset( $decoded['key'] ) && is_string( $decoded['key'] ) ? $decoded['key'] : '';
+        if ( $key ) {
+            if ( function_exists( 'dsb_mask_identifier' ) ) {
+                return sanitize_text_field( dsb_mask_identifier( $key, 4 ) );
+            }
+
+            $length = strlen( $key );
+            if ( $length <= 4 ) {
+                return str_repeat( '*', $length );
+            }
+            return '***' . substr( $key, -4 );
+        }
+
+        $prefix = isset( $decoded['key_prefix'] ) && is_string( $decoded['key_prefix'] ) ? $decoded['key_prefix'] : '';
+        $last4  = isset( $decoded['key_last4'] ) && is_string( $decoded['key_last4'] ) ? $decoded['key_last4'] : '';
+        if ( $prefix || $last4 ) {
+            return sanitize_text_field( $prefix . '••••' . $last4 );
+        }
+
+        return '';
     }
 
     protected function is_sensitive_key( string $key ): bool {
