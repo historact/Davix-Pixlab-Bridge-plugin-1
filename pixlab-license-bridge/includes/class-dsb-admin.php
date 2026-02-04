@@ -1612,6 +1612,7 @@ class DSB_Admin {
                     $this->render_color_input_field( 'style_btn_outline_active_bg', __( 'Active Background', 'pixlab-license-bridge' ), $styles['style_btn_outline_active_bg'], __( 'Outline active background.', 'pixlab-license-bridge' ) );
                     $this->render_color_input_field( 'style_btn_outline_active_border', __( 'Active Border', 'pixlab-license-bridge' ), $styles['style_btn_outline_active_border'], __( 'Outline active border.', 'pixlab-license-bridge' ) );
                     $this->render_color_input_field( 'style_btn_outline_active_text', __( 'Active Text', 'pixlab-license-bridge' ), $styles['style_btn_outline_active_text'], __( 'Outline active text.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_btn_outline_shadow_color', __( 'Shadow Color', 'pixlab-license-bridge' ), $styles['style_btn_outline_shadow_color'], __( 'Shadow color applied to outline buttons.', 'pixlab-license-bridge' ) );
 
                     echo '<tr><th colspan="2"><strong>' . esc_html__( 'Ghost Buttons', 'pixlab-license-bridge' ) . '</strong></th></tr>';
                     $this->render_color_input_field( 'style_btn_ghost_normal_bg', __( 'Normal Background', 'pixlab-license-bridge' ), $styles['style_btn_ghost_normal_bg'], __( 'Ghost normal background.', 'pixlab-license-bridge' ) );
@@ -1654,6 +1655,7 @@ class DSB_Admin {
                     $this->render_color_input_field( 'style_table_body_text', __( 'Table Body Text Color', 'pixlab-license-bridge' ), $styles['style_table_body_text'], __( 'Text color for table rows.', 'pixlab-license-bridge' ) );
                     $this->render_color_input_field( 'style_table_row_bg', __( 'Table Row Background Color', 'pixlab-license-bridge' ), $styles['style_table_row_bg'], __( 'Stripe background color for alternating history rows.', 'pixlab-license-bridge' ) );
                     $this->render_color_input_field( 'style_table_row_hover_bg', __( 'Table Row Hover Background Color', 'pixlab-license-bridge' ), $styles['style_table_row_hover_bg'], __( 'Background color when hovering over a history row.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_table_row_hover_text', __( 'Table Row Hover Text Color', 'pixlab-license-bridge' ), $styles['style_table_row_hover_text'], __( 'Text color when hovering over a history row.', 'pixlab-license-bridge' ) );
                     $this->render_color_input_field( 'style_table_row_border', __( 'Table Row Border Color', 'pixlab-license-bridge' ), $styles['style_table_row_border'], __( 'Border color for row dividers.', 'pixlab-license-bridge' ) );
                     $this->render_color_input_field( 'style_table_empty_text', __( 'Table Empty/Loading Text Color', 'pixlab-license-bridge' ), $styles['style_table_empty_text'], __( 'Text color for loading or empty states shown in the history table.', 'pixlab-license-bridge' ) );
                     $this->render_color_input_field( 'style_table_error_text', __( 'Error Text Color', 'pixlab-license-bridge' ), $styles['style_table_error_text'], __( 'Text color for error messages inside the Error column.', 'pixlab-license-bridge' ) );
@@ -1669,6 +1671,56 @@ class DSB_Admin {
                 <table class="form-table" role="presentation">
                     <?php
                     $this->render_color_input_field( 'style_overlay_color', __( 'Modal Overlay Color', 'pixlab-license-bridge' ), $styles['style_overlay_color'], __( 'Backdrop color behind modals.', 'pixlab-license-bridge' ) );
+                    ?>
+                </table>
+            </div>
+
+            <div class="dsb-style-section">
+                <h3><?php esc_html_e( 'Modal / Regenerate Key Popup', 'pixlab-license-bridge' ); ?></h3>
+                <p class="description"><?php esc_html_e( 'Customize the regenerate key modal without affecting cards elsewhere.', 'pixlab-license-bridge' ); ?></p>
+                <table class="form-table" role="presentation">
+                    <?php
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Modal Card', 'pixlab-license-bridge' ) . '</strong></th></tr>';
+                    $this->render_color_input_field( 'style_modal_bg', __( 'Modal Background', 'pixlab-license-bridge' ), $styles['style_modal_bg'], __( 'Background for the modal card.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_border', __( 'Modal Border', 'pixlab-license-bridge' ), $styles['style_modal_border'], __( 'Border color for the modal card.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_shadow_color', __( 'Modal Shadow Color', 'pixlab-license-bridge' ), $styles['style_modal_shadow_color'], __( 'Shadow color for the modal card.', 'pixlab-license-bridge' ) );
+                    $this->render_number_input_field( 'style_modal_shadow_strength', __( 'Modal Shadow Strength', 'pixlab-license-bridge' ), $styles['style_modal_shadow_strength'], __( 'Multiplier for modal shadow blur (0 disables).', 'pixlab-license-bridge' ), 0.1, 0, 3, 'x' );
+
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Modal Text', 'pixlab-license-bridge' ) . '</strong></th></tr>';
+                    $this->render_color_input_field( 'style_modal_title_text', __( 'Title Text Color', 'pixlab-license-bridge' ), $styles['style_modal_title_text'], __( 'Color for the modal title text.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_body_text', __( 'Body Text Color', 'pixlab-license-bridge' ), $styles['style_modal_body_text'], __( 'Color for modal body text.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_hint_text', __( 'Hint Text Color', 'pixlab-license-bridge' ), $styles['style_modal_hint_text'], __( 'Color for the modal helper text.', 'pixlab-license-bridge' ) );
+                    $this->render_number_input_field( 'style_modal_hint_size', __( 'Hint Text Size', 'pixlab-license-bridge' ), $styles['style_modal_hint_size'], __( 'Font size (px) for the modal helper text.', 'pixlab-license-bridge' ), 1, 10, 24 );
+
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Modal API Key Field', 'pixlab-license-bridge' ) . '</strong></th></tr>';
+                    $this->render_color_input_field( 'style_modal_input_bg', __( 'Input Background', 'pixlab-license-bridge' ), $styles['style_modal_input_bg'], __( 'Background color for the modal key field.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_input_text', __( 'Input Text', 'pixlab-license-bridge' ), $styles['style_modal_input_text'], __( 'Text color for the modal key field.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_input_border', __( 'Input Border', 'pixlab-license-bridge' ), $styles['style_modal_input_border'], __( 'Border color for the modal key field.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_input_focus_border', __( 'Input Focus Border', 'pixlab-license-bridge' ), $styles['style_modal_input_focus_border'], __( 'Focus border color for the modal key field.', 'pixlab-license-bridge' ) );
+
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Modal Copy Button', 'pixlab-license-bridge' ) . '</strong></th></tr>';
+                    $this->render_color_input_field( 'style_modal_copy_bg', __( 'Normal Background', 'pixlab-license-bridge' ), $styles['style_modal_copy_bg'], __( 'Copy button normal background.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_copy_text', __( 'Normal Text', 'pixlab-license-bridge' ), $styles['style_modal_copy_text'], __( 'Copy button normal text.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_copy_border', __( 'Normal Border', 'pixlab-license-bridge' ), $styles['style_modal_copy_border'], __( 'Copy button normal border.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_copy_shadow_color', __( 'Shadow Color', 'pixlab-license-bridge' ), $styles['style_modal_copy_shadow_color'], __( 'Shadow color for the copy button.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_copy_bg_hover', __( 'Hover Background', 'pixlab-license-bridge' ), $styles['style_modal_copy_bg_hover'], __( 'Copy button hover background.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_copy_text_hover', __( 'Hover Text', 'pixlab-license-bridge' ), $styles['style_modal_copy_text_hover'], __( 'Copy button hover text.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_copy_border_hover', __( 'Hover Border', 'pixlab-license-bridge' ), $styles['style_modal_copy_border_hover'], __( 'Copy button hover border.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_copy_bg_active', __( 'Active Background', 'pixlab-license-bridge' ), $styles['style_modal_copy_bg_active'], __( 'Copy button active background.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_copy_text_active', __( 'Active Text', 'pixlab-license-bridge' ), $styles['style_modal_copy_text_active'], __( 'Copy button active text.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_copy_border_active', __( 'Active Border', 'pixlab-license-bridge' ), $styles['style_modal_copy_border_active'], __( 'Copy button active border.', 'pixlab-license-bridge' ) );
+
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Modal Close Button', 'pixlab-license-bridge' ) . '</strong></th></tr>';
+                    $this->render_color_input_field( 'style_modal_close_bg', __( 'Normal Background', 'pixlab-license-bridge' ), $styles['style_modal_close_bg'], __( 'Close button normal background.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_close_text', __( 'Normal Text', 'pixlab-license-bridge' ), $styles['style_modal_close_text'], __( 'Close button normal text.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_close_border', __( 'Normal Border', 'pixlab-license-bridge' ), $styles['style_modal_close_border'], __( 'Close button normal border.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_close_shadow_color', __( 'Shadow Color', 'pixlab-license-bridge' ), $styles['style_modal_close_shadow_color'], __( 'Shadow color for the close button.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_close_bg_hover', __( 'Hover Background', 'pixlab-license-bridge' ), $styles['style_modal_close_bg_hover'], __( 'Close button hover background.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_close_text_hover', __( 'Hover Text', 'pixlab-license-bridge' ), $styles['style_modal_close_text_hover'], __( 'Close button hover text.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_close_border_hover', __( 'Hover Border', 'pixlab-license-bridge' ), $styles['style_modal_close_border_hover'], __( 'Close button hover border.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_close_bg_active', __( 'Active Background', 'pixlab-license-bridge' ), $styles['style_modal_close_bg_active'], __( 'Close button active background.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_close_text_active', __( 'Active Text', 'pixlab-license-bridge' ), $styles['style_modal_close_text_active'], __( 'Close button active text.', 'pixlab-license-bridge' ) );
+                    $this->render_color_input_field( 'style_modal_close_border_active', __( 'Active Border', 'pixlab-license-bridge' ), $styles['style_modal_close_border_active'], __( 'Close button active border.', 'pixlab-license-bridge' ) );
                     ?>
                 </table>
             </div>

@@ -200,6 +200,7 @@ class DSB_Client {
             'style_btn_outline_active_bg'    => '#0ea5e9',
             'style_btn_outline_active_border'=> '#0ea5e9',
             'style_btn_outline_active_text'  => '#0b1220',
+            'style_btn_outline_shadow_color' => 'transparent',
             'style_btn_ghost_bg'          => 'transparent',
             'style_btn_ghost_text'        => '#f8fafc',
             'style_btn_ghost_border'      => '#0ea5e9',
@@ -235,6 +236,7 @@ class DSB_Client {
             'style_table_row_text'        => '#f8fafc',
             'style_table_row_border'      => '',
             'style_table_row_hover_bg'    => '#111827',
+            'style_table_row_hover_text'  => '',
             'style_table_empty_text_color'=> '#94a3b8',
             'style_table_error_text'      => '#f87171',
             'style_status_success_text'   => '#22c55e',
@@ -243,6 +245,38 @@ class DSB_Client {
             'style_table_body_text'       => '#f8fafc',
             'style_table_empty_text'      => '#94a3b8',
             'style_overlay_color'         => 'rgba(0,0,0,0.6)',
+            'style_modal_bg'              => '',
+            'style_modal_border'          => '',
+            'style_modal_shadow_color'    => '',
+            'style_modal_shadow_strength' => '1',
+            'style_modal_title_text'      => '',
+            'style_modal_body_text'       => '',
+            'style_modal_hint_text'       => '',
+            'style_modal_hint_size'       => '14px',
+            'style_modal_input_bg'        => '',
+            'style_modal_input_text'      => '',
+            'style_modal_input_border'    => '',
+            'style_modal_input_focus_border' => '',
+            'style_modal_copy_bg'         => '',
+            'style_modal_copy_text'       => '',
+            'style_modal_copy_border'     => '',
+            'style_modal_copy_shadow_color' => 'transparent',
+            'style_modal_copy_bg_hover'   => '',
+            'style_modal_copy_text_hover' => '',
+            'style_modal_copy_border_hover' => '',
+            'style_modal_copy_bg_active'  => '',
+            'style_modal_copy_text_active' => '',
+            'style_modal_copy_border_active' => '',
+            'style_modal_close_bg'        => '',
+            'style_modal_close_text'      => '',
+            'style_modal_close_border'    => '',
+            'style_modal_close_shadow_color' => 'transparent',
+            'style_modal_close_bg_hover'  => '',
+            'style_modal_close_text_hover' => '',
+            'style_modal_close_border_hover' => '',
+            'style_modal_close_bg_active' => '',
+            'style_modal_close_text_active' => '',
+            'style_modal_close_border_active' => '',
         ];
     }
 
@@ -839,6 +873,7 @@ class DSB_Client {
             'style_btn_outline_active_bg',
             'style_btn_outline_active_border',
             'style_btn_outline_active_text',
+            'style_btn_outline_shadow_color',
             'style_btn_ghost_bg',
             'style_btn_ghost_text',
             'style_btn_ghost_border',
@@ -880,6 +915,7 @@ class DSB_Client {
             'style_table_row_text',
             'style_table_row_border',
             'style_table_row_hover_bg',
+            'style_table_row_hover_text',
             'style_table_empty_text_color',
             'style_table_body_text',
             'style_table_empty_text',
@@ -887,6 +923,36 @@ class DSB_Client {
             'style_status_success_text',
             'style_status_error_text',
             'style_overlay_color',
+            'style_modal_bg',
+            'style_modal_border',
+            'style_modal_shadow_color',
+            'style_modal_title_text',
+            'style_modal_body_text',
+            'style_modal_hint_text',
+            'style_modal_input_bg',
+            'style_modal_input_text',
+            'style_modal_input_border',
+            'style_modal_input_focus_border',
+            'style_modal_copy_bg',
+            'style_modal_copy_text',
+            'style_modal_copy_border',
+            'style_modal_copy_shadow_color',
+            'style_modal_copy_bg_hover',
+            'style_modal_copy_text_hover',
+            'style_modal_copy_border_hover',
+            'style_modal_copy_bg_active',
+            'style_modal_copy_text_active',
+            'style_modal_copy_border_active',
+            'style_modal_close_bg',
+            'style_modal_close_text',
+            'style_modal_close_border',
+            'style_modal_close_shadow_color',
+            'style_modal_close_bg_hover',
+            'style_modal_close_text_hover',
+            'style_modal_close_border_hover',
+            'style_modal_close_bg_active',
+            'style_modal_close_text_active',
+            'style_modal_close_border_active',
         ];
 
         $unit_px_keys = [
@@ -897,6 +963,7 @@ class DSB_Client {
             'style_card_shadow_blur',
             'style_card_shadow_spread',
             'style_container_padding',
+            'style_modal_hint_size',
         ];
 
         $allow_negative_px = [
@@ -912,7 +979,10 @@ class DSB_Client {
 
         $opacity_keys = [ 'style_header_plan_title_opacity' ];
 
-        $shadow_strength_keys = [ 'style_btn_primary_shadow_strength' ];
+        $shadow_strength_keys = [
+            'style_btn_primary_shadow_strength',
+            'style_modal_shadow_strength',
+        ];
 
         if ( in_array( $key, $color_keys, true ) ) {
             $lower = strtolower( $value );
