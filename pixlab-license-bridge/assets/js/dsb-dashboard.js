@@ -37,7 +37,6 @@
             tools: root.querySelector('[data-endpoint-tools]'),
         },
         modal: root.querySelector('[data-modal]'),
-        modalMessage: root.querySelector('[data-modal-message]'),
         modalKey: root.querySelector('[data-modal-key]'),
         modalCopy: root.querySelector('[data-modal-copy]'),
         modalClose: root.querySelector('[data-modal-close]'),
@@ -295,9 +294,6 @@
         if (els.modalKey) {
             els.modalKey.value = key;
         }
-        if (els.modalMessage) {
-            els.modalMessage.textContent = data.strings.shownOnce;
-        }
         document.addEventListener('keydown', handleEscClose);
     }
 
@@ -327,10 +323,7 @@
         if (!target || !target.value) return;
         target.select();
         target.setSelectionRange(0, target.value.length);
-        navigator.clipboard
-            .writeText(target.value)
-            .then(() => alert(data.strings.copied))
-            .catch(() => alert(data.strings.copyFailed));
+        navigator.clipboard.writeText(target.value).catch(() => {});
     }
 
     function fetchSummary() {

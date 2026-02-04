@@ -249,7 +249,7 @@
     background: var(--dsb-btn-outline-bg, transparent);
     color: var(--dsb-btn-outline-text, var(--dsb-text-primary));
     border: 1px solid var(--dsb-btn-outline-border, var(--dsb-button-border));
-    box-shadow: none;
+    box-shadow: 0 6px calc(16px * var(--dsb-btn-primary-shadow-strength, 1)) var(--dsb-btn-outline-shadow-color, transparent);
 }
 
 .dsb-button.is-active {
@@ -403,6 +403,11 @@
 
 .dsb-table tr:hover td {
     background: var(--dsb-table-row-hover-bg);
+    color: var(--dsb-table-row-hover-text, inherit);
+}
+
+.dsb-table tr:hover td a {
+    color: var(--dsb-table-row-hover-text, inherit);
 }
 
 .dsb-table td.dsb-error {
@@ -448,19 +453,77 @@
 }
 
 .dsb-modal__content {
-    background: var(--dsb-card-bg);
-    border: 1px solid var(--dsb-card-border);
+    background: var(--dsb-modal-bg, var(--dsb-card-bg));
+    border: 1px solid var(--dsb-modal-border, var(--dsb-card-border));
     padding: 24px;
     border-radius: var(--dsb-card-radius, 12px);
     width: min(480px, 90%);
-    color: var(--dsb-text-primary);
+    color: var(--dsb-modal-body-text, var(--dsb-text-primary));
     position: relative;
     z-index: 1;
-    box-shadow: 0 8px var(--dsb-card-shadow-blur, 16px) var(--dsb-card-shadow-spread, 0px) var(--dsb-card-shadow);
+    box-shadow: 0 8px calc(var(--dsb-card-shadow-blur, 16px) * var(--dsb-modal-shadow-strength, 1)) var(--dsb-card-shadow-spread, 0px) var(--dsb-modal-shadow-color, var(--dsb-card-shadow));
+}
+
+.dsb-modal__content h3 {
+    color: var(--dsb-modal-title-text, var(--dsb-text-primary));
 }
 
 .dsb-modal__message {
     color: var(--dsb-card-hint, var(--dsb-card-text, var(--dsb-text-secondary)));
+}
+
+.dsb-modal .dsb-card__hint {
+    color: var(--dsb-modal-hint-text, var(--dsb-card-hint, var(--dsb-card-text, var(--dsb-text-secondary))));
+    font-size: var(--dsb-modal-hint-size, 14px);
+}
+
+.dsb-modal .dsb-card__input {
+    background: var(--dsb-modal-input-bg, var(--dsb-input-bg, var(--dsb-card-bg, #ffffff))) !important;
+    border-color: var(--dsb-modal-input-border, var(--dsb-input-border, var(--dsb-card-border, #e5e7eb))) !important;
+    color: var(--dsb-modal-input-text, var(--dsb-input-text, var(--dsb-card-text, var(--dsb-text-primary)))) !important;
+}
+
+.dsb-modal .dsb-card__input:focus {
+    border-color: var(--dsb-modal-input-focus-border, var(--dsb-input-focus-border, var(--dsb-btn-primary-border, #0ea5e9))) !important;
+    outline: 1px solid var(--dsb-modal-input-focus-border, var(--dsb-input-focus-border, var(--dsb-btn-primary-border, #0ea5e9))) !important;
+}
+
+.dsb-modal [data-modal-copy] {
+    background: var(--dsb-modal-copy-bg, var(--dsb-btn-ghost-bg, transparent));
+    color: var(--dsb-modal-copy-text, var(--dsb-btn-ghost-text, var(--dsb-text-primary)));
+    border-color: var(--dsb-modal-copy-border, var(--dsb-btn-ghost-border, var(--dsb-button-border)));
+    box-shadow: 0 6px calc(16px * var(--dsb-btn-primary-shadow-strength, 1)) var(--dsb-modal-copy-shadow-color, transparent);
+}
+
+.dsb-modal [data-modal-copy]:hover {
+    background: var(--dsb-modal-copy-bg-hover, var(--dsb-btn-ghost-hover-bg, var(--dsb-btn-ghost-bg, transparent)));
+    color: var(--dsb-modal-copy-text-hover, var(--dsb-btn-ghost-hover-text, var(--dsb-btn-ghost-text, var(--dsb-text-primary))));
+    border-color: var(--dsb-modal-copy-border-hover, var(--dsb-btn-ghost-hover-border, var(--dsb-btn-ghost-border, var(--dsb-button-border))));
+}
+
+.dsb-modal [data-modal-copy]:active {
+    background: var(--dsb-modal-copy-bg-active, var(--dsb-btn-ghost-active-bg, var(--dsb-btn-ghost-hover-bg, var(--dsb-btn-ghost-bg, transparent))));
+    color: var(--dsb-modal-copy-text-active, var(--dsb-btn-ghost-active-text, var(--dsb-btn-ghost-hover-text, var(--dsb-btn-ghost-text, var(--dsb-text-primary)))));
+    border-color: var(--dsb-modal-copy-border-active, var(--dsb-btn-ghost-active-border, var(--dsb-btn-ghost-hover-border, var(--dsb-btn-ghost-border, var(--dsb-button-border)))));
+}
+
+.dsb-modal [data-modal-close] {
+    background: var(--dsb-modal-close-bg, var(--dsb-btn-primary-bg, var(--dsb-button-bg)));
+    color: var(--dsb-modal-close-text, var(--dsb-btn-primary-text, var(--dsb-button-text)));
+    border-color: var(--dsb-modal-close-border, var(--dsb-btn-primary-border, var(--dsb-button-border)));
+    box-shadow: 0 6px calc(16px * var(--dsb-btn-primary-shadow-strength, 1)) var(--dsb-modal-close-shadow-color, transparent);
+}
+
+.dsb-modal [data-modal-close]:hover {
+    background: var(--dsb-modal-close-bg-hover, var(--dsb-btn-primary-hover-bg, var(--dsb-button-hover-bg)));
+    color: var(--dsb-modal-close-text-hover, var(--dsb-btn-primary-hover-text, var(--dsb-btn-primary-text, var(--dsb-button-text))));
+    border-color: var(--dsb-modal-close-border-hover, var(--dsb-btn-primary-hover-border, var(--dsb-button-hover-border)));
+}
+
+.dsb-modal [data-modal-close]:active {
+    background: var(--dsb-modal-close-bg-active, var(--dsb-btn-primary-active-bg, var(--dsb-button-active-bg, var(--dsb-btn-primary-hover-bg))));
+    color: var(--dsb-modal-close-text-active, var(--dsb-btn-primary-active-text, var(--dsb-btn-primary-hover-text, var(--dsb-btn-primary-text))));
+    border-color: var(--dsb-modal-close-border-active, var(--dsb-btn-primary-active-border, var(--dsb-btn-primary-hover-border, var(--dsb-btn-primary-border))));
 }
 
 @media (max-width: 640px) {

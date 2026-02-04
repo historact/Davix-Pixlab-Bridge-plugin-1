@@ -163,7 +163,6 @@ class DSB_Dashboard {
                 <div class="dsb-modal__overlay" data-modal-overlay></div>
                 <div class="dsb-modal__content" role="dialog" aria-modal="true" aria-label="<?php echo esc_attr( $labels['label_modal_title'] ); ?>">
                     <h3><?php echo esc_html( $labels['label_modal_title'] ); ?></h3>
-                    <p class="dsb-modal__message" data-modal-message><?php echo esc_html( $labels['label_modal_hint'] ); ?></p>
                     <div class="dsb-card__input-row">
                         <input type="text" readonly class="dsb-card__input" data-modal-key value="" />
                         <button type="button" class="dsb-button dsb-button--ghost" data-modal-copy>📋</button>
@@ -335,6 +334,7 @@ class DSB_Dashboard {
             '--dsb-btn-outline-active-bg'     => 'style_btn_outline_active_bg',
             '--dsb-btn-outline-active-text'   => 'style_btn_outline_active_text',
             '--dsb-btn-outline-active-border' => 'style_btn_outline_active_border',
+            '--dsb-btn-outline-shadow-color'  => 'style_btn_outline_shadow_color',
             '--dsb-btn-ghost-bg'              => 'style_btn_ghost_normal_bg',
             '--dsb-btn-ghost-text'            => 'style_btn_ghost_normal_text',
             '--dsb-btn-ghost-border'          => 'style_btn_ghost_normal_border',
@@ -367,11 +367,44 @@ class DSB_Dashboard {
             '--dsb-table-row-text'            => 'style_table_body_text',
             '--dsb-table-row-border'          => 'style_table_row_border',
             '--dsb-table-row-hover-bg'        => 'style_table_row_hover_bg',
+            '--dsb-table-row-hover-text'      => 'style_table_row_hover_text',
             '--dsb-table-empty-text'          => 'style_table_empty_text',
             '--dsb-table-error-text'          => 'style_table_error_text',
             '--dsb-status-success-text'       => 'style_status_success_text',
             '--dsb-status-error-text'         => 'style_status_error_text',
             '--dsb-overlay'                   => 'style_overlay_color',
+            '--dsb-modal-bg'                  => 'style_modal_bg',
+            '--dsb-modal-border'              => 'style_modal_border',
+            '--dsb-modal-shadow-color'        => 'style_modal_shadow_color',
+            '--dsb-modal-shadow-strength'     => 'style_modal_shadow_strength',
+            '--dsb-modal-title-text'          => 'style_modal_title_text',
+            '--dsb-modal-body-text'           => 'style_modal_body_text',
+            '--dsb-modal-hint-text'           => 'style_modal_hint_text',
+            '--dsb-modal-hint-size'           => 'style_modal_hint_size',
+            '--dsb-modal-input-bg'            => 'style_modal_input_bg',
+            '--dsb-modal-input-text'          => 'style_modal_input_text',
+            '--dsb-modal-input-border'        => 'style_modal_input_border',
+            '--dsb-modal-input-focus-border'  => 'style_modal_input_focus_border',
+            '--dsb-modal-copy-bg'             => 'style_modal_copy_bg',
+            '--dsb-modal-copy-text'           => 'style_modal_copy_text',
+            '--dsb-modal-copy-border'         => 'style_modal_copy_border',
+            '--dsb-modal-copy-shadow-color'   => 'style_modal_copy_shadow_color',
+            '--dsb-modal-copy-bg-hover'       => 'style_modal_copy_bg_hover',
+            '--dsb-modal-copy-text-hover'     => 'style_modal_copy_text_hover',
+            '--dsb-modal-copy-border-hover'   => 'style_modal_copy_border_hover',
+            '--dsb-modal-copy-bg-active'      => 'style_modal_copy_bg_active',
+            '--dsb-modal-copy-text-active'    => 'style_modal_copy_text_active',
+            '--dsb-modal-copy-border-active'  => 'style_modal_copy_border_active',
+            '--dsb-modal-close-bg'            => 'style_modal_close_bg',
+            '--dsb-modal-close-text'          => 'style_modal_close_text',
+            '--dsb-modal-close-border'        => 'style_modal_close_border',
+            '--dsb-modal-close-shadow-color'  => 'style_modal_close_shadow_color',
+            '--dsb-modal-close-bg-hover'      => 'style_modal_close_bg_hover',
+            '--dsb-modal-close-text-hover'    => 'style_modal_close_text_hover',
+            '--dsb-modal-close-border-hover'  => 'style_modal_close_border_hover',
+            '--dsb-modal-close-bg-active'     => 'style_modal_close_bg_active',
+            '--dsb-modal-close-text-active'   => 'style_modal_close_text_active',
+            '--dsb-modal-close-border-active' => 'style_modal_close_border_active',
         ];
 
         $pairs = [];
