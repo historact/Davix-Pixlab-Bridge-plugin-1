@@ -410,6 +410,18 @@
     color: var(--dsb-table-row-hover-text, inherit);
 }
 
+.dsb-table tr:hover td.dsb-error {
+    color: var(--dsb-table-error-text);
+}
+
+.dsb-table tr:hover td.is-success {
+    color: var(--dsb-status-success-text);
+}
+
+.dsb-table tr:hover td.is-error {
+    color: var(--dsb-status-error-text);
+}
+
 .dsb-table td.dsb-error {
     color: var(--dsb-table-error-text);
 }
