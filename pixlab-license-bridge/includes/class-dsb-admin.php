@@ -1666,20 +1666,13 @@ class DSB_Admin {
             </div>
 
             <div class="dsb-style-section">
-                <h3><?php esc_html_e( 'Modal & Overlay', 'pixlab-license-bridge' ); ?></h3>
-                <p class="description"><?php esc_html_e( 'Control overlay color for modal dialogs in the dashboard.', 'pixlab-license-bridge' ); ?></p>
-                <table class="form-table" role="presentation">
-                    <?php
-                    $this->render_color_input_field( 'style_overlay_color', __( 'Modal Overlay Color', 'pixlab-license-bridge' ), $styles['style_overlay_color'], __( 'Backdrop color behind modals.', 'pixlab-license-bridge' ) );
-                    ?>
-                </table>
-            </div>
-
-            <div class="dsb-style-section">
                 <h3><?php esc_html_e( 'Modal / Regenerate Key Popup', 'pixlab-license-bridge' ); ?></h3>
                 <p class="description"><?php esc_html_e( 'Customize the regenerate key modal without affecting cards elsewhere.', 'pixlab-license-bridge' ); ?></p>
                 <table class="form-table" role="presentation">
                     <?php
+                    echo '<tr><th colspan="2"><strong>' . esc_html__( 'Modal Overlay', 'pixlab-license-bridge' ) . '</strong></th></tr>';
+                    $this->render_color_input_field( 'style_overlay_color', __( 'Modal Overlay Color', 'pixlab-license-bridge' ), $styles['style_overlay_color'], __( 'Backdrop color behind modals.', 'pixlab-license-bridge' ) );
+
                     echo '<tr><th colspan="2"><strong>' . esc_html__( 'Modal Card', 'pixlab-license-bridge' ) . '</strong></th></tr>';
                     $this->render_color_input_field( 'style_modal_bg', __( 'Modal Background', 'pixlab-license-bridge' ), $styles['style_modal_bg'], __( 'Background for the modal card.', 'pixlab-license-bridge' ) );
                     $this->render_color_input_field( 'style_modal_border', __( 'Modal Border', 'pixlab-license-bridge' ), $styles['style_modal_border'], __( 'Border color for the modal card.', 'pixlab-license-bridge' ) );
